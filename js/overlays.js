@@ -3,7 +3,7 @@
 // kind 'roads'  -> colours road tiles only
 // kind 'supply' -> per-tile utility status for buildings and lots
 
-import { TILE, TERRAIN, SUPPLY, isZone } from './map.js';
+import { TILE, TERRAIN, SUPPLY, FLAG, isZone } from './map.js';
 import { roadLoad } from './traffic.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -26,6 +26,8 @@ const gradient = (fn) => `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((
 // Soft palettes: warm coral -> butter -> sage
 const goodBad = ramp([[0, [232, 122, 110, 0.62]], [0.5, [246, 214, 120, 0.55]], [1, [120, 196, 140, 0.6]]]);
 const haze = ramp([[0, [170, 120, 200, 0.0]], [0.15, [170, 120, 200, 0.18]], [1, [120, 70, 160, 0.72]]]);
+const dusk = ramp([[0, [140, 130, 210, 0.0]], [0.12, [140, 130, 210, 0.2]], [0.5, [150, 120, 205, 0.5]], [1, [200, 90, 130, 0.72]]]);
+const ember = ramp([[0, [245, 170, 100, 0.0]], [0.12, [245, 190, 110, 0.22]], [0.5, [242, 150, 90, 0.5]], [1, [226, 96, 80, 0.75]]]);
 const cover = ramp([[0, [120, 190, 210, 0.0]], [0.1, [120, 190, 210, 0.2]], [1, [60, 150, 190, 0.65]]]);
 
 const isLand = (map, i) => map.terrain[i] !== TERRAIN.WATER || map.type[i] === TILE.ROAD;
@@ -76,6 +78,20 @@ export const OVERLAYS = {
     legend: { gradient: gradient(cover), labels: ['none', 'some', 'full'] },
     hint: 'Coverage from schools and clinics (strongest of the two). Hover a tile for each one.',
   },
+  crime: {
+    label: 'Crime', key: 'c', kind: 'field',
+    value: (map, i) => (isLand(map, i) ? map.crime[i] : null),
+    color: (v) => dusk(v / 60),
+    legend: { gradient: gradient(dusk), labels: ['safe', 'uneasy', 'rough'] },
+    hint: 'Dense, run-down and jobless areas attract crime. Police stations cut it by up to 85% within 10 tiles.',
+  },
+  fireRisk: {
+    label: 'Fire risk', key: 'f', kind: 'field',
+    value: (map, i) => (isLand(map, i) ? map.fireRisk[i] : null),
+    color: (v, map, i) => (map.hasFlag(i, FLAG.FIRE) ? [230, 80, 60, 0.85] : ember(v / 40)),
+    legend: { gradient: gradient(ember), labels: ['low', 'medium', 'high'] },
+    hint: 'Dense buildings, industry and coal plants catch fire most. Fire stations cut the risk and put fires out within 10 tiles.',
+  },
   traffic: {
     label: 'Traffic', key: 't', kind: 'roads',
     value: (map, i) => (map.type[i] === TILE.ROAD ? roadLoad(map, i) * 100 : null),
@@ -102,7 +118,7 @@ export const OVERLAYS = {
   },
 };
 
-export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'traffic', 'power', 'water'];
+export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'crime', 'fireRisk', 'traffic', 'power', 'water'];
 
 // Draw an overlay into a 2D context whose transform maps 1 tile to `ts` units.
 const offscreen = typeof document !== 'undefined' ? document.createElement('canvas') : null;

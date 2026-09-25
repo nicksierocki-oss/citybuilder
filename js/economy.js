@@ -23,6 +23,8 @@ export const TOOLS = {
   clinic:      { label: 'Clinic',      shape: 'single', building: 'clinic' },
   plaza:       { label: 'Plaza',       shape: 'single', building: 'plaza' },
   recycling:   { label: 'Recycling',   shape: 'single', building: 'recycling' },
+  police:      { label: 'Police station', shape: 'single', building: 'police' },
+  fire:        { label: 'Fire station', shape: 'single', building: 'fire' },
 };
 
 export function toolPrice(tool) {
@@ -103,6 +105,8 @@ function applyOne(state, tool, i) {
     map.level[i] = 0;
     map.kind[i] = 0;
     map.roadClass[i] = 0;
+    map.setFlag(i, FLAG.FIRE, false);
+    map.burn[i] = 0;
     map.traffic[i] = 0;
     map.setFlag(i, FLAG.ABANDONED, false);
   } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {

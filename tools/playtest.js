@@ -59,7 +59,9 @@ function sensible(state, avenues = false) {
     if (month > 6 && u.water.demand > 0.85 * u.water.supply && state.funds > 1500) {
       for (const [x, y] of [[rx - 1, H + 1], [rx + 1, H - 1], [rx - 1, H - 1]]) if (applyTool(state, 'pump', [state.map.idx(x, y)]).applied) break;
     }
+    if (month === 12) applyTool(state, 'police', [state.map.idx(12, H - 2)]);
     if (month === 16) applyTool(state, 'school', [state.map.idx(12, H - 4)]);
+    if (month === 18) applyTool(state, 'fire', [state.map.idx(12, H + 5)]);
     if (month === 36) applyTool(state, 'clinic', [state.map.idx(12, H + 8)]);
     if (stage === 0 && month >= 14) {
       stage++;
@@ -121,9 +123,14 @@ function run(name, strategy, months = 72, seed = 12345) {
   const step = strategy(state);
   refreshFields(state);
   console.log(`\n=== ${name} === start funds after opening: ${state.funds}`);
-  let hit1000 = null;
+  let hit1000 = null, burned = 0;
+  const burnLog = [];
+  const countBurn = () => {
+    for (const e of state.events) if (/burned down/.test(e.text)) { burned++; burnLog.push(`m${Math.floor(state.tick / TPM)}@${e.x},${e.y}`); }
+    state.events.length = 0;
+  };
   for (let m = 1; m <= months && !state.bankrupt; m++) {
-    for (let t = 0; t < TPM; t++) tick(state);
+    for (let t = 0; t < TPM; t++) { tick(state); countBurn(); }
     step(m);
     refreshFields(state);
     const s = state.stats, d = state.demand;
@@ -142,7 +149,8 @@ function run(name, strategy, months = 72, seed = 12345) {
     }
     let maxLoad = 0; for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.ROAD) maxLoad = Math.max(maxLoad, state.map.traffic[i]);
     console.log('traffic', JSON.stringify(state.traffic), 'maxVolume', maxLoad.toFixed(0), reasons);
-    console.log('services', JSON.stringify(state.stats.services), 'utilities', JSON.stringify(state.utilities), 'happiness', state.happiness.toFixed(0));
+    console.log('services', JSON.stringify(state.stats.services), 'utilities', JSON.stringify(state.utilities), 'happiness', state.happiness.toFixed(0),
+      'crime', state.crime.toFixed(0), 'fires burning', state.fires, 'burned down', burned, burnLog.join(' '));
     console.log('budget', JSON.stringify(state.lastMonth?.breakdown));
   }
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';

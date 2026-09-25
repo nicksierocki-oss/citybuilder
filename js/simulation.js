@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { GameMap, generateMap, TILE, TERRAIN, FLAG, isZone } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
-import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf } from './services.js';
+import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem } from './services.js';
 import { SUPPLY } from './map.js';
 
 export function createGame(seed, size = CONFIG.map.defaultSize) {
@@ -27,6 +27,8 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
     utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
     happiness: 0,
+    crime: 0,                 // population-weighted average crime in homes
+    fires: 0,                 // buildings burning right now
     utilityGrace: 0,          // months left before utilities are enforced (older saves)
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
@@ -164,6 +166,7 @@ export function landValueSystem(state) {
     v += Math.min(L.treeCap, treeB[i]);
     v += Math.min(L.commercialCap, comB[i]);
     v -= abB[i];
+    v -= map.crime[i] * CONFIG.crime.landValueWeight;
     const B = CONFIG.buildings, cov = map.coverage;
     v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue;
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
@@ -199,7 +202,7 @@ export function computeStats(state) {
   const s = emptyStats();
   for (let i = 0; i < map.size; i++) {
     const t = map.type[i], lv = map.level[i];
-    const alive = !map.hasFlag(i, FLAG.ABANDONED);
+    const alive = !map.hasFlag(i, FLAG.ABANDONED) && !map.hasFlag(i, FLAG.FIRE);
     if (t === TILE.RES) { s.zoned.r++; if (alive) s.population += cap.residential[lv]; }
     else if (t === TILE.COM) { s.zoned.c++; if (alive) s.comJobs += cap.commercial[lv]; }
     else if (t === TILE.IND) { s.zoned.i++; if (alive) s.indJobs += cap.industrial[lv]; }
@@ -294,6 +297,7 @@ export function evaluateTile(state, i) {
     const TR = CONFIG.traffic;
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
       + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus
+      - map.crime[i] / 100 * CONFIG.crime.businessWeight
       + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1);
     while (maxLevel > 1 && (lv < G.commercialLevelLV[maxLevel] || shoppers < G.commercialLevelShoppers[maxLevel])) maxLevel--;
     if (state.demand.c <= 0) reasons.push('No commercial demand — needs more residents (or workers)');
@@ -303,7 +307,7 @@ export function evaluateTile(state, i) {
     }
   } else {
     const rd = map.accessRoadDist(i);
-    score = state.demand.i;
+    score = state.demand.i - map.crime[i] / 100 * CONFIG.crime.businessWeight;
     if (rd <= G.freightNear) score += G.freightBonus;
     else if (rd > G.freightFar) { score -= G.freightPenalty; reasons.push(`Long freight trip: ${rd} road tiles to the highway`); }
     if (state.demand.i <= 0) reasons.push('No industrial demand — needs more residents (or workers)');
@@ -324,6 +328,12 @@ export function evaluateTile(state, i) {
     } else {
       reasons.push(`${need}. Required in ${state.utilityGrace} month${state.utilityGrace === 1 ? '' : 's'}`);
     }
+  }
+  if (t !== TILE.RES && map.crime[i] > 30) {
+    reasons.push(`Crime ${Math.round(map.crime[i])} is scaring off business${map.coverage.police[i] < 0.05 ? ': build a police station nearby' : ''}`);
+  }
+  if (map.hasFlag(i, FLAG.FIRE)) {
+    reasons.unshift(map.coverage.fire[i] > 0.05 ? 'On fire! Firefighters are on the way' : 'On fire! No fire station nearby: it may burn down');
   }
   if (map.hasFlag(i, FLAG.ABANDONED) && score > 0) reasons.push('Conditions improving — may be reoccupied');
   return { score, maxLevel, reasons, connected: true };
@@ -349,6 +359,7 @@ export function growthSystem(state) {
     if (!isZone(t)) continue;
     const ev = evaluateTile(state, i);
     const level = map.level[i];
+    if (map.hasFlag(i, FLAG.FIRE)) continue; // nothing grows while it burns
     const abandoned = map.hasFlag(i, FLAG.ABANDONED);
     if (abandoned) {
       if (ev.score > 0.1 && rng() < G.recoverChance) map.setFlag(i, FLAG.ABANDONED, false);
@@ -383,6 +394,7 @@ function runFieldSystems(state) {
   pollutionSystem(state);
   landValueSystem(state);
   shopperSystem(state);
+  safetySystem(state);
   happinessSystem(state);
 }
 
@@ -407,10 +419,12 @@ export const SYSTEMS = [
   { name: 'pollution', run: pollutionSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'landValue', run: landValueSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'shoppers', run: shopperSystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'safety', run: safetySystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'happiness', run: happinessSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'stats', run: computeStats },
   { name: 'demand', run: demandSystem },
   { name: 'growth', run: growthSystem },
+  { name: 'fire', run: fireSystem },
   { name: 'stats2', run: computeStats },
   { name: 'milestones', run: milestoneSystem },
   { name: 'economy', run: economySystem },

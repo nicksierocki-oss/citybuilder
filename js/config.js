@@ -149,6 +149,8 @@ export const CONFIG = {
     clinic:    { label: 'Clinic',       cost: 1200, upkeep: 30, radius: 9, happiness: 14, landValue: 5 },
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 6,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
     recycling: { label: 'Recycling center', cost: 1800, upkeep: 35, radius: 7, pollutionCut: 0.5 },
+    police:    { label: 'Police station', cost: 1000, upkeep: 30, radius: 10 },
+    fire:      { label: 'Fire station',   cost: 1000, upkeep: 30, radius: 10 },
   },
 
   utilities: {
@@ -160,6 +162,33 @@ export const CONFIG = {
     waterForLevel: 3,        // ...and water for this one
     graceMonths: 12,         // cities from older versions get this long to build utilities
     everyTicks: 4,
+  },
+
+  // Crime (0..100 per building) from density, low land value and unemployment.
+  crime: {
+    perLevel: 9,             // denser buildings attract more crime
+    commercialExtra: 6,      // shops and offices are targets
+    lowLandValue: 0.5,       // per point of land value below 45
+    unemployment: 35,        // at 100% of a home's workers jobless
+    abandonedNearby: 6,      // per abandoned building within 2 tiles
+    policeCut: 0.85,         // share removed at full police coverage
+    happinessWeight: 0.3,    // happiness lost per point of crime
+    landValueWeight: 0.15,
+    businessWeight: 0.25,    // commercial/industrial score lost at crime 100
+  },
+
+  // Fire: buildings can catch fire; fire stations put fires out and prevent them.
+  fire: {
+    enabled: true,
+    riskPerLevel: 6,
+    industryExtra: 12,
+    coalPlantRisk: 30,
+    stationCut: 0.9,         // share of risk removed at full fire coverage
+    igniteChance: 0.004,     // per building per month at risk 100
+    burnMonths: 2,           // an unattended fire destroys the building after this long
+    extinguishChance: 0.35,  // per tick at full fire coverage
+    spreadChance: 0.015,     // per tick to each neighbouring building (halved near a station)
+    burnOutChance: 0.03,     // per tick an unattended fire dies down by itself
   },
 
   happiness: {

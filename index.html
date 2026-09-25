@@ -13,13 +13,14 @@
 </head>
 <body data-tool="road" data-view="2d">
   <header id="topbar">
-    <div class="brand"><span class="logo"></span>Gridline</div>
+    <div class="brand" title="Gridline"><span class="logo"></span><span class="bt">Gridline</span></div>
     <div class="stat"><label>Funds</label><span id="funds">$0</span></div>
     <button class="stat clickable" id="budgetStat" title="Show budget breakdown">
       <label>Last month ▾</label><span id="net">—</span><small id="netDetail"></small>
     </button>
     <div class="stat"><label>Population</label><span id="pop">0</span><small id="jobs"></small></div>
     <div class="stat"><label>Happiness</label><span id="happy">—</span><small id="happyDetail"></small></div>
+    <div class="stat"><label>Safety</label><span id="safety">—</span><small id="safetyDetail"></small></div>
     <div class="stat"><label>Commute</label><span id="commute">—</span><small id="commuteDetail"></small></div>
     <div class="stat util" title="Utility supply vs. demand">
       <label>Utilities</label>
@@ -87,6 +88,7 @@
           <li><b>Watch demand</b> (bottom-left): homes need jobs, shops need residents, industry needs workers &amp; customers.</li>
           <li><b>Power &amp; water</b>: build a wind farm or coal plant and a water pump (best near the river) beside a road. They flow along roads. Buildings need power for medium density and water for high.</li>
           <li><b>Keep people happy</b> with schools, clinics, plazas, parks and clean air. Recycling centers and trees cut pollution.</li>
+          <li><b>Stay safe</b>: police stations cut crime (dense, run-down and jobless areas attract it). Fire stations prevent fires and put them out; without one nearby a fire can spread and burn buildings down. Click a fire alert to jump to it.</li>
           <li><b>Keep traffic moving</b>: drag the <b>Upgrade</b> tool (<kbd>9</kbd>) along busy roads: Street → Avenue → Highway (no driveways).</li>
           <li><b>Mind the budget</b>: roads and public buildings cost upkeep. Six months in debt and you're fired.</li>
         </ol>

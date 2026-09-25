@@ -51,7 +51,18 @@ There's an optional **3D view**, built with Three.js. The library is included in
 
    Happiness (0–100) comes from those services, land value, pollution, commute and utilities.
    Happy neighbourhoods grow faster, and unhappy ones decline.
-8. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
+8. **Police and fire.**
+   - **Crime:** each building's crime comes from its density, low land value,
+     unemployment and nearby abandoned buildings. It lowers happiness and land value,
+     and scares off shops and industry. A **police station** cuts crime by up to 85%
+     within 10 tiles.
+   - **Fire risk:** dense buildings, industry and coal plants catch fire most often.
+     A **fire station** cuts the risk by up to 90% within 10 tiles, and its crews put
+     fires out within a few days.
+   - **Unattended fires:** a fire outside station cover can spread next door. After
+     two months it burns the building down, leaving the zoned lot vacant.
+   - **Alerts:** fire alerts are clickable. They jump the camera to the fire.
+9. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
    upkeep. If funds stay negative for 6 months, the council removes you.
 
 A good opener: run a street off the highway, put industry near the highway
@@ -69,7 +80,7 @@ among the homes.
 | Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution · `H` happiness · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
+| Overlays | `L` land value · `P` pollution · `H` happiness · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
 | Start over | **Reset** (top bar) restarts on a fresh map of the same size. The **City** menu has New city (pick a size), Expand map, Save and Load |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
@@ -108,7 +119,8 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
    - **Density cap:** without power, buildings stay at low density; without water, they stop at medium.
 4. **Pollution.** Industry emits 30 / 50 / 75 by density, with linear falloff over
    radius 3 / 4 / 6. Large commerce emits a little. Parks and trees absorb pollution nearby.
-5. **Land value.** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
+5. **Land value**, then **crime and fire risk** (`safetySystem`), then **fires** each tick
+   (`fireSystem`): monthly ignition by risk, spread, extinguishing by station cover, burn-down. **Land value:** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
    trees and nearby shops. Subtracts 0.8 × pollution and a penalty near abandoned buildings.
 6. **Shoppers**, then **happiness**:
    50 + school/clinic/plaza coverage + 0.3 × (land value − 40) − 0.35 × pollution

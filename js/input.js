@@ -167,6 +167,8 @@ export class Input {
       case 'p': g.toggleOverlay('pollution'); break;
       case 't': g.toggleOverlay('traffic'); break;
       case 'h': g.toggleOverlay('happiness'); break;
+      case 'c': g.toggleOverlay('crime'); break;
+      case 'f': g.toggleOverlay('fireRisk'); break;
       case 'o': {
         const i = OVERLAY_ORDER.indexOf(g.renderer.overlay);
         const next = OVERLAY_ORDER[i + 1] ?? null; // cycles through every overlay, then off

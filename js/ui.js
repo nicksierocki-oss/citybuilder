@@ -16,6 +16,7 @@ const GROUPS = [
   ['Zones', ['residential', 'commercial', 'industrial']],
   ['Utilities', ['wind', 'coal', 'pump']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
+  ['Safety', ['police', 'fire']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
 
@@ -23,6 +24,7 @@ const TOOL_COLOR = {
   road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
   residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
+  police: '#7f9ee0', fire: '#ee8a6e',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
 };
@@ -44,6 +46,8 @@ const TOOL_HELP = {
   recycling: 'Halves pollution around it.',
   park: 'Raises land value, absorbs pollution.',
   trees: 'Plant trees on open land: cheap clean air.',
+  police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
+  fire: 'Prevents fires and puts them out within 10 tiles.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
 };
@@ -68,6 +72,8 @@ const ICONS = {
   park: I('<circle cx="12" cy="9" r="5"/><path d="M12 14v7"/>'),
   trees: I('<circle cx="8" cy="10" r="4"/><circle cx="16" cy="8" r="3.5"/><path d="M8 14v6M16 11.5V20"/>'),
   inspect: I('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>'),
+  police: I('<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m12 8 1.2 2.5 2.8.4-2 2 .5 2.8L12 14.4l-2.5 1.3.5-2.8-2-2 2.8-.4z"/>'),
+  fire: I('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-4 2.5-5 .3 1.5 1 2.5 2 3 0-3 .5-5.5.5-8z"/>'),
   bulldoze: I('<path d="M6 6l12 12M18 6 6 18"/>'),
 };
 
@@ -97,7 +103,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -226,6 +232,10 @@ export class UI {
     const unemployed = tr ? Math.max(0, Math.round(tr.workers - tr.employed)) : 0;
     $('commuteDetail').textContent = tr && tr.congested ? `${tr.congested} jammed road${tr.congested > 1 ? 's' : ''}` : unemployed ? `${unemployed} can't reach jobs` : 'traffic flowing';
     $('commuteDetail').classList.toggle('warn', !!(tr && (tr.congested || unemployed)));
+    const crime = s.crime ?? 0, fires = s.fires ?? 0;
+    $('safety').textContent = st.population > 0 ? (crime < 12 ? 'Safe' : crime < 25 ? 'Fair' : crime < 40 ? 'Uneasy' : 'Rough') : '—';
+    $('safetyDetail').textContent = fires ? `${fires} fire${fires > 1 ? 's' : ''} burning!` : st.population > 0 ? `crime ${Math.round(crime)}` : 'no residents yet';
+    $('safetyDetail').classList.toggle('warn', fires > 0 || crime >= 25);
     this.updateGauge('gPower', s.utilities?.power, s.utilityGrace);
     this.updateGauge('gWater', s.utilities?.water, s.utilityGrace);
     $('tax').textContent = `${s.taxRate}%`;
@@ -355,10 +365,16 @@ export class UI {
       rows.push(['Nearest job', `${Math.round(map.commute[i])} min`]);
     }
     if (type === TILE.COM) rows.push(['Passing trips', Math.round(map.passing[i])]);
+    if (map.hasFlag(i, FLAG.FIRE)) rows.unshift(['Status', '<span class="pill none">on fire</span>']);
+    if (!water && (isZone(type) || type === TILE.SERVICE) && (lv > 0 || type === TILE.SERVICE)) {
+      if (type !== TILE.SERVICE) rows.push(['Crime', bar(map.crime[i], 'crime')]);
+      rows.push(['Fire risk', bar(map.fireRisk[i], 'firerisk')]);
+    }
     if (!water) {
       rows.push(['Land value', bar(map.landValue[i], 'lv')]);
       rows.push(['Pollution', bar(map.pollution[i], 'pol')]);
-      const cov = ['school', 'clinic', 'plaza', 'recycling'].filter((k) => map.coverage[k][i] > 0.05);
+      const cov = ['school', 'clinic', 'plaza', 'recycling', 'police', 'fire'].filter((k) => map.coverage[k][i] > 0.05)
+        .map((k) => (k === 'fire' ? 'fire station' : k));
       if (cov.length) rows.push(['Served by', cov.join(', ')]);
     }
     if (isZone(type)) {
@@ -400,18 +416,26 @@ export class UI {
     const ev = this.game.state.events;
     while (ev.length) {
       const e = ev.shift();
-      this.toast(e.text, e.kind, e.kind === 'bad' ? 5000 : 3200);
+      this.toast(e.text, e.kind, e.kind === 'bad' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
       if (this.game.state.bankrupt) this.showBankrupt();
     }
   }
 
   clearToasts() { $('toasts').replaceChildren(); }
 
-  toast(text, kind = 'info', ms = 3200) {
+  toast(text, kind = 'info', ms = 3200, at = null) {
     const box = $('toasts');
     const t = document.createElement('div');
-    t.className = `toast ${kind}`;
+    t.className = `toast ${kind}${at ? ' link' : ''}`;
     t.textContent = text;
+    if (at) {
+      // Click to fly the camera to the event and pin its tile info.
+      t.addEventListener('click', () => {
+        const g = this.game;
+        g.renderer.centerOn(g.state.map, at.x, at.y);
+        g.pinned = { x: at.x, y: at.y };
+      });
+    }
     box.appendChild(t);
     while (box.children.length > 4) box.firstChild.remove();
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, ms);

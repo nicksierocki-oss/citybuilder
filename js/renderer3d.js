@@ -36,6 +36,7 @@ const COL = {
     coal: '#cfc6bd', coalTower: '#ebe7e1', steam: '#ffffff', wind: '#ffffff', pump: '#bfe0f4', tank: '#e1f0f9',
     school: '#f8e2a4', schoolRoof: '#ee9f86', clinic: '#ffffff', cross: '#ef7f86', plaza: '#efe6d6', fountain: '#a6d6ee',
     recycling: '#b7deb0', bins: ['#86b8e8', '#f6d27a', '#9fd8b4'], flag: '#ef7f86',
+    police: '#dbe5f8', policeTrim: '#7f9ee0', fire: '#f5b3a2', fireTrim: '#e0705c', door: '#fbf6ee',
   },
 };
 const colorCache = new Map();
@@ -165,7 +166,10 @@ export class Renderer3D {
     // Moving things, rebuilt every frame
     this.cars = new Batch(scene, GEO.box, tiles * 3, { shadows: false });
     this.blades = new Batch(scene, new THREE.BoxGeometry(1, 1, 1), Math.max(64, tiles / 2), { shadows: false });
-    this.dynamicBatches = [this.cars, this.blades];
+    this.flames = new Batch(scene, GEO.blob, Math.max(64, tiles / 2), { shadows: false, basic: true });
+    this.smoke = new Batch(scene, GEO.blob, Math.max(64, tiles / 2), { shadows: false });
+    this.smoke.setOpacity(0.55);
+    this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke];
     this.batchTiles = tiles;
   }
 
@@ -306,6 +310,7 @@ export class Renderer3D {
   buildMeshes(map) {
     for (const b of this.buildingBatches) b.begin();
     this.turbines = [];
+    this.burning = [];
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
       const i = map.idx(x, y), t = map.type[i], v = map.variant[i];
       if (t === TILE.EMPTY && map.hasFlag(i, FLAG.TREES)) {
@@ -321,6 +326,7 @@ export class Renderer3D {
       } else if (t === TILE.SERVICE) {
         this.service(this.placer(map, x, y), KINDS[map.kind[i]], v, x, y);
       }
+      if (map.hasFlag(i, FLAG.FIRE)) this.burning.push({ x, y, v });
     }
     for (const b of this.buildingBatches) b.end();
   }
@@ -508,6 +514,21 @@ export class Renderer3D {
           P(this.blobs, u, w, 0.2, 0.2, 0.08, 0.22, COL.leaves[(v + Math.round(u * 5)) % 3]);
         }
         break;
+      case 'police':
+        P(this.rboxes, 0, -0.08, 0.8, 0.58, 0, 0.5, S.police);
+        P(this.boxes, 0, -0.08, 0.84, 0.62, 0.5, 0.05, S.policeTrim);
+        P(this.boxes, -0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#ef7f86');
+        P(this.boxes, 0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#6f9ee8');
+        P(this.rboxes, -0.2, 0.36, 0.14, 0.24, 0, 0.1, '#ffffff'); // patrol car
+        P(this.boxes, -0.2, 0.36, 0.1, 0.05, 0.1, 0.03, S.policeTrim);
+        break;
+      case 'fire':
+        P(this.rboxes, -0.08, -0.05, 0.68, 0.7, 0, 0.5, S.fire);
+        P(this.boxes, -0.08, -0.05, 0.72, 0.74, 0.5, 0.05, S.fireTrim);
+        for (const u of [-0.24, 0.08]) P(this.boxes, u, 0.305, 0.24, 0.02, 0.02, 0.32, S.door);
+        P(this.rboxes, 0.36, -0.28, 0.18, 0.18, 0, 1.0, S.fireTrim); // hose-drying tower
+        P(this.rboxes, 0.36, 0.3, 0.14, 0.3, 0, 0.13, S.fireTrim);   // engine
+        break;
       case 'recycling':
         P(this.rboxes, -0.08, -0.12, 0.66, 0.5, 0, 0.42, S.recycling);
         P(this.roofs, -0.08, -0.12, 0.7, 0.54, 0.42, 0.12, '#93c98a');
@@ -529,6 +550,25 @@ export class Renderer3D {
       });
     }
     cars.end();
+  }
+
+  // Flickering flames and rising smoke on burning buildings.
+  buildFires() {
+    const f = this.flames, s = this.smoke, t = this.time;
+    f.begin(); s.begin();
+    for (const b of this.burning ?? []) {
+      for (let k = 0; k < 3; k++) {
+        const ph = t * 7 + b.v + k * 2.1, u = b.x + 0.3 + k * 0.2, w = b.y + 0.35 + ((b.v >> k) & 1) * 0.3;
+        const sz = 0.28 + Math.sin(ph) * 0.05;
+        f.add(u, 0.15, w, sz, sz * 1.6, sz, k === 1 ? '#ffc766' : '#f59a62');
+      }
+      for (let k = 0; k < 3; k++) {
+        const rise = ((t * 0.4 + k / 3 + b.v * 0.01) % 1);
+        const sz = 0.3 + rise * 0.5;
+        s.add(b.x + 0.5 + rise * 0.3, 0.8 + rise * 1.6, b.y + 0.4, sz, sz, sz, '#9c9ca2');
+      }
+    }
+    f.end(); s.end();
   }
 
   buildBlades() {
@@ -578,6 +618,7 @@ export class Renderer3D {
     if (this.orbit.dist >= 60) { this.cars.begin(); this.cars.end(); }
     else if (map.size <= 5000 || now - (c.carsAt ?? 0) > 33) { this.buildCars(map); c.carsAt = now; }
     this.buildBlades();
+    this.buildFires();
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;

@@ -7,11 +7,11 @@ export const TERRAIN = { GRASS: 0, WATER: 1 };
 export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6 };
 export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building'];
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
-export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling'];
+export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
-export const FLAG = { TREES: 1, ABANDONED: 2 };
+export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4 };
 
 export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
 export const ROAD_NAMES = ['Street', 'Avenue', 'Highway'];
@@ -65,7 +65,11 @@ export class GameMap {
     this.coverage = {                     // 0..1 service coverage per tile
       school: new Float32Array(n), clinic: new Float32Array(n),
       plaza: new Float32Array(n), recycling: new Float32Array(n),
+      police: new Float32Array(n), fire: new Float32Array(n),
     };
+    this.crime = new Float32Array(n);     // 0..100 per building
+    this.fireRisk = new Float32Array(n);  // 0..100 per building
+    this.burn = new Uint16Array(n);       // ticks a fire has been burning (FLAG.FIRE tiles)
     this.happiness = new Float32Array(n);
     this.roadsDirty = true;
     this.version = 0;                   // bumped on every player edit (renderers cache on it)

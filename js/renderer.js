@@ -31,6 +31,7 @@ export const PAL = {
     coal: '#bdb3aa', coalTower: '#d9d4ce', wind: '#ffffff', pump: '#9ccfee', pumpTank: '#d6ecf8',
     school: '#f6d98c', schoolRoof: '#ec9f7e', yard: '#c8e4b2', clinic: '#ffffff', cross: '#ef7f86',
     plaza: '#efe6d6', fountain: '#a6d6ee', recycling: '#a9d6a0', bins: ['#86b8e8', '#f6d27a', '#9fd8b4'],
+    police: '#b7c9ef', policeRoof: '#7f9ee0', fire: '#f3a58f', fireRoof: '#e0705c', door: '#fbf6ee',
   },
 };
 
@@ -348,14 +349,35 @@ export class Renderer {
       this.treeBlob(px + 14 + ((v >> 4) & 3), py + 23, 6, v >> 2);
       return;
     }
-    if (t === TILE.SERVICE) { this.drawService(map, i, px, py, v); return; }
-    if (t !== TILE.RES && t !== TILE.COM && t !== TILE.IND) return;
-    const lv = map.level[i];
-    if (lv === 0) return;
-    const ab = map.hasFlag(i, FLAG.ABANDONED);
-    if (t === TILE.RES) this.drawResidential(px, py, lv, v, ab);
-    else if (t === TILE.COM) this.drawCommercial(px, py, lv, v, ab);
-    else this.drawIndustrial(px, py, lv, v, ab);
+    if (t === TILE.SERVICE) this.drawService(map, i, px, py, v);
+    else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
+      const lv = map.level[i];
+      if (lv === 0) return;
+      const ab = map.hasFlag(i, FLAG.ABANDONED);
+      if (t === TILE.RES) this.drawResidential(px, py, lv, v, ab);
+      else if (t === TILE.COM) this.drawCommercial(px, py, lv, v, ab);
+      else this.drawIndustrial(px, py, lv, v, ab);
+    }
+    if (map.hasFlag(i, FLAG.FIRE)) this.drawFire(px, py, v);
+  }
+
+  // Flickering flames and a smoke plume over a burning building.
+  drawFire(px, py, v) {
+    const ctx = this.ctx, t = this.time * 6 + v;
+    ctx.fillStyle = 'rgba(90,80,80,0.18)';
+    roundRect(ctx, px + 2, py + 2, TS - 4, TS - 4, 6); ctx.fill();
+    ctx.fillStyle = 'rgba(150,150,155,0.45)';
+    for (let k = 0; k < 3; k++) {
+      const r = 5 + k * 2 + Math.sin(t * 0.5 + k) * 1;
+      ctx.beginPath(); ctx.arc(px + 20 + k * 3, py + 6 - k * 5, r, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const [fx, fy, s] of [[10, 18, 1], [20, 14, 1.2], [15, 22, 0.9]]) {
+      const f = s * (1 + Math.sin(t + fx) * 0.15);
+      ctx.fillStyle = '#f59a62';
+      ctx.beginPath(); ctx.ellipse(px + fx, py + fy, 5 * f, 7 * f, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd36e';
+      ctx.beginPath(); ctx.ellipse(px + fx, py + fy + 1.5, 2.8 * f, 4.2 * f, 0, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   // A rounded box with a soft drop shadow whose length reads as height.
@@ -530,6 +552,23 @@ export class Renderer {
         this.treeBlob(px + 26, py + 26, 3.5, v >> 1);
         this.treeBlob(px + 26, py + 6, 3.5, v >> 2);
         this.treeBlob(px + 6, py + 26, 3.5, v >> 3);
+        break;
+      case 'police':
+        this.box(px + 4, py + 5, 24, 20, 4, S.police, false, 4);
+        ctx.fillStyle = S.policeRoof;
+        roundRect(ctx, px + 7, py + 8, 18, 5, 2); ctx.fill();
+        ctx.fillStyle = '#ef7f86'; roundRect(ctx, px + 11, py + 16, 4, 3, 1); ctx.fill();
+        ctx.fillStyle = '#6f9ee8'; roundRect(ctx, px + 17, py + 16, 4, 3, 1); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        roundRect(ctx, px + 8, py + 26, 6, 3, 1.2); ctx.fill(); // patrol car
+        break;
+      case 'fire':
+        this.box(px + 3, py + 6, 20, 22, 4, S.fire, false, 3);
+        ctx.fillStyle = S.door;
+        for (let k = 0; k < 2; k++) { roundRect(ctx, px + 5 + k * 9, py + 21, 7, 6, 1.2); ctx.fill(); }
+        this.box(px + 23, py + 4, 6, 8, 7, S.fireRoof, false, 2); // hose tower
+        ctx.fillStyle = '#e0705c';
+        roundRect(ctx, px + 24, py + 23, 5, 7, 1.5); ctx.fill(); // engine
         break;
       case 'recycling':
         this.box(px + 4, py + 4, 18, 15, 4, S.recycling, false, 4);

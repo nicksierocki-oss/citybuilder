@@ -143,6 +143,8 @@ export function happinessSystem(state) {
       + c.school[i] * B.school.happiness + c.clinic[i] * B.clinic.happiness + c.plaza[i] * B.plaza.happiness
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
+    v -= map.crime[i] * CONFIG.crime.happinessWeight;
+    if (map.hasFlag(i, FLAG.FIRE)) v -= 30;
     if (map.type[i] === TILE.RES) {
       const cm = map.commute[i];
       if (Number.isFinite(cm) && cm > T.comfortCommute) v -= (cm - T.comfortCommute) * H.commuteWeight;
@@ -167,10 +169,103 @@ export function happinessReasons(state, i) {
   if (map.coverage.school[i] < 0.05) out.push('no school nearby');
   if (map.coverage.clinic[i] < 0.05) out.push('no clinic nearby');
   if (map.pollution[i] > 20) out.push('pollution');
+  if (map.crime[i] > 25) out.push(map.coverage.police[i] < 0.05 ? 'crime (no police nearby)' : 'crime');
   if (map.landValue[i] < 30) out.push('low land value');
   if (utilitiesEnforced(state) && map.level[i] > 0) {
     if (map.power[i] !== SUPPLY.OK) out.push('no power');
     if (map.water[i] !== SUPPLY.OK) out.push('no water');
   }
   return out;
+}
+
+// ---------------------------------------------------------------- safety
+
+function isBuilding(map, i) {
+  const t = map.type[i];
+  return ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) || t === TILE.SERVICE;
+}
+
+// Crime and fire risk for every building (0..100).
+export function safetySystem(state) {
+  const map = state.map, C = CONFIG.crime, F = CONFIG.fire, { width: w, height: h } = map;
+  let crimeSum = 0, crimeW = 0;
+  for (let i = 0; i < map.size; i++) {
+    map.crime[i] = 0;
+    map.fireRisk[i] = 0;
+    if (!isBuilding(map, i)) continue;
+    const t = map.type[i], lv = map.level[i], k = kindOf(map, i);
+    // Crime: zones only (public buildings are staffed).
+    if (t !== TILE.SERVICE && !map.hasFlag(i, FLAG.ABANDONED)) {
+      let c = lv * C.perLevel + (t === TILE.COM ? C.commercialExtra : 0)
+        + Math.max(0, 45 - map.landValue[i]) * C.lowLandValue;
+      if (t === TILE.RES) c += (1 - map.employed[i]) * C.unemployment;
+      const x0 = i % w, y0 = (i / w) | 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const x = x0 + dx, y = y0 + dy;
+        if (x >= 0 && y >= 0 && x < w && y < h && map.hasFlag(y * w + x, FLAG.ABANDONED)) c += C.abandonedNearby;
+      }
+      c *= 1 - C.policeCut * map.coverage.police[i];
+      map.crime[i] = Math.max(0, Math.min(100, c));
+      if (t === TILE.RES) { const pop = CONFIG.capacity.residential[lv]; crimeSum += map.crime[i] * pop; crimeW += pop; }
+    }
+    // Fire risk: every building; industry and coal plants most.
+    let r = k === 'coal' ? F.coalPlantRisk : t === TILE.SERVICE ? F.riskPerLevel : lv * F.riskPerLevel + (t === TILE.IND ? F.industryExtra : 0);
+    r *= 1 - F.stationCut * map.coverage.fire[i];
+    map.fireRisk[i] = Math.max(0, Math.min(100, r));
+  }
+  state.crime = crimeW > 0 ? crimeSum / crimeW : 0;
+}
+
+// Fires: ignite by risk (checked monthly), spread to neighbours, get put out near a fire
+// station, or destroy the building (it becomes a vacant lot) if left burning too long.
+export function fireSystem(state) {
+  const map = state.map, F = CONFIG.fire, { width: w, height: h } = map, rng = state.rng;
+  const TPM = CONFIG.time.ticksPerMonth, burnTicks = F.burnMonths * TPM;
+  let active = 0;
+  const ignite = [];
+  for (let i = 0; i < map.size; i++) {
+    if (!map.hasFlag(i, FLAG.FIRE)) continue;
+    if (!isBuilding(map, i)) { map.setFlag(i, FLAG.FIRE, false); map.burn[i] = 0; continue; }
+    active++;
+    map.burn[i]++;
+    const cover = map.coverage.fire[i];
+    const putOut = cover > 0.05 ? F.extinguishChance * Math.min(1, cover * 1.5) : F.burnOutChance;
+    if (rng() < putOut) {
+      map.setFlag(i, FLAG.FIRE, false);
+      map.burn[i] = 0;
+      continue;
+    }
+    // Spread to adjacent buildings (fire crews nearby halve the chance).
+    const x0 = i % w, y0 = (i / w) | 0;
+    for (const [dx, dy] of DIRS) {
+      const x = x0 + dx, y = y0 + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const j = y * w + x;
+      if (isBuilding(map, j) && !map.hasFlag(j, FLAG.FIRE) && rng() < F.spreadChance * (cover > 0.05 ? 0.5 : 1)) ignite.push(j);
+    }
+    if (map.burn[i] >= burnTicks) {
+      // Burned down: the zone stays, the building is gone.
+      map.setFlag(i, FLAG.FIRE, false);
+      map.burn[i] = 0;
+      if (map.type[i] === TILE.SERVICE) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; map.roadsDirty = true; }
+      else { map.level[i] = 0; map.setFlag(i, FLAG.ABANDONED, false); }
+      map.version++;
+      state.events.push({ text: `A building burned down at ${x0}, ${y0}. A fire station would have saved it.`, kind: 'bad', x: x0, y: y0 });
+    }
+  }
+  for (const j of ignite) { map.setFlag(j, FLAG.FIRE, true); map.burn[j] = 0; }
+  // New fires, rolled once a month.
+  if (F.enabled && state.tick % TPM === 0) {
+    for (let i = 0; i < map.size; i++) {
+      if (map.fireRisk[i] <= 0 || map.hasFlag(i, FLAG.FIRE)) continue;
+      if (rng() < (map.fireRisk[i] / 100) * F.igniteChance) {
+        map.setFlag(i, FLAG.FIRE, true);
+        map.burn[i] = 0;
+        map.version++;
+        const x = i % w, y = (i / w) | 0;
+        state.events.push({ text: `Fire at ${x}, ${y}! Click to look.`, kind: 'bad', x, y });
+      }
+    }
+  }
+  state.fires = active + ignite.length;
 }
