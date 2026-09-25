@@ -1,7 +1,9 @@
+// @ts-check
 // Entry point: wires state, simulation clock, renderer, input and UI together.
 
 import { CONFIG } from './config.js';
 import { createGame, tick, refreshFields } from './simulation.js';
+import { undoLast } from './economy.js';
 import { expandMap, highwayEntry } from './map.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
@@ -108,6 +110,11 @@ const game = {
     this.ui.toast(`The city now spans ${size}×${size}. New land on every side!`, 'good', 4500);
     autosave(s);
   },
+  undo() {
+    const r = undoLast(this.state);
+    if (r.ok) refreshFields(this.state);
+    this.ui.toast(r.text, r.ok ? 'info' : 'bad');
+  },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {
     try {
@@ -152,7 +159,14 @@ function frame(now) {
     acc += dt * 1000;
     const step = CONFIG.time.msPerTick[game.speed];
     let n = 0;
-    while (acc >= step && n < 8) { tick(game.state); acc -= step; n++; }
+    try {
+      while (acc >= step && n < 8) { tick(game.state); acc -= step; n++; }
+    } catch (err) {
+      // Keep the city viewable and saveable instead of freezing on a repeating error.
+      console.error(err);
+      game.setSpeed(0);
+      game.ui.toast(`Simulation error, game paused: ${err.message}`, 'bad', 8000);
+    }
     if (n === 8) acc = 0;
   } else acc = 0;
   if (game.state.month === 0 && game.state.year !== lastAutosaveYear) {
@@ -163,7 +177,10 @@ function frame(now) {
   game.ui.update(now);
 }
 requestAnimationFrame(frame);
-window.addEventListener('beforeunload', () => { if (!game.state.bankrupt) autosave(game.state); });
+const saveOnExit = () => { if (!game.state.bankrupt) autosave(game.state); };
+window.addEventListener('beforeunload', saveOnExit);
+// Mobile browsers often skip beforeunload when a tab is closed from the switcher.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveOnExit(); });
 
 // Handy for tinkering from the dev console.
-window.gridline = game;
+/** @type {any} */ (window).gridline = game;

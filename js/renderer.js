@@ -1,3 +1,4 @@
+// @ts-check
 // Rendering: draws the map with soft flat shapes on a 2D canvas. Reads state, never mutates it.
 
 import { TILE, TERRAIN, FLAG, KINDS } from './map.js';
@@ -41,6 +42,7 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.cam = { x: 0, y: 0, zoom: 1 };
+    this.flatOnly = false; // set by the 3D view, which draws park trees as meshes
     this.dpr = 1;
     this.overlay = null; // 'landValue' | 'pollution' | 'traffic' | null
     this.time = 0;       // animation clock in seconds (advanced only while the sim runs)
@@ -226,7 +228,7 @@ export class Renderer {
     const avenue = cls === 1, highway = cls === 2;
     const hw = cls > 0 ? 14.5 : 10.5; // half width of carriageway
     const c = TS / 2;
-    const links = cn + cs + cw + ce;
+    const links = +cn + +cs + +cw + +ce;
     const horiz = (cw || ce) && !cn && !cs, vert = (cn || cs) && !cw && !ce;
     ctx.fillStyle = PAL.asphalt[cls];
     // Corners and dead ends get a round hub so turns and ends are smooth.

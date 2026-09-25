@@ -1,3 +1,4 @@
+// @ts-check
 // Gridline — every balance number lives here. Tweak freely.
 // Units: money is in $, time is in simulation ticks (see `time`).
 

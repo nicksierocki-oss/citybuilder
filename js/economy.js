@@ -1,3 +1,4 @@
+// @ts-check
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
@@ -155,18 +156,55 @@ function applyOne(state, tool, i) {
 export function applyTool(state, tool, tiles) {
   if (state.bankrupt) return { applied: 0, spent: 0 };
   let applied = 0, spent = 0, broke = false;
+  const map = state.map, before = [];
   for (const i of tiles) {
     const cost = toolCost(state, tool, i);
     if (cost == null) continue;
     // Demolition is always allowed (even in debt) so players can cut upkeep to recover.
     if (tool !== 'bulldoze' && cost > state.funds) { broke = true; break; }
+    before.push(snapshotTile(map, i));
     state.funds -= cost;
     spent += cost;
     applyOne(state, tool, i);
     applied++;
   }
   if (broke) push(state, 'Not enough funds', 'bad');
+  if (applied) {
+    state.undo ??= [];
+    state.undo.push({ map, tool, spent, before });
+    if (state.undo.length > UNDO_DEPTH) state.undo.shift();
+  }
   return { applied, spent };
+}
+
+// ------------------------------------------------------------------ undo
+// A tool only ever changes the tiles it is applied to, so undo restores those tiles'
+// persistent values and returns the money. Kept in memory only (not saved).
+const UNDO_DEPTH = 20;
+function snapshotTile(map, i) {
+  return [i, map.type[i], map.level[i], map.flags[i], map.kind[i], map.roadClass[i], map.burn[i]];
+}
+
+// Reverts the last tool action. Returns a message for the player.
+export function undoLast(state) {
+  const u = state.undo ?? [];
+  while (u.length && u[u.length - 1].map !== state.map) u.pop(); // map was expanded
+  const last = u[u.length - 1];
+  if (!last) return { ok: false, text: 'Nothing to undo' };
+  if (state.bankrupt) return { ok: false, text: 'Cannot undo after bankruptcy' };
+  if (last.spent < 0 && state.funds < -last.spent) return { ok: false, text: 'Not enough funds to undo that demolition refund' };
+  u.pop();
+  const map = state.map;
+  for (let k = last.before.length - 1; k >= 0; k--) {
+    const [i, type, level, flags, kind, roadClass, burn] = last.before[k];
+    if (type === TILE.ROAD || map.type[i] === TILE.ROAD) map.roadsDirty = true;
+    map.type[i] = type; map.level[i] = level; map.flags[i] = flags;
+    map.kind[i] = kind; map.roadClass[i] = roadClass; map.burn[i] = burn;
+  }
+  map.version++;
+  state.funds += last.spent;
+  const label = TOOLS[last.tool]?.label ?? last.tool;
+  return { ok: true, text: `Undid ${label} (${last.before.length} tile${last.before.length === 1 ? '' : 's'})` };
 }
 
 export function previewCost(state, tool, tiles) {

@@ -183,10 +183,18 @@ function run(name, strategy, months = 72, seed = 12345) {
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';
   const secs2x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[2] / 1000).toFixed(0) : '-';
   console.log(`-> reached 1000 pop at month ${hit1000 ?? 'never'} (${secs1x}s at 1x, ${secs2x}s at 2x); bankrupt: ${state.bankrupt}`);
+  return { hit1000, bankrupt: state.bankrupt };
 }
 
-run('sensible', sensible);
+const sens = run('sensible', sensible);
 run('sensible + avenues', (st) => sensible(st, true));
 run('eager builder', eager);
 run('sprawl', sprawl);
-run('careless', careless);
+const care = run('careless', careless);
+
+// Balance guard (CI fails on these): see "Checks before pushing" in CLAUDE.md.
+const problems = [];
+if (sens.bankrupt || sens.hit1000 == null || sens.hit1000 > 36) problems.push(`sensible city should reach 1,000 people by month ~30 without bankruptcy (got ${sens.hit1000 ?? 'never'}, bankrupt ${sens.bankrupt})`);
+if (!care.bankrupt) problems.push('careless city should go bankrupt');
+if (problems.length) { console.log(`\nBALANCE CHECK FAILED:\n  ${problems.join('\n  ')}`); process.exit(1); }
+console.log('\nbalance check passed');

@@ -1,3 +1,4 @@
+// Not type-checked (// @ts-check): Three.js material/mesh unions make it noisy for little gain.
 // 3D view (Three.js). Same interface as the 2D Renderer, reads the same state.
 // Ground (terrain, roads, lots, overlays) reuses the 2D tile painter as a texture;
 // buildings, trees and cars are instanced low-poly meshes.

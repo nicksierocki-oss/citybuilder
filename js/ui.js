@@ -1,3 +1,4 @@
+// @ts-check
 // UI: top bar, toolbar, demand panel, overlays + legend, tile info, toasts and dialogs (DOM only).
 
 import { CONFIG } from './config.js';
@@ -86,7 +87,10 @@ const ICONS = {
   bulldoze: I('<path d="M6 6l12 12M18 6 6 18"/>'),
 };
 
+/** @returns {any} */
 const $ = (id) => document.getElementById(id);
+/** @returns {HTMLElement[]} */
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)].map((e) => /** @type {HTMLElement} */ (e));
 const money = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString();
 
 export class UI {
@@ -139,7 +143,7 @@ export class UI {
   }
 
   bindTopBar() {
-    for (const btn of document.querySelectorAll('[data-speed]')) {
+    for (const btn of $$('[data-speed]')) {
       btn.addEventListener('click', () => this.game.setSpeed(Number(btn.dataset.speed)));
     }
     $('taxDown').addEventListener('click', () => this.game.setTax(this.game.state.taxRate - 1));
@@ -157,9 +161,10 @@ export class UI {
     $('btnSave').addEventListener('click', () => { closeMenu(); this.game.save(); });
     $('btnLoad').addEventListener('click', () => { closeMenu(); $('fileInput').click(); });
     $('fileInput').addEventListener('change', (e) => {
-      const f = e.target.files[0];
+      const input = /** @type {HTMLInputElement} */ (e.target);
+      const f = input.files?.[0];
       if (f) this.game.load(f);
-      e.target.value = '';
+      input.value = '';
     });
     $('btnNew').addEventListener('click', () => { closeMenu(); this.newCityDialog((size) => this.game.newCity(size)); });
     $('btnReset').addEventListener('click', () => {
@@ -180,7 +185,7 @@ export class UI {
     $('budgetStat').addEventListener('click', () => this.toggleBudget());
     // The budget panel re-renders often, so handle its buttons by delegation.
     $('budget').addEventListener('click', (e) => {
-      const id = e.target.closest('button')?.id;
+      const id = /** @type {Element} */ (e.target).closest('button')?.id;
       if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
       if (id === 'btnBudgetClose') this.toggleBudget(false);
     });
@@ -189,7 +194,7 @@ export class UI {
   }
 
   setActiveTool(name) {
-    for (const b of document.querySelectorAll('.tool')) b.classList.toggle('active', b.dataset.tool === name);
+    for (const b of $$('.tool')) b.classList.toggle('active', b.dataset.tool === name);
     document.body.dataset.tool = name;
   }
   setView(view) {
@@ -199,10 +204,10 @@ export class UI {
     document.body.dataset.view = view;
   }
   setActiveSpeed(s) {
-    for (const b of document.querySelectorAll('[data-speed]')) b.classList.toggle('active', Number(b.dataset.speed) === s);
+    for (const b of $$('[data-speed]')) b.classList.toggle('active', Number(b.dataset.speed) === s);
   }
   setOverlay(o) {
-    for (const b of document.querySelectorAll('[data-overlay]')) b.classList.toggle('active', b.dataset.overlay === o);
+    for (const b of $$('[data-overlay]')) b.classList.toggle('active', b.dataset.overlay === o);
     this.overlay = o;
     const lg = $('legend');
     lg.hidden = !o;
@@ -503,10 +508,10 @@ export class UI {
     m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first. Pick a map size:'
       + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`;
     let size = CONFIG.map.defaultSize;
-    for (const b of m.querySelectorAll('[data-size]')) {
+    for (const b of $$('[data-size]', m)) {
       b.onclick = () => {
         size = Number(b.dataset.size);
-        for (const o of m.querySelectorAll('[data-size]')) o.classList.toggle('sel', o === b);
+        for (const o of $$('[data-size]', m)) o.classList.toggle('sel', o === b);
       };
     }
     const ok = $('modalOk'), cancel = $('modalCancel');
