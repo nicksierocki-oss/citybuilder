@@ -29,6 +29,7 @@ export const CONFIG = {
     // monthly upkeep
     roadMaintenance: 1.5,
     bridgeMaintenance: 5,
+    avenueMaintenance: 3,
     parkMaintenance: 4,
     // consecutive months with negative funds before the council fires you
     bankruptcyMonths: 6,
@@ -37,6 +38,8 @@ export const CONFIG = {
   costs: {
     road: 10,
     bridge: 60,              // road placed on water
+    avenue: 30,              // new avenue tile (upgrading a street costs the difference)
+    avenueBridge: 120,
     residential: 10,
     commercial: 10,
     industrial: 10,
@@ -106,6 +109,27 @@ export const CONFIG = {
     commercialBonus: 2, commercialRadius: 3, commercialCap: 10,
     abandonedPenalty: 8, abandonedRadius: 2,
     pollutionWeight: 0.8,
+  },
+
+  traffic: {
+    everyTicks: 4,              // recompute commuting every N ticks
+    minutesPerTile: [0.8, 0.5], // free-flow travel time per tile: [street, avenue]
+    capacity: [160, 480],       // trips/month before a tile is "full": [street, avenue]
+    congestionK: 1.6,           // travel time x (1 + K * load^2) where load = volume / capacity
+    maxCongestion: 5,           // cap on that multiplier
+    smoothing: 0.5,             // how quickly route costs react to new volumes
+    maxCommute: 45,             // minutes; beyond this, workers won't take the job
+    comfortCommute: 20,         // minutes; above this, homes become less desirable
+    commuteWeight: 0.4,         // score lost at maxCommute
+    unemploymentThreshold: 0.7, // employed share below which homes suffer
+    unemploymentWeight: 0.8,
+    freightPerJob: 0.4,         // truck trips per industrial job, routed to the highway
+    passingBonusPer: 350,       // commercial score +0.1 per this many passing trips...
+    passingBonusCap: 0.25,      // ...up to this
+    noisePerTrip: 0.03,         // land value lost next to a road per trip
+    noiseCap: 14,
+    pollutionPerTrip: 0.025,    // road tile pollution per trip (radius 1)
+    pollutionCap: 18,
   },
 
   sim: {

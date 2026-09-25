@@ -1,10 +1,13 @@
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
-import { GameMap } from './map.js';
+import { GameMap, TILE } from './map.js';
+import { CONFIG } from './config.js';
 import { refreshFields } from './simulation.js';
 
-const VERSION = 1;
-const LAYERS = ['terrain', 'type', 'level', 'flags', 'variant'];
+const VERSION = 2;
+const LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass'];
+// Layers added after v1; older saves simply don't have them (defaults to zeros).
+const OPTIONAL_LAYERS = new Set(['roadClass']);
 
 // Uint8 layer -> base64 string (compact and JSON-safe)
 function encode(arr) {
@@ -41,7 +44,11 @@ export function deserialize(data) {
   const { width, height, layers } = data.map;
   const map = new GameMap(width, height);
   map.seed = data.map.seed;
-  for (const k of LAYERS) map[k] = decode(layers[k], width * height);
+  for (const k of LAYERS) {
+    if (layers[k] == null && OPTIONAL_LAYERS.has(k)) continue;
+    map[k] = decode(layers[k], width * height);
+  }
+  if ((data.version | 0) < 2) migrateV1(map);
   map.computeWaterDistance();
   map.roadsDirty = true;
   const state = {
@@ -56,6 +63,17 @@ export function deserialize(data) {
   };
   refreshFields(state);
   return state;
+}
+
+// v1 had no avenues. New maps start with the regional highway as an avenue,
+// so give v1 cities the same (free) upgrade — otherwise commuters would jam it.
+function migrateV1(map) {
+  const { highwayRow, highwayLength } = CONFIG.map;
+  if (highwayRow >= map.height) return;
+  for (let x = 0; x < Math.min(highwayLength, map.width); x++) {
+    const i = map.idx(x, highwayRow);
+    if (map.type[i] === TILE.ROAD) map.roadClass[i] = 1;
+  }
 }
 
 export function downloadSave(state) {

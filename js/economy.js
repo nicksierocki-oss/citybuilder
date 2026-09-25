@@ -6,6 +6,7 @@ import { TILE, TERRAIN, FLAG, isZone } from './map.js';
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
   road:        { label: 'Road',        key: '1', shape: 'line', tile: TILE.ROAD },
+  avenue:      { label: 'Avenue',      key: '7', shape: 'line', tile: TILE.ROAD },
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
@@ -21,6 +22,14 @@ export function toolCost(state, tool, i) {
   const t = map.type[i], water = map.terrain[i] === TERRAIN.WATER;
   const trees = map.hasFlag(i, FLAG.TREES) ? C.clearTrees : 0;
   switch (tool) {
+    case 'avenue':
+      if (t === TILE.ROAD) {
+        if (map.roadClass[i] === 1) return null;
+        return water ? C.avenueBridge - C.bridge : C.avenue - C.road; // upgrade a street
+      }
+      if (isZone(t) && map.level[i] > 0) return null;
+      if (t === TILE.PARK) return null;
+      return water ? C.avenueBridge : C.avenue + trees;
     case 'road':
       if (t === TILE.ROAD) return null;
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
@@ -49,9 +58,12 @@ function applyOne(state, tool, i) {
     if (map.type[i] === TILE.EMPTY) map.setFlag(i, FLAG.TREES, false);
     map.type[i] = TILE.EMPTY;
     map.level[i] = 0;
+    map.roadClass[i] = 0;
+    map.traffic[i] = 0;
     map.setFlag(i, FLAG.ABANDONED, false);
   } else {
     map.type[i] = TOOLS[tool].tile;
+    map.roadClass[i] = tool === 'avenue' ? 1 : 0;
     map.level[i] = 0;
     map.setFlag(i, FLAG.TREES, false);
     map.setFlag(i, FLAG.ABANDONED, false);
@@ -96,6 +108,7 @@ export function monthlyBudget(state) {
   };
   const expenses = {
     roads: s.roads * E.roadMaintenance,
+    avenues: s.avenues * E.avenueMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
     parks: s.parks * E.parkMaintenance,
   };

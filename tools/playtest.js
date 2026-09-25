@@ -1,6 +1,6 @@
 // Headless balance playtest: runs the real simulation with scripted players.
 // Usage: node tools/playtest.js
-import { createGame, tick, refreshFields } from '../js/simulation.js';
+import { createGame, tick, refreshFields, evaluateTile } from '../js/simulation.js';
 import { applyTool } from '../js/economy.js';
 import { CONFIG } from '../js/config.js';
 import { TILE, TERRAIN } from '../js/map.js';
@@ -25,7 +25,7 @@ function riverX(state, y) {
 }
 
 // A sensible player: a small street grid, mixed zoning, a park, grows as demand appears.
-function sensible(state) {
+function sensible(state, avenues = false) {
   const H = CONFIG.map.highwayRow;
   const rx = Math.min(riverX(state, H - 6), riverX(state, H + 6), riverX(state, H)) - 2;
   const plan = [
@@ -48,6 +48,10 @@ function sensible(state) {
     const s = state.stats;
     if (stage === 0 && month >= 14) {
       stage++;
+      if (avenues) {
+        applyTool(state, 'avenue', line(state, 10, H, rx, H));
+        applyTool(state, 'avenue', line(state, 13, H - 12, 13, H + 12));
+      }
       applyTool(state, 'road', line(state, 13, H - 12, 13, H - 7));
       applyTool(state, 'road', line(state, 13, H - 12, rx, H - 12));
       applyTool(state, 'road', line(state, rx, H - 12, rx, H));
@@ -116,11 +120,20 @@ function run(name, strategy, months = 72, seed = 12345) {
         `RCI ${d.r.toFixed(2)} ${d.c.toFixed(2)} ${d.i.toFixed(2)} abandoned ${s.abandoned} Rlvls ${lvl.join('/')}`);
     }
   }
+  if (process.env.DIAG) {
+    const reasons = {};
+    for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.RES) {
+      for (const r of evaluateTile(state, i).reasons) { const k = r.replace(/\d+/g, '#'); reasons[k] = (reasons[k] || 0) + 1; }
+    }
+    let maxLoad = 0; for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.ROAD) maxLoad = Math.max(maxLoad, state.map.traffic[i]);
+    console.log('traffic', JSON.stringify(state.traffic), 'maxVolume', maxLoad.toFixed(0), reasons);
+  }
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';
   const secs2x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[2] / 1000).toFixed(0) : '-';
   console.log(`-> reached 1000 pop at month ${hit1000 ?? 'never'} (${secs1x}s at 1x, ${secs2x}s at 2x); bankrupt: ${state.bankrupt}`);
 }
 
 run('sensible', sensible);
+run('sensible + avenues', (st) => sensible(st, true));
 run('sprawl', sprawl);
 run('careless', careless);

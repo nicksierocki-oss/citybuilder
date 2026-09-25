@@ -8,6 +8,8 @@ export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5 };
 export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park'];
 export const FLAG = { TREES: 1, ABANDONED: 2 };
 
+export const ROAD_CLASS = { STREET: 0, AVENUE: 1 };
+
 export function isZone(type) {
   return type === TILE.RES || type === TILE.COM || type === TILE.IND;
 }
@@ -36,12 +38,20 @@ export class GameMap {
     this.level = new Uint8Array(n);     // 0 = vacant lot, 1..3 = density
     this.flags = new Uint8Array(n);
     this.variant = new Uint8Array(n);   // cosmetic randomness per tile
+    this.roadClass = new Uint8Array(n); // ROAD_CLASS for road tiles
     // Derived layers (recomputed by the simulation)
     this.pollution = new Float32Array(n);
     this.landValue = new Float32Array(n);
     this.roadDist = new Int32Array(n);  // road tiles to the map edge, -1 = not connected
     this.shoppers = new Float32Array(n);// residents within shopping radius
     this.waterDist = new Float32Array(n);
+    // Traffic (derived, see traffic.js)
+    this.traffic = new Float32Array(n);   // trips per month through a road tile
+    this.trafficSmooth = new Float32Array(n); // smoothed volume used for route costs
+    this.commute = new Float32Array(n);   // residential: avg commute minutes (Infinity = no job reachable)
+    this.employed = new Float32Array(n);  // residential: share of workers who found a job (1 if vacant)
+    this.passing = new Float32Array(n);   // trips on roads next to this tile
+    this.employed.fill(1);
     this.roadsDirty = true;
   }
 
@@ -138,6 +148,7 @@ export function generateMap(seed = (Math.random() * 1e9) | 0) {
   for (let x = 0; x < highwayLength; x++) {
     const i = map.idx(x, highwayRow);
     map.type[i] = TILE.ROAD;
+    map.roadClass[i] = ROAD_CLASS.AVENUE;
     map.setFlag(i, FLAG.TREES, false);
   }
   // Keep the area around the highway end clear so the first blocks are easy.

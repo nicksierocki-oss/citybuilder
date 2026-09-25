@@ -5,6 +5,7 @@
 import { CONFIG } from './config.js';
 import { GameMap, generateMap, TILE, TERRAIN, FLAG, isZone } from './map.js';
 import { economySystem } from './economy.js';
+import { trafficSystem } from './traffic.js';
 
 export function createGame(seed) {
   const map = generateMap(seed);
@@ -21,6 +22,7 @@ export function createGame(seed) {
     negativeMonths: 0,
     bankrupt: false,
     milestones: [],
+    traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
   };
@@ -32,7 +34,7 @@ export function createGame(seed) {
 function emptyStats() {
   return {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
-    roads: 0, bridges: 0, parks: 0,
+    roads: 0, avenues: 0, bridges: 0, parks: 0,
     zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
   };
 }
@@ -90,6 +92,18 @@ export function pollutionSystem(state) {
       pol[y * w + x] += e * (1 - d / (r + 1));
     }
   }
+  // Traffic exhaust: busy roads pollute themselves and their neighbours.
+  const TR = CONFIG.traffic;
+  for (let i = 0; i < map.size; i++) {
+    if (map.type[i] !== TILE.ROAD || map.traffic[i] <= 0) continue;
+    const e = Math.min(TR.pollutionCap, map.traffic[i] * TR.pollutionPerTrip);
+    const x0 = i % w, y0 = (i / w) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = x0 + dx, y = y0 + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      pol[y * w + x] += dx === 0 && dy === 0 ? e : e * 0.5;
+    }
+  }
   for (let i = 0; i < map.size; i++) {
     if (pol[i] <= 0) continue;
     let absorb = 0;
@@ -140,6 +154,7 @@ export function landValueSystem(state) {
     v += Math.min(L.treeCap, treeB[i]);
     v += Math.min(L.commercialCap, comB[i]);
     v -= abB[i];
+    if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight;
     lv[i] = Math.max(0, Math.min(100, v));
   }
@@ -176,7 +191,11 @@ export function computeStats(state) {
     if (t === TILE.RES) { s.zoned.r++; if (alive) s.population += cap.residential[lv]; }
     else if (t === TILE.COM) { s.zoned.c++; if (alive) s.comJobs += cap.commercial[lv]; }
     else if (t === TILE.IND) { s.zoned.i++; if (alive) s.indJobs += cap.industrial[lv]; }
-    else if (t === TILE.ROAD) { if (map.terrain[i] === TERRAIN.WATER) s.bridges++; else s.roads++; }
+    else if (t === TILE.ROAD) {
+      if (map.terrain[i] === TERRAIN.WATER) s.bridges++;
+      else if (map.roadClass[i] === 1) s.avenues++;
+      else s.roads++;
+    }
     else if (t === TILE.PARK) s.parks++;
     if (isZone(t) && !alive) s.abandoned++;
   }
@@ -236,9 +255,24 @@ export function evaluateTile(state, i) {
     if (state.demand.r <= 0) reasons.push('No residential demand — the city needs more jobs');
     if (maxLevel < 3) reasons.push(`Land value ${lv.toFixed(0)} caps density at ${levelName(maxLevel)} (needs ${G.residentialLevelLV[maxLevel + 1]})`);
     if (map.pollution[i] > 20) reasons.push('Pollution is hurting this neighbourhood');
+    const TR = CONFIG.traffic, c = map.commute[i];
+    if (!Number.isFinite(c)) {
+      score -= TR.commuteWeight;
+      reasons.push(`No jobs within a ${TR.maxCommute}-minute commute`);
+    } else if (c > TR.comfortCommute) {
+      score -= Math.min(1, (c - TR.comfortCommute) / (TR.maxCommute - TR.comfortCommute)) * TR.commuteWeight;
+      reasons.push(`Long commute: ${c.toFixed(0)} min (comfortable is ${TR.comfortCommute})`);
+    }
+    const emp = map.employed[i];
+    if (map.level[i] > 0 && emp < TR.unemploymentThreshold) {
+      score -= (TR.unemploymentThreshold - emp) * TR.unemploymentWeight;
+      reasons.push(`${Math.round((1 - emp) * 100)}% of workers here can't reach a job`);
+    }
   } else if (t === TILE.COM) {
     const shoppers = map.shoppers[i];
-    score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1;
+    const TR = CONFIG.traffic;
+    score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
+      + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1);
     while (maxLevel > 1 && (lv < G.commercialLevelLV[maxLevel] || shoppers < G.commercialLevelShoppers[maxLevel])) maxLevel--;
     if (state.demand.c <= 0) reasons.push('No commercial demand — needs more residents (or workers)');
     if (maxLevel < 3) {
@@ -301,6 +335,7 @@ export function growthSystem(state) {
 
 function runFieldSystems(state) {
   roadSystem(state);
+  trafficSystem(state);
   pollutionSystem(state);
   landValueSystem(state);
   shopperSystem(state);
@@ -321,6 +356,7 @@ function milestoneSystem(state) {
 // Ordered pipeline. Each entry: { name, run(state), every?: ticks }
 export const SYSTEMS = [
   { name: 'roads', run: roadSystem },
+  { name: 'traffic', run: trafficSystem, every: CONFIG.traffic.everyTicks },
   { name: 'pollution', run: pollutionSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'landValue', run: landValueSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'shoppers', run: shopperSystem, every: CONFIG.sim.fieldsEveryTicks },
