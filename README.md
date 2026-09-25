@@ -37,7 +37,21 @@ There's an optional **3D view**, built with Three.js. The library is included in
    | Highway | 1,200 trips | 0.3 min/tile | **limited access**: buildings can't front onto it, so pair it with streets |
  Busy roads
    are noisy and polluting, so they lower land value next to them. Shops like passing traffic.
-6. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
+6. **Power and water.** Build a **wind farm** (clean, 150 units) or a **coal plant**
+   (600 units, but it pollutes), plus a **water pump** (400 units within 2 tiles of the
+   river, 130 on dry land). Place them beside a road: power lines and pipes run under the
+   streets, so each connected road network pools its supply and serves the nearest
+   buildings first. Buildings need **power for medium density** and **power + water for
+   high density**. The top bar shows supply against demand.
+7. **Public buildings and happiness.**
+   - **School** and **clinic** (radius 9) make residents happier. Schools also raise land value.
+   - **Plaza** (radius 4) adds happiness, land value and busier shops.
+   - **Recycling center** halves pollution around it.
+   - **Park** and **Plant trees** clean the air.
+
+   Happiness (0–100) comes from those services, land value, pollution, commute and utilities.
+   Happy neighbourhoods grow faster, and unhappy ones decline.
+8. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
    upkeep. If funds stay negative for 6 months, the council removes you.
 
 A good opener: run a street off the highway, put industry near the highway
@@ -48,14 +62,15 @@ among the homes.
 
 | Action | Input |
 | --- | --- |
-| Tools | `1` Street · `7` Avenue · `8` Highway · `9` Upgrade road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
+| Tools | Grouped in the sidebar. Hover a tool for its cost and what it does. `1` Street · `7` Avenue · `8` Highway · `9` Upgrade road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
 | Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles |
 | Pan | `WASD` / arrow keys, **`Shift` + drag** (any button) or **`Shift` + scroll**, middle-drag, right-drag (2D), or left-drag with the Inspect tool |
 | 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits and `Q`/`E` rotate |
 | Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution · `T` traffic (buildings turn see-through in 3D) |
+| Overlays | `L` land value · `P` pollution · `H` happiness · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
+| Start over | **Reset** (top bar) restarts on a fresh map of the same size. The **City** menu has New city (pick a size), Expand map, Save and Load |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
 | Taxes | `−` / `+` in the top bar (higher tax = more income, less demand) |
@@ -86,19 +101,26 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
      - Homes lose score above a 20-minute commute and when under 70% of their workers are employed.
      - Shops gain from passing trips.
      - Busy roads add pollution and noise, which lowers land value.
-3. **Pollution.** Industry emits 30 / 50 / 75 by density, with linear falloff over
+3. **Coverage and utilities** (`js/services.js`).
+   - **Coverage:** each school, clinic, plaza and recycling center covers tiles within its radius, with linear falloff.
+   - **Supply:** road tiles are grouped into connected networks. Each network pools the output of the plants and pumps next to it.
+   - **Distribution:** consumers are served in order of road distance from a source. When supply runs out, the farthest buildings are left short.
+   - **Density cap:** without power, buildings stay at low density; without water, they stop at medium.
+4. **Pollution.** Industry emits 30 / 50 / 75 by density, with linear falloff over
    radius 3 / 4 / 6. Large commerce emits a little. Parks and trees absorb pollution nearby.
-4. **Land value.** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
+5. **Land value.** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
    trees and nearby shops. Subtracts 0.8 × pollution and a penalty near abandoned buildings.
-5. **Shoppers.** Residents within 6 tiles of each tile, computed with a summed-area table.
-6. **Demand (RCI).**
+6. **Shoppers**, then **happiness**:
+   50 + school/clinic/plaza coverage + 0.3 × (land value − 40) − 0.35 × pollution
+   − commute over 20 min − utility outages. **Shoppers:** Residents within 6 tiles of each tile, computed with a summed-area table.
+7. **Demand (RCI).**
    - Residential target population = (jobs + 50 outside jobs) / 0.5 workforce ratio.
    - Commercial target = 0.2 jobs per resident.
    - Industrial target = 0.32 jobs per resident + 40 export jobs.
    - C and I are also capped by available labour.
    - Each gap is normalised to −1..1, shifted by the tax rate, and smoothed.
-7. **Growth.** Every zoned tile gets a score:
-   - **R:** demand + land value − commute and unemployment penalties.
+8. **Growth.** Every zoned tile gets a score:
+   - **R:** demand + land value + happiness − commute and unemployment penalties.
    - **C:** demand + land value + nearby shoppers + passing traffic.
    - **I:** demand + freight access, meaning a short road trip to the highway.
 
@@ -109,7 +131,7 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
    Negative scores shrink buildings, and a very bad small building is abandoned.
    Abandoned buildings recover when conditions improve. Tiles cut off from the road
    network decline.
-8. **Economy.** At each month boundary, taxes minus upkeep go into funds. Debt counts down to bankruptcy.
+9. **Economy.** At each month boundary, taxes minus upkeep go into funds. Debt counts down to bankruptcy.
 
 The **tile info panel** explains why a tile isn't growing, for example "Needs a road next
 to it", "Land value 34 caps density at low (needs 40)", or "Only 45 residents
@@ -133,9 +155,10 @@ node tools/playtest.js          # add DIAG=1 for traffic stats and why homes are
 
 Current results (seed 12345):
 
-- **Sensible layout** (streets only): 1,000 people by month 29 (about 90 s at 1×), then jams cap it near 1,650.
-- **Same layout with the main spine upgraded to avenues:** about 2,100 people by year 6, everyone employed, commutes about 21 min instead of 27.
-- **Sprawl** (road grid everywhere, industry mixed into housing): stalls near 530 people and drains the treasury.
+- **Sensible layout** (streets only; builds wind, a pump, then coal, a school and a clinic as demand appears):
+  1,000 people by month 24 (about 77 s at 1×) and about 2,000 by year 6, earning about +$610/month.
+- **Same layout with avenues:** 1,000 by month 21 and about 2,300 by year 6.
+- **Sprawl** (road grid, industry mixed into housing, no utilities): stalls around 440 people with a small deficit.
 - **Careless** (everything zoned residential, 300+ roads): bankrupt within 6 months.
 
 ---
@@ -149,9 +172,12 @@ js/config.js        ALL balance numbers
 js/map.js           GameMap: grid of typed-array layers + map generator (river, trees, highway)
 js/simulation.js    systems pipeline: roads, traffic, pollution, land value, demand, growth, stats
 js/traffic.js       commuting, freight, congestion (Dijkstra over the road graph)
+js/services.js      power & water networks, service coverage, happiness
+js/overlays.js      overlay registry (values, colours, legends) shared by both views
 js/economy.js       tools, build costs, monthly budget, bankruptcy
 js/renderer.js      2D canvas drawing, camera (pan/zoom), overlays
-js/renderer3d.js    3D view (Three.js): instanced buildings/trees/cars, orbit camera, ground-plane picking
+js/renderer3d.js    3D view (Three.js): instanced buildings (two designs per zone & density,
+                    facing their street), public buildings, trees, cars, turbines; orbit camera
 vendor/three/       three.js r186, unmodified (MIT), loaded only when 3D is first used
 js/input.js         mouse painting, panning, keyboard shortcuts
 js/ui.js            DOM: top bar, toolbar, RCI meter, tile info, toasts, dialogs

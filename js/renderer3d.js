@@ -3,8 +3,9 @@
 // buildings, trees and cars are instanced low-poly meshes.
 
 import * as THREE from '../vendor/three/three.module.js';
+import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
 import { Renderer, TS, forEachCar } from './renderer.js';
-import { TILE, FLAG } from './map.js';
+import { TILE, FLAG, KINDS } from './map.js';
 
 // Ground texture pixels per tile: full 2D detail on small maps, capped near 2k px for big ones.
 const texPx = (size) => Math.max(16, Math.min(TS, Math.floor(2048 / size)));
@@ -14,19 +15,28 @@ const MESH_THROTTLE_MS = 120;
 // Geometries with their origin at the base centre, so scale.y = height.
 const GEO = {
   box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+  rbox: new RoundedBoxGeometry(1, 1, 1, 3, 0.09).translate(0, 0.5, 0), // soft-edged building bodies
   pyramid: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4).translate(0, 0.5, 0),
-  cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 10).translate(0, 0.5, 0),
-  blob: new THREE.IcosahedronGeometry(0.5, 1).translate(0, 0.5, 0),
+  cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 16).translate(0, 0.5, 0),
+  tower: new THREE.CylinderGeometry(0.36, 0.5, 1, 18, 1, true).translate(0, 0.5, 0), // cooling tower
+  cone: new THREE.ConeGeometry(0.5, 1, 14).translate(0, 0.5, 0),
+  blob: new THREE.IcosahedronGeometry(0.5, 2).translate(0, 0.5, 0),
 };
 
+// Soft pastel palette matching the 2D view.
 const COL = {
-  resWall: '#f3e3cf', resRoof: [null, '#e0795a', '#d86f52', '#b8563e'],
-  comWall: '#dce8f4', comRoof: [null, '#5b9bdb', '#3f7fc4', '#2f6db5'], glass: '#6d9fd4', glassBand: '#dbe9f7',
-  indWall: '#e3d3a8', indRoof: [null, '#c9a04a', '#b08a3c', '#94712f'], stack: '#6d6259', crate: '#b98a3b',
-  band: '#00000022', awnings: ['#e8665a', '#f2b84b', '#6cc19c'],
-  abandoned: '#9b9893', abandonedRoof: '#7c7975',
-  trunk: '#7a5a3a', leaves: ['#4f8f45', '#5c9d4e', '#467f3d'],
-  slab: '#4a3f35', bg: '#1d2430',
+  resWall: '#fbf1e6', resWall2: '#f3e7f0', resRoof: [null, '#eda386', '#e3957a', '#d98a72'], resRoof2: ['#f0b7a0', '#c9b3dd', '#9fcdb9'],
+  comWall: '#eef4fb', comRoof: [null, '#90bbe8', '#7fb0e2', '#73a6dc'], glass: '#a9cdef', glassBand: '#f3f8fd', glass2: '#bfe0dc',
+  indWall: '#f6eedc', indRoof: [null, '#e6c682', '#dcbc78', '#d2ae6c'], stack: '#c9c0b7', crate: '#dcb98a', tank: '#e9e4dc',
+  band: '#e3d7c8', awnings: ['#f4a39a', '#f6d27a', '#9fd8b4'],
+  abandoned: '#d4d0ca', abandonedRoof: '#bdb8b1',
+  trunk: '#b39478', leaves: ['#8fc47c', '#83bb70', '#9bcd88'], hedge: '#a3d18c', garden: '#b6dd9f',
+  slab: '#dccfbf', bg: '#e6edf2',
+  svc: {
+    coal: '#cfc6bd', coalTower: '#ebe7e1', steam: '#ffffff', wind: '#ffffff', pump: '#bfe0f4', tank: '#e1f0f9',
+    school: '#f8e2a4', schoolRoof: '#ee9f86', clinic: '#ffffff', cross: '#ef7f86', plaza: '#efe6d6', fountain: '#a6d6ee',
+    recycling: '#b7deb0', bins: ['#86b8e8', '#f6d27a', '#9fd8b4'], flag: '#ef7f86',
+  },
 };
 const colorCache = new Map();
 function color(hex) {
@@ -97,8 +107,8 @@ export class Renderer3D {
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
     this.orbit = { target: new THREE.Vector3(20, 0, 20), yaw: -0.6, pitch: 0.85, dist: 28 };
 
-    scene.add(new THREE.HemisphereLight('#e4f0ff', '#51603f', 1.6));
-    const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
+    scene.add(new THREE.HemisphereLight('#ffffff', '#c9d6bd', 2.1));
+    const sun = new THREE.DirectionalLight('#fff6ea', 1.7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0005;
@@ -141,14 +151,21 @@ export class Renderer3D {
   // Instance capacity scales with map area (worst case: every tile built up).
   makeBatches(tiles) {
     for (const b of this.buildingBatches ?? []) this.scene.remove(b.mesh);
-    if (this.cars) this.scene.remove(this.cars.mesh);
+    for (const b of this.dynamicBatches ?? []) this.scene.remove(b.mesh);
     const scene = this.scene;
-    this.boxes = new Batch(scene, GEO.box, tiles * 7);
-    this.roofs = new Batch(scene, GEO.pyramid, tiles * 2);
-    this.cylinders = new Batch(scene, GEO.cylinder, tiles * 3);
-    this.blobs = new Batch(scene, GEO.blob, tiles * 3);
+    this.rboxes = new Batch(scene, GEO.rbox, tiles * 5);
+    this.boxes = new Batch(scene, GEO.box, tiles * 8);
+    this.roofs = new Batch(scene, GEO.pyramid, tiles * 3);
+    this.cylinders = new Batch(scene, GEO.cylinder, tiles * 4);
+    this.towers = new Batch(scene, GEO.tower, Math.max(64, tiles / 4));
+    this.cones = new Batch(scene, GEO.cone, tiles * 2);
+    this.blobs = new Batch(scene, GEO.blob, tiles * 4);
+    this.buildingBatches = [this.rboxes, this.boxes, this.roofs, this.cylinders, this.towers, this.cones, this.blobs];
+    this.towers.mesh.material.side = THREE.DoubleSide;
+    // Moving things, rebuilt every frame
     this.cars = new Batch(scene, GEO.box, tiles * 3, { shadows: false });
-    this.buildingBatches = [this.boxes, this.roofs, this.cylinders, this.blobs];
+    this.blades = new Batch(scene, new THREE.BoxGeometry(1, 1, 1), Math.max(64, tiles / 2), { shadows: false });
+    this.dynamicBatches = [this.cars, this.blades];
     this.batchTiles = tiles;
   }
 
@@ -243,6 +260,11 @@ export class Renderer3D {
   fitMap(map) {
     const w = map.width, h = map.height;
     if (w * h > this.batchTiles) this.makeBatches(w * h);
+    if (w * h > this.preview.capacity) {
+      this.scene.remove(this.preview.mesh);
+      this.preview = new Batch(this.scene, this.preview.mesh.geometry, w * h, { shadows: false, basic: true });
+      this.preview.setOpacity(0.5);
+    }
     this.texPx = texPx(Math.max(w, h));
     this.groundCanvas.width = w * this.texPx;
     this.groundCanvas.height = h * this.texPx;
@@ -283,6 +305,7 @@ export class Renderer3D {
 
   buildMeshes(map) {
     for (const b of this.buildingBatches) b.begin();
+    this.turbines = [];
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
       const i = map.idx(x, y), t = map.type[i], v = map.variant[i];
       if (t === TILE.EMPTY && map.hasFlag(i, FLAG.TREES)) {
@@ -294,7 +317,9 @@ export class Renderer3D {
         this.tree(x + 24 / 32, y + 23 / 32, 0.38, v >> 2);
         if (v & 4) this.tree(x + 23 / 32, y + 7 / 32, 0.26, v >> 3);
       } else if ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) {
-        this.building(x, y, t, map.level[i], v, map.hasFlag(i, FLAG.ABANDONED));
+        this.building(this.placer(map, x, y), t, map.level[i], v, map.hasFlag(i, FLAG.ABANDONED));
+      } else if (t === TILE.SERVICE) {
+        this.service(this.placer(map, x, y), KINDS[map.kind[i]], v, x, y);
       }
     }
     for (const b of this.buildingBatches) b.end();
@@ -306,76 +331,194 @@ export class Renderer3D {
     this.blobs.add(x, h * 0.3, z, size, h, size, COL.leaves[v % 3]);
   }
 
-  // Box helper in tile-local coordinates: (u, w) = footprint centre in 0..1, sizes in tile units.
-  bx(x, y, u, w, sx, sz, y0, h, hex, rot = 0) { this.boxes.add(x + u, y0, y + w, sx, h, sz, hex, rot); }
-
-  floors(x, y, u, w, sx, sz, h, step, hex) {
-    for (let k = step; k < h - 0.05; k += step) this.bx(x, y, u, w, sx + 0.02, sz + 0.02, k, 0.035, hex);
+  // Returns a helper that places parts in tile-local coordinates, turned so the building's
+  // front (local +z) faces an adjacent road. (u, w) are offsets from the tile centre.
+  placer(map, x, y) {
+    const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
+    const k = road(0, 1) ? 0 : road(1, 0) ? 1 : road(0, -1) ? 2 : road(-1, 0) ? 3 : 0;
+    const a = k * Math.PI / 2, c = Math.round(Math.cos(a)), s = Math.round(Math.sin(a));
+    const cx = x + 0.5, cz = y + 0.5;
+    return (batch, u, w, sx, sz, y0, h, hex, rot = 0) =>
+      batch.add(cx + u * c + w * s, y0, cz - u * s + w * c, sx, h, sz, hex, a + rot);
   }
 
-  building(x, y, t, lv, v, ab) {
-    const A = ab;
-    const wall = (hex) => (A ? COL.abandoned : hex);
-    const roof = (hex) => (A ? COL.abandonedRoof : hex);
+  building(P, t, lv, v, ab) {
+    const wall = (hex) => (ab ? COL.abandoned : hex);
+    const roof = (hex) => (ab ? COL.abandonedRoof : hex);
+    const alt = (v >> 5) & 1; // two designs per zone and density level
+    const bands = (u, w, sx, sz, h, step, hex, from = step) => {
+      for (let y0 = from; y0 < h - 0.05; y0 += step) P(this.boxes, u, w, sx + 0.025, sz + 0.025, y0, 0.03, hex);
+    };
     if (t === TILE.RES) {
-      const r = COL.resRoof[lv];
-      if (lv === 1) {
-        const houses = (v & 1) ? [[10, 10], [23, 22]] : [[23, 10], [10, 22]];
-        for (const [hx, hz] of houses) {
-          const rot = (v & 2) ? 0 : Math.PI / 2;
-          this.bx(x, y, hx / 32, hz / 32, 0.3, 0.3, 0, 0.2, wall(COL.resWall));
-          this.roofs.add(x + hx / 32, 0.2, y + hz / 32, 0.36, 0.16, 0.36, roof(r), rot);
+      const r = roof(COL.resRoof[lv]);
+      if (lv === 1 && !alt) {        // two gabled cottages
+        for (const [u, w] of [[-0.2, -0.18], [0.2, 0.16]]) {
+          P(this.rboxes, u, w, 0.3, 0.3, 0, 0.21, wall(COL.resWall));
+          P(this.roofs, u, w, 0.36, 0.36, 0.21, 0.17, r);
         }
-      } else if (lv === 2) {
-        const h = 0.7 + (v & 3) * 0.06;
-        this.bx(x, y, 0.5, 0.47, 0.76, 0.62, 0, h, wall(COL.resWall));
-        this.floors(x, y, 0.5, 0.47, 0.76, 0.62, h, 0.24, roof('#c9b49c'));
-        this.bx(x, y, 0.5, 0.47, 0.8, 0.66, h, 0.06, roof(r));
-      } else {
+      } else if (lv === 1) {         // bungalow with a garden hedge
+        P(this.rboxes, 0, -0.08, 0.56, 0.38, 0, 0.2, wall(COL.resWall2));
+        P(this.roofs, 0, -0.08, 0.66, 0.46, 0.2, 0.13, roof(COL.resRoof2[v % 3]));
+        P(this.boxes, 0, 0.36, 0.7, 0.07, 0, 0.1, roof(COL.hedge));
+        P(this.blobs, 0.3, 0.2, 0.2, 0.2, 0.02, 0.24, roof(COL.leaves[v % 3]));
+      } else if (lv === 2 && !alt) { // apartment slab
+        const h = 0.72 + (v & 3) * 0.06;
+        P(this.rboxes, 0, -0.03, 0.76, 0.62, 0, h, wall(COL.resWall));
+        bands(0, -0.03, 0.76, 0.62, h, 0.24, roof(COL.band));
+        P(this.rboxes, 0, -0.03, 0.8, 0.66, h, 0.06, r);
+      } else if (lv === 2) {         // row of three townhouses
+        for (let n = 0; n < 3; n++) {
+          const u = -0.27 + n * 0.27, h = 0.5 + ((v >> n) & 1) * 0.12;
+          P(this.rboxes, u, -0.02, 0.25, 0.6, 0, h, wall(n === 1 ? COL.resWall2 : COL.resWall));
+          P(this.roofs, u, -0.02, 0.3, 0.66, h, 0.16, roof(COL.resRoof2[(v + n) % 3]));
+        }
+      } else if (!alt) {             // tower with floor bands and a roof plant
         const h = 1.9 + (v & 3) * 0.2;
-        this.bx(x, y, 0.5, 0.5, 0.8, 0.8, 0, h, wall(COL.resWall));
-        this.floors(x, y, 0.5, 0.5, 0.8, 0.8, h, 0.3, roof('#c4a98f'));
-        this.bx(x, y, 0.5, 0.5, 0.84, 0.84, h, 0.07, roof(r));
-        this.bx(x, y, 0.5, 0.5, 0.26, 0.26, h + 0.07, 0.18, roof('#7a3b2c'));
+        P(this.rboxes, 0, 0, 0.8, 0.8, 0, h, wall(COL.resWall));
+        bands(0, 0, 0.8, 0.8, h, 0.3, roof(COL.band));
+        P(this.rboxes, 0, 0, 0.84, 0.84, h, 0.07, r);
+        P(this.rboxes, 0, 0, 0.26, 0.26, h + 0.07, 0.18, roof('#c9a08c'));
+      } else {                       // terraced tower with roof gardens
+        const steps = [[0.84, 0.8], [0.66, 0.75], [0.48, 0.7]];
+        let y0 = 0;
+        steps.forEach(([sz, h], n) => {
+          P(this.rboxes, 0, -0.04 * n, sz, sz, y0, h, wall(COL.resWall2));
+          bands(0, -0.04 * n, sz, sz, h, 0.25, roof(COL.band), 0.25);
+          y0 += h;
+          P(this.boxes, 0, -0.04 * n, sz - 0.04, sz - 0.04, y0, 0.03, roof(COL.garden));
+          if (n < 2) P(this.blobs, sz / 2 - 0.1, sz / 2 - 0.1 - 0.04 * n, 0.14, 0.14, y0, 0.14, roof(COL.leaves[(v + n) % 3]));
+        });
       }
     } else if (t === TILE.COM) {
-      const r = COL.comRoof[lv];
-      if (lv === 1) {
-        this.bx(x, y, 0.5, 0.45, 0.7, 0.46, 0, 0.34, wall(COL.comWall));
-        this.bx(x, y, 0.5, 0.45, 0.72, 0.48, 0.34, 0.04, roof(r));
-        this.bx(x, y, 0.5, 0.72, 0.72, 0.1, 0.22, 0.04, A ? COL.abandonedRoof : COL.awnings[v % 3]);
-      } else if (lv === 2) {
+      const r = roof(COL.comRoof[lv]);
+      if (lv === 1 && !alt) {        // shop with an awning
+        P(this.rboxes, 0, -0.05, 0.7, 0.46, 0, 0.34, wall(COL.comWall));
+        P(this.boxes, 0, -0.05, 0.72, 0.48, 0.34, 0.04, r);
+        P(this.boxes, 0, 0.22, 0.72, 0.12, 0.22, 0.04, roof(COL.awnings[v % 3]));
+      } else if (lv === 1) {         // café kiosk with a patio of umbrellas
+        P(this.cylinders, -0.15, -0.12, 0.42, 0.42, 0, 0.32, wall(COL.comWall));
+        P(this.cones, -0.15, -0.12, 0.5, 0.5, 0.32, 0.12, r);
+        for (const [u, w] of [[0.2, 0.22], [0.28, -0.12], [-0.12, 0.3]]) {
+          P(this.cylinders, u, w, 0.025, 0.025, 0, 0.2, roof('#9aa4b2'));
+          P(this.cones, u, w, 0.22, 0.22, 0.2, 0.07, roof(COL.awnings[(v + Math.round(u * 10)) % 3]));
+        }
+      } else if (lv === 2 && !alt) { // office block
         const h = 1.0 + (v & 3) * 0.08;
-        this.bx(x, y, 0.5, 0.47, 0.82, 0.7, 0, h, wall('#bcd3ea'));
-        this.floors(x, y, 0.5, 0.47, 0.82, 0.7, h, 0.22, roof('#8fb3d6'));
-        this.bx(x, y, 0.5, 0.47, 0.84, 0.72, h, 0.05, roof(r));
-      } else {
+        P(this.rboxes, 0, -0.03, 0.82, 0.7, 0, h, wall('#d4e5f5'));
+        bands(0, -0.03, 0.82, 0.7, h, 0.22, roof(COL.glassBand));
+        P(this.rboxes, 0, -0.03, 0.85, 0.73, h, 0.05, r);
+      } else if (lv === 2) {         // low mall with a glass atrium
+        P(this.rboxes, 0, -0.02, 0.88, 0.76, 0, 0.42, wall(COL.comWall));
+        P(this.rboxes, 0, -0.02, 0.4, 0.4, 0.42, 0.2, roof(COL.glass2));
+        P(this.boxes, 0, 0.37, 0.7, 0.04, 0.3, 0.04, roof(COL.awnings[v % 3]));
+      } else if (!alt) {             // glass tower with a crown
         const h = 2.6 + (v & 3) * 0.25;
-        this.bx(x, y, 0.5, 0.5, 0.78, 0.78, 0, h, wall(COL.glass));
-        this.floors(x, y, 0.5, 0.5, 0.78, 0.78, h, 0.26, wall(COL.glassBand));
-        this.bx(x, y, 0.5, 0.5, 0.56, 0.56, h, 0.3, roof(r));
-        this.bx(x, y, 0.5, 0.5, 0.06, 0.06, h + 0.3, 0.45, roof('#dfe7ef'));
+        P(this.rboxes, 0, 0, 0.78, 0.78, 0, h, wall(COL.glass));
+        bands(0, 0, 0.78, 0.78, h, 0.26, wall(COL.glassBand));
+        P(this.rboxes, 0, 0, 0.56, 0.56, h, 0.3, r);
+        P(this.cylinders, 0, 0, 0.05, 0.05, h + 0.3, 0.45, roof('#eef2f6'));
+      } else {                       // round tower with a spire
+        const h = 2.4 + (v & 3) * 0.25;
+        P(this.cylinders, 0, 0, 0.78, 0.78, 0, h, wall(COL.glass2));
+        for (let y0 = 0.28; y0 < h - 0.05; y0 += 0.28) P(this.cylinders, 0, 0, 0.8, 0.8, y0, 0.03, wall(COL.glassBand));
+        P(this.cylinders, 0, 0, 0.6, 0.6, h, 0.2, r);
+        P(this.cones, 0, 0, 0.2, 0.2, h + 0.2, 0.6, roof('#eef2f6'));
       }
     } else {
-      const r = COL.indRoof[lv];
-      if (lv === 1) {
-        this.bx(x, y, 0.38, 0.47, 0.5, 0.56, 0, 0.36, wall(COL.indWall));
-        this.bx(x, y, 0.38, 0.47, 0.52, 0.58, 0.36, 0.04, roof(r));
-        this.bx(x, y, 0.78, 0.62, 0.16, 0.16, 0, 0.14, roof(COL.crate));
-        this.bx(x, y, 0.8, 0.8, 0.14, 0.14, 0, 0.12, roof(COL.crate));
-      } else if (lv === 2) {
-        this.bx(x, y, 0.5, 0.47, 0.84, 0.7, 0, 0.5, wall(COL.indWall));
-        for (let k = 0; k < 4; k++) this.bx(x, y, 0.5, 0.2 + k * 0.18, 0.84, 0.09, 0.5, 0.1, roof(r));
-      } else {
-        this.bx(x, y, 0.4, 0.53, 0.7, 0.76, 0, 0.66, wall(COL.indWall));
-        for (let k = 0; k < 4; k++) this.bx(x, y, 0.4, 0.24 + k * 0.19, 0.7, 0.09, 0.66, 0.12, roof(r));
-        this.cylinders.add(x + 0.86, 0, y + 0.2, 0.15, 1.5, 0.15, roof(COL.stack));
-        this.cylinders.add(x + 0.86, 0, y + 0.5, 0.12, 1.15, 0.12, roof(COL.stack));
+      const r = roof(COL.indRoof[lv]);
+      if (lv === 1 && !alt) {        // workshop with crates
+        P(this.rboxes, -0.12, -0.03, 0.5, 0.56, 0, 0.36, wall(COL.indWall));
+        P(this.boxes, -0.12, -0.03, 0.52, 0.58, 0.36, 0.04, r);
+        P(this.rboxes, 0.28, 0.12, 0.16, 0.16, 0, 0.14, roof(COL.crate));
+        P(this.rboxes, 0.3, 0.3, 0.14, 0.14, 0, 0.12, roof(COL.crate));
+      } else if (lv === 1) {         // warehouse with a loading dock and a truck
+        P(this.rboxes, 0, -0.12, 0.8, 0.5, 0, 0.32, wall(COL.indWall));
+        P(this.roofs, 0, -0.12, 0.84, 0.54, 0.32, 0.08, r);
+        P(this.rboxes, -0.18, 0.3, 0.14, 0.26, 0, 0.12, roof('#f6f6f6'));
+        P(this.rboxes, -0.18, 0.2, 0.12, 0.08, 0, 0.1, roof(COL.awnings[v % 3]));
+      } else if (lv === 2 && !alt) { // sawtooth factory
+        P(this.rboxes, 0, -0.03, 0.84, 0.7, 0, 0.5, wall(COL.indWall));
+        for (let n = 0; n < 4; n++) P(this.boxes, 0, -0.3 + n * 0.18, 0.84, 0.09, 0.5, 0.1, r);
+      } else if (lv === 2) {         // tank farm beside a small office
+        P(this.rboxes, -0.25, 0.2, 0.36, 0.4, 0, 0.36, wall(COL.indWall));
+        for (const [u, w, d] of [[0.2, -0.2, 0.36], [0.2, 0.22, 0.3], [-0.22, -0.25, 0.3]]) {
+          P(this.cylinders, u, w, d, d, 0, 0.42, roof(COL.tank));
+          P(this.cylinders, u, w, d * 0.9, d * 0.9, 0.42, 0.04, r);
+        }
+      } else if (!alt) {             // plant with smokestacks
+        P(this.rboxes, -0.1, 0.03, 0.7, 0.76, 0, 0.66, wall(COL.indWall));
+        for (let n = 0; n < 4; n++) P(this.boxes, -0.1, -0.26 + n * 0.19, 0.7, 0.09, 0.66, 0.12, r);
+        P(this.cylinders, 0.36, -0.3, 0.15, 0.15, 0, 1.5, roof(COL.stack));
+        P(this.cylinders, 0.36, 0, 0.12, 0.12, 0, 1.15, roof(COL.stack));
+      } else {                       // refinery: silos, pipes and a flare stack
+        for (const [u, w] of [[-0.24, -0.24], [0.02, -0.24], [-0.24, 0.04], [0.02, 0.04]]) {
+          P(this.cylinders, u, w, 0.22, 0.22, 0, 1.0, roof(COL.tank));
+          P(this.cones, u, w, 0.22, 0.22, 1.0, 0.1, r);
+        }
+        P(this.boxes, -0.11, -0.1, 0.5, 0.05, 0.55, 0.05, roof(COL.stack));
+        P(this.boxes, 0.3, 0.2, 0.05, 0.5, 0.3, 0.05, roof(COL.stack));
+        P(this.cylinders, 0.32, 0.3, 0.08, 0.08, 0, 1.8, roof(COL.stack));
       }
     }
   }
 
-  // Cars: same placement as the 2D view, one small box each.
+  service(P, k, v, x, y) {
+    const S = COL.svc;
+    switch (k) {
+      case 'coal':
+        P(this.rboxes, -0.2, 0.18, 0.5, 0.4, 0, 0.45, S.coal);
+        P(this.towers, 0.18, -0.15, 0.5, 0.5, 0, 0.95, S.coalTower);
+        P(this.cylinders, -0.3, -0.25, 0.1, 0.1, 0, 1.3, '#bdb3aa');
+        P(this.blobs, 0.2, -0.18, 0.4, 0.4, 0.95, 0.3, S.steam);
+        break;
+      case 'wind':
+        for (const [u, w, ph] of [[-0.2, -0.2, 0], [0.22, 0.2, 1.3]]) {
+          P(this.cylinders, u, w, 0.05, 0.05, 0, 1.1, S.wind);
+          P(this.rboxes, u, w, 0.1, 0.14, 1.1, 0.08, S.wind);
+          this.turbines.push({ x: x + 0.5 + u, y: 1.14, z: y + 0.5 + w, ph: ph + v });
+        }
+        break;
+      case 'pump':
+        P(this.rboxes, -0.18, -0.15, 0.42, 0.4, 0, 0.32, S.pump);
+        P(this.cylinders, 0.2, 0.18, 0.4, 0.4, 0, 0.5, S.tank);
+        P(this.cylinders, 0.2, 0.18, 0.42, 0.42, 0.5, 0.04, '#9fc3dc');
+        P(this.boxes, 0.02, 0.05, 0.3, 0.06, 0.12, 0.06, '#9fb4c4');
+        break;
+      case 'school':
+        P(this.rboxes, 0, -0.28, 0.86, 0.3, 0, 0.5, S.school);
+        P(this.rboxes, -0.28, 0.08, 0.3, 0.46, 0, 0.5, S.school);
+        P(this.boxes, 0, -0.28, 0.88, 0.32, 0.5, 0.05, S.schoolRoof);
+        P(this.boxes, -0.28, 0.08, 0.32, 0.48, 0.5, 0.05, S.schoolRoof);
+        P(this.cylinders, 0.34, 0.3, 0.025, 0.025, 0, 0.8, '#b8c0ca');
+        P(this.boxes, 0.4, 0.3, 0.14, 0.01, 0.62, 0.1, S.flag);
+        break;
+      case 'clinic':
+        P(this.rboxes, 0, 0, 0.78, 0.7, 0, 0.62, S.clinic);
+        P(this.boxes, 0, 0, 0.1, 0.4, 0.62, 0.03, S.cross);
+        P(this.boxes, 0, 0, 0.4, 0.1, 0.62, 0.03, S.cross);
+        P(this.boxes, 0, 0.36, 0.36, 0.03, 0.18, 0.18, S.cross);
+        break;
+      case 'plaza':
+        P(this.cylinders, 0, 0, 0.5, 0.5, 0, 0.07, '#e2d6c2');
+        P(this.cylinders, 0, 0, 0.42, 0.42, 0.02, 0.06, S.fountain);
+        P(this.cylinders, 0, 0, 0.06, 0.06, 0, 0.26, '#e2d6c2');
+        P(this.blobs, 0, 0, 0.12, 0.12, 0.24, 0.1, S.fountain);
+        for (const [u, w] of [[-0.36, -0.36], [0.36, 0.36], [0.36, -0.36], [-0.36, 0.36]]) {
+          P(this.cylinders, u, w, 0.04, 0.04, 0, 0.12, COL.trunk);
+          P(this.blobs, u, w, 0.2, 0.2, 0.08, 0.22, COL.leaves[(v + Math.round(u * 5)) % 3]);
+        }
+        break;
+      case 'recycling':
+        P(this.rboxes, -0.08, -0.12, 0.66, 0.5, 0, 0.42, S.recycling);
+        P(this.roofs, -0.08, -0.12, 0.7, 0.54, 0.42, 0.12, '#93c98a');
+        S.bins.forEach((c, n) => P(this.rboxes, -0.25 + n * 0.22, 0.32, 0.16, 0.16, 0, 0.18, c));
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Cars and turbine blades: same placement as the 2D view, rebuilt every frame.
   buildCars(map) {
     const cars = this.cars;
     cars.begin();
@@ -386,6 +529,25 @@ export class Renderer3D {
       });
     }
     cars.end();
+  }
+
+  buildBlades() {
+    const b = this.blades;
+    b.begin();
+    for (const t of this.turbines ?? []) {
+      const a0 = this.time * 2.2 + t.ph;
+      for (let n = 0; n < 3; n++) {
+        const a = a0 + n * (Math.PI * 2 / 3);
+        // A blade is a thin box rotated about the hub, facing +z.
+        b.mesh.setMatrixAt(b.n, new THREE.Matrix4().compose(
+          new THREE.Vector3(t.x + Math.cos(a) * 0.2, t.y + Math.sin(a) * 0.2, t.z + 0.08),
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a),
+          new THREE.Vector3(0.42, 0.035, 0.015)));
+        b.mesh.setColorAt(b.n, color('#ffffff'));
+        b.n++;
+      }
+    }
+    b.end();
   }
 
   // ------------------------------------------------------------ frame
@@ -415,6 +577,7 @@ export class Renderer3D {
     // Cars: every frame on normal maps, ~30 fps on big ones; hidden when zoomed far out.
     if (this.orbit.dist >= 60) { this.cars.begin(); this.cars.end(); }
     else if (map.size <= 5000 || now - (c.carsAt ?? 0) > 33) { this.buildCars(map); c.carsAt = now; }
+    this.buildBlades();
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;

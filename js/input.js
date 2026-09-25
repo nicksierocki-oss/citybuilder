@@ -2,6 +2,7 @@
 
 import { TOOLS, applyTool, previewCost } from './economy.js';
 import { refreshFields } from './simulation.js';
+import { OVERLAY_ORDER } from './overlays.js';
 
 const PAN_KEYS = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
@@ -165,6 +166,13 @@ export class Input {
       case 'l': g.toggleOverlay('landValue'); break;
       case 'p': g.toggleOverlay('pollution'); break;
       case 't': g.toggleOverlay('traffic'); break;
+      case 'h': g.toggleOverlay('happiness'); break;
+      case 'o': {
+        const i = OVERLAY_ORDER.indexOf(g.renderer.overlay);
+        const next = OVERLAY_ORDER[i + 1] ?? null; // cycles through every overlay, then off
+        if (next) g.toggleOverlay(next); else if (g.renderer.overlay) g.toggleOverlay(g.renderer.overlay);
+        break;
+      }
       case 'v': g.toggle3D(); break;
       case 'q': this.renderer.rotateBy?.(-40, 0); break;
       case 'e': this.renderer.rotateBy?.(40, 0); break;

@@ -73,7 +73,7 @@ export const CONFIG = {
     indBase: 40,             // regional export demand for goods
     scaleMin: 60,            // normalisation floor so small cities aren't jumpy
     laborSlack: 0.25,        // how far C/I demand may exceed labour supply
-    taxNeutral: 7,           // tax % with no demand penalty
+    taxNeutral: 9,           // tax % with no demand penalty (the default rate)
     taxSensitivity: 0.045,   // demand lost per % above neutral (gained below)
     smoothing: 0.25,         // 0..1, how fast the RCI meter follows its target
   },
