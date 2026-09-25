@@ -14,7 +14,7 @@ export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza',
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
-export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16, HIGHTECH: 32, HOTEL: 64 };
+export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16, HIGHTECH: 32, HOTEL: 64, TRAM: 128 };
 // Junction kinds (see junctionKind): how a road tile meets its neighbours.
 export const JUNCTION = { NONE: 0, MERGE: 1, INTERSECTION: 2, HIGHWAY: 3 };
 

@@ -4,6 +4,7 @@ import { TOOLS, applyTool, previewCost, expandSelection } from './economy.js';
 import { refreshFields } from './simulation.js';
 import { OVERLAY_ORDER } from './overlays.js';
 import { footprintSize } from './map.js';
+import { isStop } from './transit.js';
 
 const PAN_KEYS = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
@@ -154,6 +155,18 @@ export class Input {
     this.drag = null;
     this.game.preview = null;
     if (!tiles.length) return;
+    // Extending a transit line: click stops in order; clicking empty land builds a stop there.
+    const line = this.game.tool === 'bus' && this.game.activeLine ? state.lines?.find((l) => l.id === this.game.activeLine) : null;
+    if (line) {
+      const i = tiles[0];
+      if (isStop(state.map, i)) {
+        if (line.stops[line.stops.length - 1] !== i) { line.stops.push(i); this.game.ui.lines.changed(); }
+      } else {
+        const r = applyTool(state, 'bus', [i]);
+        if (r.applied) { line.stops.push(i); this.game.ui.flashCost(-r.spent); this.game.ui.lines.changed(); }
+      }
+      return;
+    }
     const { applied, spent, undo } = applyTool(state, this.game.tool, tiles, this.game.toolArg);
     if (applied) {
       this.game.lastUndo = undo;
@@ -188,7 +201,7 @@ export class Input {
       if (def.key === k) { g.setTool(name); return; }
     }
     switch (k) {
-      case 'Escape': this.drag = null; g.preview = null; g.pinned = null; g.setTool('inspect'); break;
+      case 'Escape': this.drag = null; g.preview = null; g.pinned = null; if (g.activeLine) g.ui.lines.edit(null); g.setTool('inspect'); break;
       case ' ': e.preventDefault(); g.togglePause(); break;
       case 'l': g.toggleOverlay('landValue'); break;
       case 'p': g.toggleOverlay('pollution'); break;

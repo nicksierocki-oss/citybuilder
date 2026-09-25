@@ -5,6 +5,7 @@ import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZon
 import { ordinance, ordinancesCost } from './cityhall.js';
 import { funding, groupOf } from './services.js';
 import { tradeMoney } from './region.js';
+import { linesCost } from './transit.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -314,6 +315,7 @@ export function monthlyBudget(state) {
     loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
     ordinances: ordinancesCost(state),
     imports: tradeMoney(state).cost,
+    transitLines: linesCost(state),
   };
   for (const [k, n] of Object.entries(s.services || {})) {
     const upkeep = n * CONFIG.buildings[k].upkeep * funding(state, k);
@@ -468,6 +470,8 @@ export function budgetAdvice(state) {
   if (gb && gb.uncollected > 20) out.push(`${gb.uncollected.toLocaleString()} units of garbage a month go uncollected (capacity ${gb.capacity.toLocaleString()}, made ${gb.made.toLocaleString()}): a landfill ($${CONFIG.buildings.landfill.cost.toLocaleString()}) collects ${CONFIG.buildings.landfill.garbage}. Keep it away from homes.`);
   const cut = Object.entries(state.budgets ?? {}).filter(([, f]) => f < 1);
   if (cut.length && net > 0) out.push(`Services running below full funding: ${cut.map(([g, f]) => `${CONFIG.budgets.groups[g].label} ${Math.round(f * 100)}%`).join(', ')}. You can afford to restore them.`);
+  const lonely = (s.services?.bus ?? 0) - new Set((state.lines ?? []).flatMap((l) => l.stops)).size;
+  if (lonely > 0) out.push(`${lonely} bus stop${lonely > 1 ? 's are' : ' is'} not on any line, so nobody uses ${lonely > 1 ? 'them' : 'it'}: add ${lonely > 1 ? 'them' : 'it'} to a line (Transit lines panel).`);
   const open = Math.round(state.traffic?.skilledOpen ?? 0);
   if (open >= 15) out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. Schools${s.population >= CONFIG.buildings.university.unlock ? ' and a university' : ''} raise education over time.`);
   const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);

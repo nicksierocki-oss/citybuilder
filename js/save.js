@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { refreshFields, emptyHistory, DEFAULT_CITY_NAME } from './simulation.js';
 import { CHAINS, SCENARIOS, emptyGoals, startChain } from './goals.js';
 import { ORDINANCE_ORDER } from './cityhall.js';
+import { migrateStops, lineColor } from './transit.js';
 
 const VERSION = 5;
 const LAYERS = PERSISTENT_LAYERS;
@@ -45,6 +46,7 @@ export function serialize(state) {
     ordinances: state.ordinances ?? {},
     budgets: state.budgets ?? {},
     tradeDeals: state.tradeDeals ?? {},
+    lines: state.lines ?? [],
     garbageGrace: state.garbageGrace | 0,
     rating: state.rating,
     goals: state.goals,
@@ -121,6 +123,10 @@ export function deserialize(data) {
     garbageGrace: data.garbageGrace | 0,
     tradeDeals: Object.fromEntries(['buy_power', 'sell_power', 'buy_water', 'sell_water'].filter((k) => data.tradeDeals?.[k]).map((k) => [k, true])),
     trade: {},
+    lines: Array.isArray(data.lines) ? data.lines.filter((l) => l && (l.id | 0) > 0 && Array.isArray(l.stops)).map((l, n) => ({
+      id: l.id | 0, name: String(l.name ?? `Line ${l.id}`).slice(0, 30), color: typeof l.color === 'string' ? l.color : lineColor(n),
+      mode: l.mode === 'tram' ? 'tram' : 'bus', stops: l.stops.map((i) => i | 0), freq: Math.max(1, Math.min(CONFIG.transit.maxFreq, l.freq | 0 || 1)),
+    })) : null,
     garbage: { made: 0, capacity: 0, uncollected: 0 },
     health: 0,
     loansPaid: data.loansPaid | 0,
@@ -138,6 +144,8 @@ export function deserialize(data) {
       state.events.push({ text: `New: power & water! You have ${state.utilityGrace} months to supply your denser buildings.`, kind: 'bad' });
     }
   }
+  // Cities from before transit lines join their bus stops into one line.
+  if (!state.lines) migrateStops(state);
   // Cities from before garbage existed get time to build a landfill.
   if ((data.version | 0) < 5) {
     let pop = 0;

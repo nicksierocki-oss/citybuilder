@@ -11,6 +11,8 @@ import { SEASON_NAMES, seasonOf, clockText } from './seasons.js';
 import { Graphs } from './graphs.js';
 import { Minimap } from './minimap.js';
 import { CityHallUI } from './cityhall-ui.js';
+import { LinesUI } from './lines-ui.js';
+import { isStop } from './transit.js';
 import { SCENARIOS, SCENARIO_ORDER } from './goals.js';
 
 const DISTRICT_NAMES = ['Old Town', 'Riverside', 'Hillcrest', 'Northside', 'Westgate', 'Eastbrook', 'Southfield', 'Uptown',
@@ -64,7 +66,7 @@ const TOOL_HELP = {
   police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
   lights: 'Add to busy intersections: a small fixed wait, but far less congestion.',
   interchange: 'Carries a highway over a crossing road with ramps: no more at-grade bottleneck.',
-  bus: 'Cheap. People within 3 tiles ride to jobs near other bus stops (slower, shares nothing with cars).',
+  bus: 'Bus or tram stop. Riders within 3 tiles use the lines that call here: create lines under Transit lines.',
   metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
   fire: 'Prevents fires and puts them out within 10 tiles.',
   townpark: '2×2 park: land value and happiness across a neighbourhood.',
@@ -134,12 +136,14 @@ export class UI {
     this.graphs = new Graphs($('graphs'), () => this.game.state);
     this.minimap = new Minimap($('minimap'), game);
     this.cityhall = new CityHallUI(game, this);
+    this.lines = new LinesUI(game, this);
     $('graphs').addEventListener('click', (e) => { if (e.target.closest('#btnGraphsClose')) this.toggleGraphs(false); });
   }
 
   // A different city was loaded or started.
   onNewState() {
     this.selectedDistrict = null;
+    if (this.lines) { this.game.activeLine = null; this.lines.selected = null; this.lines.render(); }
     if (this.cityhall) { this.cityhall.newsKey = null; this.cityhall.panelHtml = null; this.cityhall.renderPanel(true); }
     this.renderDistricts();
     this.labelKey = null;
@@ -608,7 +612,7 @@ export class UI {
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
-      ${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
+      ${nz('Transit lines', b.expenses.transitLines)}${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
       ${row('Net', net, 'total')}
     </table>
     ${this.fundingHtml(s)}
@@ -684,9 +688,16 @@ export class UI {
         if (map[res][i] !== SUPPLY.OK) notes.push('Not beside a road: its output isn\'t reaching anyone');
       }
       if (B.radius) rows.push(['Reach', `${B.radius} tiles`]);
-      if (k === 'bus' || k === 'metro') {
+      if (k === 'metro') {
         rows.push(['Riders', `${Math.round(map.riders[i])} / ${B.capacity} a month`]);
-        if (map.riders[i] < 5) notes.push(`No riders yet: people ride between ${k === 'bus' ? 'bus stops' : 'metro stations'}, so build another near jobs or homes`);
+        if (map.riders[i] < 5) notes.push('No riders yet: people ride between metro stations, so build another near jobs or homes');
+      }
+      if (k === 'bus') {
+        const served = (g.state.lines ?? []).filter((l) => l.stops.includes(i));
+        rows.push(['Lines', served.length ? served.map((l) => `<i class="dchip" style="background:${l.color}"></i>${esc(l.name)}`).join(' ') : 'none']);
+        rows.push(['Riders', `${Math.round(map.riders[i])} a month`]);
+        if (!served.length) notes.push('Not on any line: pick a line under Transit lines, then click this stop');
+        else if (map.riders[i] < 5) notes.push('Few riders: a line needs stops near homes and stops near jobs');
       }
       rows.push(['Upkeep', `${money(B.upkeep)}/mo`]);
       if (!B.power && k !== 'pump' && !B.park) rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
@@ -774,6 +785,13 @@ export class UI {
       tip.textContent = p.cost.blocked
         ? (!isUnlocked(this.game.state, TOOLS[tool].building) ? `Unlocks at ${B.unlock.toLocaleString()} residents` : `No room: needs ${B.size[0]}×${B.size[1]} clear land`)
         : `${B.label} · $${total.toLocaleString()}`;
+      return;
+    }
+    if (tool === 'bus' && this.game.activeLine) {
+      const line = this.game.state.lines?.find((l) => l.id === this.game.activeLine), h = this.game.hover, map = this.game.state.map;
+      const onStop = h && map.inBounds(h.x, h.y) && isStop(map, map.idx(h.x, h.y));
+      tip.className = '';
+      tip.textContent = onStop ? `Add stop to ${line?.name}` : p.cost.count ? `New stop on ${line?.name} · $${total.toLocaleString()}` : 'Click a bus stop, or land beside a road';
       return;
     }
     if (tool === 'district') {

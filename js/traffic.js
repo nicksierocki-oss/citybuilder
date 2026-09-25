@@ -6,6 +6,7 @@ import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, JUNCTION, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
+import { buildRoutes, lineCapacity } from './transit.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -171,9 +172,28 @@ export function trafficSystem(state) {
     }
     stations.push({ i, k, x: x0, y: y0, jobs, left: B[k].capacity * funding(state, k) });
   }
+  // Metro stations form one network; bus stops only matter through the lines that call there.
+  const metro = stations.filter((s) => s.k === 'metro');
+  const stopAt = new Map(stations.filter((s) => s.k === 'bus').map((s) => [s.i, s]));
   const nearStations = (home) => {
     const x = home % w, y = (home / w) | 0;
-    return stations.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B[s.k].radius && s.left > 0);
+    return metro.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B[s.k].radius && s.left > 0);
+  };
+  // Lines: routes along the roads with this run's travel times; capacity per line.
+  const routes = buildRoutes(state, time), MODES = CONFIG.transit.modes;
+  const lines = (state.lines ?? []).filter((l) => routes[l.id]?.ok).map((l) => ({
+    line: l, route: routes[l.id], M: MODES[l.mode], left: lineCapacity(state, l), riders: 0,
+    stops: l.stops.map((i) => stopAt.get(i)).filter(Boolean),
+  }));
+  const linesNear = (home) => {
+    const x = home % w, y = (home / w) | 0, r = B.bus.radius, out = [];
+    for (const L of lines) {
+      if (L.left <= 0) continue;
+      L.line.stops.forEach((si, k) => {
+        if (Math.max(Math.abs((si % w) - x), Math.abs(((si / w) | 0) - y)) <= r) out.push([L, k]);
+      });
+    }
+    return out;
   };
   let transitRiders = 0;
   const shareMult = ordinance(state, 'freeTransit') ? CONFIG.ordinances.freeTransit.shareMult : 1;
@@ -199,11 +219,32 @@ export function trafficSystem(state) {
     let left = workers, minutes = 0;
     // Some workers near a stop ride transit to jobs near another stop on the same mode
     // (buses and metro form separate networks). Riders never touch the roads.
-    if (stations.length) {
+    // Lines first: board at a nearby stop, ride to a stop near jobs.
+    for (const [L, k] of lines.length ? linesNear(home) : []) {
+      let want = Math.min(left, workers * Math.min(0.95, L.M.share * shareMult), L.left);
+      if (want <= 0) continue;
+      const wait = L.M.wait / L.line.freq, dests = L.line.stops.map((si, d) => [d, Math.abs(L.route.at[d] - L.route.at[k])])
+        .filter(([d]) => d !== k).sort((a, b) => a[1] - b[1]);
+      for (const [d, t] of dests) {
+        if (want <= 0 || L.left <= 0) break;
+        const ride = T.walkMinutes * 2 + wait + t, to = stopAt.get(L.line.stops[d]);
+        if (ride > T.maxCommute || !to) break;
+        for (const j of to.jobs) {
+          if (want <= 0 || L.left <= 0) break;
+          const take = hire(j, Math.min(want, L.left));
+          if (take <= 0) continue;
+          want -= take; left -= take; L.left -= take; L.riders += take;
+          map.riders[L.line.stops[k]] += take; map.riders[to.i] += take;
+          minutes += take * ride;
+          transitRiders += take;
+        }
+      }
+    }
+    if (metro.length) {
       for (const from of nearStations(home).sort((a, b) => B[b.k].share - B[a.k].share)) {
         let want = Math.min(left, workers * Math.min(0.95, B[from.k].share * shareMult), from.left);
         if (want <= 0) continue;
-        const dests = stations.filter((s) => s.k === from.k && s.left > 0)
+        const dests = metro.filter((s) => s.left > 0)
           .sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
         for (const to of dests) {
           if (want <= 0) break;
@@ -259,6 +300,13 @@ export function trafficSystem(state) {
     map.employed[home] = workers > 0 ? employed / workers : 1;
     if (employed > 0) map.commute[home] = minutes / employed;
     totalWorkers += workers; totalEmployed += employed; totalMinutes += minutes;
+  }
+
+  // --- buses and trams are on the roads too
+  state.lineStats = {};
+  for (const L of lines) {
+    for (const p of L.route.path) volume[p] += L.line.freq * L.M.roadTrips;
+    state.lineStats[L.line.id] = { riders: Math.round(L.riders), capacity: Math.round(lineCapacity(state, L.line)) };
   }
 
   // --- skilled posts filled per job tile (smoothed like traffic so growth doesn't flicker)

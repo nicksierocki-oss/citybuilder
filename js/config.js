@@ -349,6 +349,19 @@ export const CONFIG = {
     },
   },
 
+  // Transit lines (js/transit.js): vehicles run a line's stops in order along the roads.
+  // Riders a vehicle carries a month, monthly cost per vehicle, travel time × road time,
+  // minutes stopped per stop, base wait (divided by frequency), share of a home's workers
+  // who'd ride, road trips a vehicle adds, animation speed (tiles/s).
+  transit: {
+    maxFreq: 4,
+    colors: ['#e3a35a', '#6fa6e3', '#7cc47a', '#e87a8a', '#b38fd6', '#5fc2c0', '#d6b24a', '#8a94a6'],
+    modes: {
+      bus:  { label: 'Bus',  perVehicle: 120, vehicleCost: 20, timeFactor: 1.25, dwell: 0.5, wait: 8, share: 0.35, roadTrips: 25, animSpeed: 2.2, trackCost: 0, trackUpkeep: 0 },
+      tram: { label: 'Tram', perVehicle: 300, vehicleCost: 40, timeFactor: 1.0, dwell: 0.3, wait: 6, share: 0.5, roadTrips: 8, animSpeed: 1.8, trackCost: 25, trackUpkeep: 0.5, landValue: 6 },
+    },
+  },
+
   // Neighbouring towns and trade (js/region.js).
   region: {
     exitWeight: [1, 2, 4],        // how much a street / avenue / highway leaving the map carries

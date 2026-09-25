@@ -8,6 +8,7 @@ import { Renderer, TS, forEachCar } from './renderer.js';
 import { TILE, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { drawDistricts } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
+import { vehiclePositions } from './transit.js';
 
 // Ground texture pixels per tile: full 2D detail on small maps, capped near 2k px for big ones.
 const texPx = (size) => Math.max(16, Math.min(TS, Math.floor(2048 / size)));
@@ -219,7 +220,8 @@ export class Renderer3D {
     this.pools.mesh.renderOrder = 2;
     this.pools.glowing = true; // keeps its additive blend when overlays fade the buildings
     this.buildingBatches.push(this.bowls, this.windows, this.poles, this.heads, this.pools);
-    this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke, this.lamps];
+    this.transitVehicles = new Batch(scene, GEO.rbox, Math.max(64, tiles / 4), { shadows: false });
+    this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke, this.lamps, this.transitVehicles];
     this.batchTiles = tiles;
   }
 
@@ -356,6 +358,7 @@ export class Renderer3D {
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) p.drawGround(map, x, y);
     p.drawGrid(0, 0, map.width - 1, map.height - 1);
     if (this.overlay !== 'districts') drawDistricts(ctx, map, districts, TS, 0, 0, map.width - 1, map.height - 1);
+    if (this.routesState) p.drawRoutes(this.routesState);
     if (this.overlay) p.drawOverlay(map, 0, 0, map.width - 1, map.height - 1, districts);
     this.groundTex.needsUpdate = true;
   }
@@ -907,6 +910,7 @@ export class Renderer3D {
     const groundEvery = GROUND_THROTTLE_MS * (map.size > 5000 ? 2.5 : 1);
     this.applyLighting(map);
     if (edited || c.overlay !== this.overlay || (ticked && now - c.groundAt > groundEvery)) {
+      this.routesState = state;
       this.paintGround(map, state.districts);
       c.groundAt = now;
       c.overlay = this.overlay;
@@ -926,6 +930,13 @@ export class Renderer3D {
     this.buildBlades();
     this.buildFires();
     this.buildSignals();
+    const tv = this.transitVehicles;
+    tv.begin();
+    for (const v of vehiclePositions(state, this.time)) {
+      const len = v.mode === 'tram' ? 0.5 : 0.32;
+      tv.add(v.x, 0.02, v.y, v.horiz ? len : 0.15, 0.16, v.horiz ? 0.15 : len, v.color);
+    }
+    tv.end();
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;

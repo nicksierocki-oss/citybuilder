@@ -86,7 +86,7 @@ export const OVERLAYS = {
     value: (map, i) => (isLand(map, i) ? Math.max(map.coverage.bus[i], map.coverage.metro[i]) * 100 : null),
     color: (v) => cover(v / 100),
     legend: { gradient: gradient(cover), labels: ['walk too far', 'nearby', 'at the stop'] },
-    hint: 'Walking distance to a bus stop (3 tiles) or metro station (4). Riders go to jobs near another stop on the same network.',
+    hint: 'Walking distance to a bus or tram stop (3 tiles) or metro station (4). Buses and trams take riders to other stops on the same line; metro connects every station.',
   },
   health: {
     label: 'Health', kind: 'field',

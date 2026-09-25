@@ -56,7 +56,7 @@ export const CHAINS = {
       check: (s) => (s.stats.officeJobs ?? 0) >= 200, progress: (s) => [s.stats.officeJobs ?? 0, 200], reward: 2500 },
     { id: 'c-happy', text: 'Keep 2,000+ residents at 60% happiness', hint: 'Hover unhappy homes to see why; parks, clinics and short commutes help.',
       check: (s) => pop(s) >= 2000 && s.happiness >= 60, progress: (s) => [Math.round(s.happiness), 60], reward: 2500 },
-    { id: 'c-transit', text: 'Get 10% of commuters onto transit', hint: 'Pair bus stops or metro stations: one among homes, one among jobs.', tool: 'bus',
+    { id: 'c-transit', text: 'Get 10% of commuters onto transit', hint: 'Make a bus line (Transit lines panel) from stops among homes to stops among jobs, or pair metro stations.', tool: 'bus',
       check: (s) => pop(s) >= 1000 && transitShare(s) >= 0.1, progress: (s) => [Math.round(transitShare(s) * 100), 10], reward: 2500 },
     { id: 'c-stadium', text: 'Build a stadium', hint: 'Unlocks at 2,500 residents; sells tickets as the city grows.', tool: 'stadium',
       check: (s) => svc(s, 'stadium') >= 1, reward: 3000 },

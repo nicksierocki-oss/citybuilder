@@ -48,6 +48,8 @@ const game = {
   },
   cycleBrush() { this.setBrush(BRUSHES[(BRUSHES.indexOf(this.brush) + 1) % BRUSHES.length]); },
   setBrush(b) { this.brush = b; this.ui.setBrush(b); },
+  activeLine: null,   // transit line being extended with the Bus stop tool
+  refresh() { refreshFields(this.state); },
   setDayNight(on) {
     this.dayNight = on;
     try { localStorage.setItem(DAYNIGHT_KEY, on ? '1' : '0'); } catch { /* ignore */ }

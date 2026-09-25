@@ -4,6 +4,7 @@ import { TILE, TERRAIN, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { roadTime } from './traffic.js';
 import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
+import { vehiclePositions } from './transit.js';
 
 export const TS = 32; // tile size in world units
 
@@ -169,7 +170,9 @@ export class Renderer {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawGround(map, x, y);
     if (cam.zoom >= 0.7) this.drawGrid(x0, y0, x1, y1);
     if (this.overlay !== 'districts') drawDistricts(ctx, map, state.districts, TS, x0, y0, x1, y1);
+    this.drawRoutes(state);
     if (cam.zoom >= 0.55) this.drawCars(map, x0, y0, x1, y1);
+    if (cam.zoom >= 0.45) this.drawVehicles(state);
     // Objects: start a little up-left of the view so landmarks anchored off-screen still draw.
     for (let y = Math.max(0, y0 - 2); y <= y1; y++) for (let x = Math.max(0, x0 - 2); x <= x1; x++) this.drawObjects(map, x, y);
     this.drawNight(map, x0, y0, x1, y1);
@@ -386,6 +389,12 @@ export class Renderer {
     if (ce) arm(1, 0);
     const i = map.idx(x, y);
     if (map.hasFlag(i, FLAG.INTERCHANGE)) this.drawInterchange(map, x, y, px, py);
+    if (map.hasFlag(i, FLAG.TRAM)) {
+      // Tram rails down the middle of the road
+      ctx.fillStyle = 'rgba(110,116,126,0.75)';
+      if (cw || ce) { ctx.fillRect(px, py + c - 3.2, TS, 1.3); ctx.fillRect(px, py + c + 1.9, TS, 1.3); }
+      if (cn || cs) { ctx.fillRect(px + c - 3.2, py, 1.3, TS); ctx.fillRect(px + c + 1.9, py, 1.3, TS); }
+    }
     if (map.hasFlag(i, FLAG.LIGHTS) && links >= 3) this.drawLights(px, py, hw);
     if (bridge) {
       ctx.fillStyle = PAL.bridgeRail;
@@ -420,6 +429,42 @@ export class Renderer {
         if (horiz && (cw || k > c) && (ce || k < c)) dash(px + k, py + c - 1, 5, 2);
         if (vert && (cn || k > c) && (cs || k < c)) dash(px + c - 1, py + k, 2, 5);
       });
+    }
+  }
+
+  // Transit routes as coloured ribbons along the roads, with a dot at each stop.
+  drawRoutes(state) {
+    const ctx = this.ctx, map = state.map, routes = state.transitRoutes ?? {};
+    (state.lines ?? []).forEach((line, n) => {
+      const r = routes[line.id];
+      if (!r?.ok) return;
+      const off = ((n % 3) - 1) * 3;
+      ctx.save();
+      ctx.strokeStyle = line.color; ctx.globalAlpha = 0.55; ctx.lineWidth = line.mode === 'tram' ? 3.2 : 2.4;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      r.path.forEach((i, k) => { const x = (i % map.width) * TS + TS / 2 + off, y = ((i / map.width) | 0) * TS + TS / 2 + off; if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      for (const s of line.stops) {
+        const x = (s % map.width) * TS + TS / 2, y = ((s / map.width) | 0) * TS + TS / 2;
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y - 11, 4.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = line.color; ctx.beginPath(); ctx.arc(x, y - 11, 2.8, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    });
+  }
+
+  // Buses and trams in their line's colour.
+  drawVehicles(state) {
+    const ctx = this.ctx;
+    for (const v of vehiclePositions(state, this.time)) {
+      const len = v.mode === 'tram' ? 15 : 9, wid = v.mode === 'tram' ? 5.5 : 5;
+      const x = v.x * TS, y = v.y * TS, w = v.horiz ? len : wid, h = v.horiz ? wid : len;
+      ctx.fillStyle = 'rgba(40,50,60,0.18)'; roundRect(ctx, x - w / 2 + 1, y - h / 2 + 1.5, w, h, 2); ctx.fill();
+      ctx.fillStyle = v.color; roundRect(ctx, x - w / 2, y - h / 2, w, h, 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      if (v.horiz) ctx.fillRect(x - w / 2 + 1.5, y - 1, w - 3, 1.6); else ctx.fillRect(x - 1, y - h / 2 + 1.5, 1.6, h - 3);
     }
   }
 

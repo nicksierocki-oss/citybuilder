@@ -54,6 +54,7 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     garbageGrace: 0,          // months before garbage matters (older saves)
     health: 0,                // population-weighted health
     garbage: { made: 0, capacity: 0, uncollected: 0 },
+    lines: [],                // transit lines [{ id, name, color, mode, stops, freq }]
     tradeDeals: {},           // buy_power, sell_power, buy_water, sell_water
     trade: {},                // last month's utility trade (region.js)
     rating: CONFIG.mayor.start, // mayor rating 0..100
@@ -202,6 +203,13 @@ export function landValueSystem(state) {
     }
     if (map.hasFlag(i, FLAG.ABANDONED)) spread(abB, i, L.abandonedRadius, L.abandonedPenalty, false);
   }
+  // Tiles beside tram track are nicer places to be.
+  const tramNear = new Uint8Array(map.size);
+  for (let i = 0; i < map.size; i++) {
+    if (!map.hasFlag(i, FLAG.TRAM) || map.type[i] !== TILE.ROAD) continue;
+    const x0 = i % w, y0 = (i / w) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (map.inBounds(x0 + dx, y0 + dy)) tramNear[(y0 + dy) * w + x0 + dx] = 1;
+  }
   for (let i = 0; i < map.size; i++) {
     if (map.terrain[i] === TERRAIN.WATER) { lv[i] = 0; continue; }
     const wd = map.waterDist[i];
@@ -217,6 +225,7 @@ export function landValueSystem(state) {
     v += Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight + map.trash[i] * CONFIG.garbage.landValueWeight;
+    if (tramNear[i]) v += CONFIG.transit.modes.tram.landValue;
     lv[i] = Math.max(0, Math.min(100, v));
   }
 }

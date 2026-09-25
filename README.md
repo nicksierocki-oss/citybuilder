@@ -63,7 +63,12 @@ There's an optional **3D view**, built with Three.js. The library is included in
      Up to 35% of a home's workers, 150 riders a month per stop, slower rides.
    - **Metro stations** ($2,500): people within 4 tiles ride to jobs near any other
      station. Up to 60%, 600 riders a month, fast. Stations also raise land value.
-   - **Riders never use the roads,** so transit cuts congestion, noise and pollution.
+   - **Bus and tram lines** (sidebar → *Lines*): make a line, then click stops in order (clicking
+     empty land beside a road builds a stop). Vehicles drive the roads between stops, so a
+     congested route is slow; set 1–4 vehicles per line (more = shorter waits, more riders, more
+     cost). Trams carry far more, lay track along their route ($25 a tile) and raise land value
+     beside it. Stops only serve the lines that call there; the metro still links every station.
+   - **Riders don't drive,** so transit cuts congestion, noise and pollution (buses add a little traffic).
      Stops work in pairs: one near homes, one near jobs. Tile info shows each stop's
      ridership, and the **Transit** overlay (`M`) shows walking coverage.
 9. **Police and fire.**
