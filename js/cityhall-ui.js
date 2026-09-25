@@ -4,6 +4,7 @@
 import { CONFIG } from './config.js';
 import { CHAINS, SCENARIOS, ACHIEVEMENTS, currentGoal, startChain } from './goals.js';
 import { ORDINANCE_ORDER, ordinance, ordinanceCost, ratingParts, ratingWord } from './cityhall.js';
+import { regionInfo, exportDemand, tradeMoney } from './region.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -44,6 +45,16 @@ export class CityHallUI {
       if (e.target.closest('#btnCityHallClose')) this.toggle(false);
     });
     $('cityhall').addEventListener('change', (e) => {
+      const deal = e.target.dataset.deal;
+      if (deal) {
+        const s = this.game.state;
+        s.tradeDeals ??= {};
+        const other = deal.startsWith('buy') ? deal.replace('buy', 'sell') : deal.replace('sell', 'buy');
+        if (e.target.checked) { s.tradeDeals[deal] = true; delete s.tradeDeals[other]; } else delete s.tradeDeals[deal];
+        this.ui.lastBudgetHtml = null;
+        this.renderPanel(true);
+        return;
+      }
       const k = e.target.dataset.ordinance;
       if (!k) return;
       const s = this.game.state;
@@ -124,11 +135,12 @@ export class CityHallUI {
     const el = $('cityhall');
     if (!el.classList.contains('open')) return;
     const s = this.game.state;
-    const tabs = [['goals', 'Goals'], ['ordinances', 'Ordinances'], ['rating', 'Rating'], ['achievements', 'Achievements']];
+    const tabs = [['goals', 'Goals'], ['ordinances', 'Ordinances'], ['region', 'Region'], ['rating', 'Rating'], ['achievements', 'Achievements']];
     let body = '';
     if (this.tab === 'goals') body = this.goalsTab(s);
     else if (this.tab === 'ordinances') body = this.ordinancesTab(s);
     else if (this.tab === 'rating') body = this.ratingTab(s);
+    else if (this.tab === 'region') body = this.regionTab(s);
     else body = this.achievementsTab(s);
     const html = `<button id="btnCityHallClose" class="x" aria-label="Close">×</button><h3>🏛 City hall · ${esc(s.cityName)}</h3>
       <div class="gtabs chtabs">${tabs.map(([k, t]) => `<button data-chtab="${k}" class="${k === this.tab ? 'on' : ''}">${t}</button>`).join('')}</div>
@@ -163,6 +175,26 @@ export class CityHallUI {
         return `<label class="ord ${on ? 'on' : ''}"><input type="checkbox" data-ordinance="${k}" ${on ? 'checked' : ''}>
           <span><b>${O.label}</b> <small>${money(ordinanceCost(s, k))}/mo</small><br><span class="muted">${O.text}</span></span></label>`;
       }).join('')}</div>`;
+  }
+
+  regionTab(s) {
+    const R = CONFIG.region, info = regionInfo(s), deals = s.tradeDeals ?? {}, t = s.trade ?? {}, m = tradeMoney(s);
+    const linked = info.neighbours.filter((n) => n.exits);
+    const kind = (n) => (n.weight >= 4 * n.exits ? 'highway' : n.weight >= 2 * n.exits ? 'avenue' : 'street');
+    const deal = (res, way) => {
+      const k = `${way}_${res}`, amt = t[res]?.[way === 'buy' ? 'imported' : 'exported'] ?? 0, price = (way === 'buy' ? R.buyPrice : R.sellPrice)[res];
+      return `<label class="ord ${deals[k] ? 'on' : ''}"><input type="checkbox" data-deal="${k}" ${deals[k] ? 'checked' : ''}>
+        <span><b>${way === 'buy' ? 'Buy' : 'Sell'} ${res}</b> <small>$${price.toFixed(2)} a unit</small><br>
+        <span class="muted">${way === 'buy' ? `Covers shortfalls from the neighbours.${amt ? ` Last month: ${amt} units (${money(amt * price)}).` : ''}` : `Sells what you don't need (keeping ${Math.round(R.reserve * 100)}% spare).${amt ? ` Last month: ${amt} units (${money(amt * price)}).` : ''}`}</span></span></label>`;
+    };
+    return `<p class="muted">Every road that leaves the map links you to a neighbouring town. Bigger links (avenues, highways)
+      carry more trade and lift demand for your industry's exports.</p>
+      <table class="links">${linked.map((n) => `<tr><td><b>${esc(n.name)}</b> <small>to the ${n.dir}</small></td><td>${n.exits} ${kind(n)}${n.exits > 1 ? 's' : ''}</td></tr>`).join('')
+        || '<tr><td class="muted">No roads leave the map: no neighbours.</td></tr>'}</table>
+      <p>Links carry up to <b>${info.tradeCap.toLocaleString()}</b> units of power and water a month, and the region wants
+      about <b>${exportDemand(s)}</b> industrial jobs' worth of exports. A highway to a new edge adds the most.</p>
+      <h4>Utility trade</h4><div class="ords">${deal('power', 'sell')}${deal('power', 'buy')}${deal('water', 'sell')}${deal('water', 'buy')}</div>
+      ${m.income || m.cost ? `<p>Last month: <b>${money(m.income)}</b> in sales, <b>${money(-m.cost)}</b> in imports.</p>` : ''}`;
   }
 
   ratingTab(s) {

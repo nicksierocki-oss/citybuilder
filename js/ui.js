@@ -218,6 +218,7 @@ export class UI {
     });
     $('btnNew').addEventListener('click', () => { closeMenu(); this.newCityDialog((size) => this.game.newCity(size), (id) => this.game.newScenario(id)); });
     $('btnCityHall').addEventListener('click', () => { closeMenu(); this.cityhall.toggle(true); });
+    $('btnRegion').addEventListener('click', () => { closeMenu(); this.cityhall.tab = 'region'; this.cityhall.toggle(true); });
     $('btnReset').addEventListener('click', () => {
       const n = this.game.state.map.width;
       this.confirm('Reset the city?', `Start over from scratch on a fresh ${n}×${n} map with $${CONFIG.economy.startingFunds.toLocaleString()}. Your current city will be lost unless you save it first.`,
@@ -533,7 +534,7 @@ export class UI {
     if (!u) return;
     const pct = u.supply > 0 ? Math.min(1, u.demand / u.supply) : (u.demand > 0 ? 1 : 0);
     el.querySelector('i').style.width = `${Math.round(pct * 100)}%`;
-    el.querySelector('small').textContent = grace > 0 && u.demand > u.supply ? `due in ${grace} mo` : `${u.demand} / ${u.supply}`;
+    el.querySelector('small').textContent = grace > 0 && u.demand > u.supply ? `due in ${grace} mo` : u.exported ? `sells ${u.exported}` : u.imported ? `buys ${u.imported}` : `${u.demand} / ${u.supply}`;
     el.classList.toggle('short', u.demand > u.supply);
     el.classList.toggle('tight', u.demand <= u.supply && pct > 0.85);
   }
@@ -553,8 +554,8 @@ export class UI {
       ['i', 'Industry', 'var(--i)', labour < 0 ? 'short of workers: zone homes' : goods >= 0 ? `~${goods} more factory jobs wanted` : 'enough industry for now'],
     ];
     // Offices and farms only show once they matter (zoned, or clearly wanted).
-    if (st.zoned.o || (d.o ?? 0) > 0.15) rows.push(['o', 'Offices', '#5abec8', (s.education ?? 0) < 0.3 ? 'need more skilled residents: build schools' : (d.o ?? 0) > 0 ? 'skilled workers want office jobs' : 'enough offices for now']);
-    if (st.zoned.f || (d.f ?? 0) > 0.15) rows.push(['f', 'Farms', '#b9c46a', (d.f ?? 0) > 0 ? 'the region wants more produce' : 'enough farms for now']);
+    if (st.zoned.o || (P >= 500 && (d.o ?? 0) > 0.2)) rows.push(['o', 'Offices', '#5abec8', (s.education ?? 0) < 0.3 ? 'need more skilled residents: build schools' : (d.o ?? 0) > 0 ? 'skilled workers want office jobs' : 'enough offices for now']);
+    if (st.zoned.f || (P >= 500 && (d.f ?? 0) > 0.2)) rows.push(['f', 'Farms', '#b9c46a', (d.f ?? 0) > 0 ? 'the region wants more produce' : 'enough farms for now']);
     const bar = (v, color) => {
       const w = Math.abs(v) * 50;
       return `<b style="left:${v >= 0 ? 50 : 50 - w}%;width:${w}%;background:${v >= 0 ? color : 'var(--bad)'};opacity:${v >= 0 ? 1 : 0.55}"></b>`;
@@ -601,13 +602,13 @@ export class UI {
       ${row('Residential tax', b.income.residential)}
       ${row('Commercial tax', b.income.commercial)}
       ${row('Industrial tax', b.income.industrial)}
-      ${Math.round(b.income.offices) ? row('Office tax', b.income.offices) : ''}${Math.round(b.income.farms) ? row('Farm tax', b.income.farms) : ''}${Math.round(b.income.tourism) ? row('Tourists (hotels)', b.income.tourism) : ''}
+      ${Math.round(b.income.utilitySales) ? row('Utility sales', b.income.utilitySales) : ''}${Math.round(b.income.offices) ? row('Office tax', b.income.offices) : ''}${Math.round(b.income.farms) ? row('Farm tax', b.income.farms) : ''}${Math.round(b.income.tourism) ? row('Tourists (hotels)', b.income.tourism) : ''}
       ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
-      ${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}
+      ${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
       ${row('Net', net, 'total')}
     </table>
     ${this.fundingHtml(s)}

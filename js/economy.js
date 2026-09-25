@@ -4,6 +4,7 @@ import { CONFIG } from './config.js';
 import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZone, footprintSize } from './map.js';
 import { ordinance, ordinancesCost } from './cityhall.js';
 import { funding, groupOf } from './services.js';
+import { tradeMoney } from './region.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -297,6 +298,7 @@ export function monthlyBudget(state) {
     industrial: base.i * E.taxPerIndustrialJob * rate,
     offices: (base.o ?? 0) * E.taxPerOfficeJob * rate,
     farms: (base.f ?? 0) * E.taxPerFarmJob * rate,
+    utilitySales: tradeMoney(state).income,
     tourism: (s.hotelIncome ?? 0) * (ordinance(state, 'tourism') ? CONFIG.ordinances.tourism.visitorMult : 1),
     visitors: visitorIncome(state),
   };
@@ -311,6 +313,7 @@ export function monthlyBudget(state) {
     services: 0,
     loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
     ordinances: ordinancesCost(state),
+    imports: tradeMoney(state).cost,
   };
   for (const [k, n] of Object.entries(s.services || {})) {
     const upkeep = n * CONFIG.buildings[k].upkeep * funding(state, k);
@@ -441,6 +444,7 @@ export function budgetAdvice(state) {
   }
   const u = state.utilities;
   if (u && u.power.supply > u.power.demand * 3 + 200) out.push(`Power plants make ${u.power.supply} units but the city uses ${u.power.demand}. You're paying for spare capacity.`);
+  if (u && u.power.demand > u.power.supply && !state.tradeDeals?.buy_power) out.push(`You could also buy power from the neighbours (City hall → Region) while you build more.`);
   if (u && u.power.demand > u.power.supply) out.push(`Power is short (${u.power.demand}/${u.power.supply}): without it buildings can't grow past low density, so income stalls. A wind farm is $1,000.`);
   if (u && u.water.demand > u.water.supply) out.push(`Water is short (${u.water.demand}/${u.water.supply}): pumps within 2 tiles of the river make 3× more.`);
   const d = state.demand;

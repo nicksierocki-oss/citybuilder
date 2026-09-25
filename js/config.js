@@ -96,7 +96,7 @@ export const CONFIG = {
     farmPerResident: 0.06,   // farm jobs needed per resident (food)
     farmBase: 40,            // regional demand for produce
     indPerResident: 0.32,    // industrial jobs needed per resident (goods)
-    indBase: 40,             // regional export demand for goods
+    indBase: 10,             // local base; the region adds exports per road link (see region)
     scaleMin: 60,            // normalisation floor so small cities aren't jumpy
     laborSlack: 0.25,        // how far C/I demand may exceed labour supply
     taxNeutral: 9,           // tax % with no demand penalty (the default rate)
@@ -347,6 +347,17 @@ export const CONFIG = {
       freight: 0.5,          // truck trips multiplier
       taxMult: 1.8,          // tax per job multiplier
     },
+  },
+
+  // Neighbouring towns and trade (js/region.js).
+  region: {
+    exitWeight: [1, 2, 4],        // how much a street / avenue / highway leaving the map carries
+    exportPerWeight: 15,          // industrial export demand per unit of link weight (default map: 2 → 30)
+    tradeCapPerWeight: 150,       // utility units a month the links can carry, per unit of weight
+    reserve: 0.1,                 // keep this share of local use spare before selling
+    sellPrice: { power: 0.3, water: 0.25 },   // $ per unit per month
+    buyPrice: { power: 0.9, water: 0.75 },
+    names: ['Ashby', 'Brookhaven', 'Cedar Falls', 'Dunmore', 'Eastwick', 'Fernley', 'Glenrock', 'Hartwell', 'Ivydale', 'Kingsport', 'Lowell', 'Marston'],
   },
 
   // Specialised zones and hotels.

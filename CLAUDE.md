@@ -15,14 +15,7 @@ move it to **Done** with a one-line note.
 
 We're in app-development mode (gameplay first, not distribution).
 
-**Phase A (the game loop) is done** (see Done). Next up: Phase B.
-
-**Phase B: economic depth**
-4. **Service budgets, hospital, garbage.** Funding sliders per service (scale coverage and upkeep);
-   hospital landmark and a `health` layer; trash, landfill and a Garbage overlay.
-5. **Specialised zones.** Offices (skilled, clean, high tax), farms, tourism/hotels, mixed-use.
-6. **Neighbouring cities and trade.** Sell or buy power and water at edge connections; exports
-   grow with highway exits; a Region panel.
+**Phases A and B are done** (see Done). Next up: Phase C.
 
 **Phase C: living systems**
 7. **Weather and disasters.** Floods (levee tool), heatwaves, winter storms, rare tornadoes;
@@ -35,6 +28,13 @@ We're in app-development mode (gameplay first, not distribution).
 10. **Terrain.** Height layer, hills and coastline maps, slope costs, terraforming.
 
 ## Done (recent)
+
+- Phase B: service funding per group (budget panel, scales reach/strength/upkeep), hospital +
+  `health` field, garbage (landfill, recycling capacity, trash piles, grace for old saves; save v5);
+  offices, farms, mixed-use (`TILE.OFFICE/FARM/MIXED`, helpers `isHome/isJob/homeCap/jobCap` in
+  map.js), hotels (`FLAG.HOTEL`, tourist income); region and trade (`js/region.js`: neighbours per
+  map edge, link weight, utility buy/sell in `utilitySystem`, export demand replaces most of
+  `indBase`), Region tab in City hall.
 
 - Phase A: goals (tutorial then career chain, cash rewards), four scenarios with deadlines and
   banned tools (`js/goals.js`, seeded setup), achievements (per browser), city news (`js/news.js`,
@@ -72,6 +72,8 @@ We're in app-development mode (gameplay first, not distribution).
   the 2D tile painter as a texture.
 - `js/overlays.js`, `js/ui.js`, `js/input.js`, `js/save.js`, `js/main.js`.
 - `js/seasons.js` (palettes, clock), `js/graphs.js` (history panel), `js/minimap.js`.
+- `js/goals.js`, `js/news.js`, `js/cityhall.js`, `js/region.js` (pure) and `js/cityhall-ui.js` (DOM).
+- Zone types: use `isZone/isHome/isJob/homeCap/jobCap` from map.js rather than checking RES/COM/IND.
 - Multi-tile buildings: `map.part`, `map.anchorOf(i)`, `map.footprintTiles(i)`; landmark size in
   `CONFIG.buildings[k].size`.
 - The simulation modules never touch the DOM, so they run headless in Node.

@@ -4,6 +4,7 @@
 import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, SUPPLY, TERRAIN, footprintSize, ZONE_KEY, isZone, isHome, isShop, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
+import { regionInfo } from './region.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
@@ -80,6 +81,13 @@ export function utilitySystem(state) {
     ncomp++;
   }
 
+  // Components that reach the map edge can trade with the neighbours.
+  const edge = new Uint8Array(ncomp);
+  for (let i = 0; i < size; i++) if (comp[i] >= 0 && map.roadDist[i] === 0) edge[comp[i]] = 1;
+  const R = CONFIG.region, deals = state.tradeDeals ?? {};
+  let capLeft = regionInfo(state).tradeCap;
+  const trade = {};
+
   const summary = {};
   for (const res of ['power', 'water']) {
     const out = map[res];
@@ -116,6 +124,21 @@ export function utilitySystem(state) {
       consumers.push([best < 0 ? 1e9 : best, i, c, use]);
     }
     consumers.sort((a, b) => a[0] - b[0]);
+    // Trade: buy to cover shortfalls, or sell what's spare, through the edge links.
+    const want = new Float64Array(ncomp);
+    for (const [, , c, use] of consumers) want[c] += use;
+    let imported = 0, exported = 0;
+    for (let c = 0; c < ncomp; c++) {
+      if (!edge[c] || capLeft <= 0) continue;
+      if (deals[`buy_${res}`] && pool[c] < want[c]) {
+        const add = Math.min(want[c] - pool[c], capLeft);
+        pool[c] += add; imported += add; capLeft -= add;
+      } else if (deals[`sell_${res}`] && pool[c] > want[c] * (1 + R.reserve)) {
+        const sold = Math.min(pool[c] - want[c] * (1 + R.reserve), capLeft);
+        pool[c] -= sold; exported += sold; capLeft -= sold;
+      }
+    }
+    trade[res] = { imported: Math.round(imported), exported: Math.round(exported) };
     const sourced = pool.map((p) => (p > 0 ? 1 : 0));
     for (const [, i, c, use] of consumers) {
       if (out[i] === SUPPLY.OK) continue;                          // a source serves itself
@@ -123,9 +146,10 @@ export function utilitySystem(state) {
       if (use === 0) { out[i] = SUPPLY.OK; continue; }              // vacant lot: would be served
       if (pool[c] >= use) { pool[c] -= use; out[i] = SUPPLY.OK; } else { pool[c] = 0; out[i] = SUPPLY.SHORT; }
     }
-    summary[res] = { supply: Math.round(supply), demand: Math.round(demand) };
+    summary[res] = { supply: Math.round(supply + imported), demand: Math.round(demand + exported), imported: Math.round(imported), exported: Math.round(exported) };
   }
   state.utilities = summary;
+  state.trade = trade;
 }
 
 // Coverage of public buildings (linear falloff over their radius, measured from the footprint's edge).

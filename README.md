@@ -133,7 +133,11 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **Hotels:** shops at medium density or more near water, landmarks and high land value may
      become hotels, which bring tourist spending each month (more with the tourism campaign).
    Offices and farms get their own demand bars once they matter.
-20. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+20. **Trade with the region.** Every road that leaves the map links you to a named neighbouring
+   town (City → *Region and trade*). Bigger links carry more (street 1, avenue 2, highway 4) and
+   raise the demand for your industry's exports. Sell spare power or water for monthly income,
+   or buy it at a premium to cover a shortfall; the links cap how much can flow.
+21. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
    drains. Loans can be repaid early from the same panel. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
@@ -293,7 +297,8 @@ js/minimap.js       mini-map
 js/goals.js         goal chains, scenarios, achievements (pure)
 js/news.js          citizen posts and headlines (pure)
 js/cityhall.js      ordinances and mayor rating (pure)
-js/cityhall-ui.js   goal card, City hall panel, news feed
+js/cityhall-ui.js   goal card, City hall panel (goals, ordinances, region, rating), news feed
+js/region.js        neighbouring towns, road links, utility trade, export demand (pure)
 js/economy.js       tools, build costs, monthly budget, bankruptcy
 js/renderer.js      2D canvas drawing, camera (pan/zoom), overlays
 js/renderer3d.js    3D view (Three.js): instanced buildings (two designs per zone & density,

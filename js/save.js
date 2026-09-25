@@ -44,6 +44,7 @@ export function serialize(state) {
     history: state.history,
     ordinances: state.ordinances ?? {},
     budgets: state.budgets ?? {},
+    tradeDeals: state.tradeDeals ?? {},
     garbageGrace: state.garbageGrace | 0,
     rating: state.rating,
     goals: state.goals,
@@ -118,6 +119,8 @@ export function deserialize(data) {
     budgets: Object.fromEntries(Object.keys(CONFIG.budgets.groups).filter((g) => Number.isFinite(data.budgets?.[g]))
       .map((g) => [g, Math.max(CONFIG.budgets.min, Math.min(CONFIG.budgets.max, Math.round(data.budgets[g] * 10) / 10))])),
     garbageGrace: data.garbageGrace | 0,
+    tradeDeals: Object.fromEntries(['buy_power', 'sell_power', 'buy_water', 'sell_water'].filter((k) => data.tradeDeals?.[k]).map((k) => [k, true])),
+    trade: {},
     garbage: { made: 0, capacity: 0, uncollected: 0 },
     health: 0,
     loansPaid: data.loansPaid | 0,

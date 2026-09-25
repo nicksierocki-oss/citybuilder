@@ -410,3 +410,7 @@ body:not(.brushable) #brushSection { opacity: 0.45; }
 #budget td.fund b.low { color: var(--bad); }
 #budget td.fund b.high { color: var(--good); }
 .mbar.trash i { background: #b8a27e; }
+.links { width: 100%; font-size: 12.5px; border-collapse: collapse; }
+.links td { padding: 3px 0; }
+.links td:last-child { text-align: right; color: var(--muted); white-space: nowrap; }
+.links small { color: var(--muted); }

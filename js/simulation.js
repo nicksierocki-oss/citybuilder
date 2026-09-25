@@ -11,6 +11,7 @@ import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utili
 import { ordinance, mayorSystem } from './cityhall.js';
 import { goalsSystem, emptyGoals } from './goals.js';
 import { newsSystem } from './news.js';
+import { exportDemand } from './region.js';
 
 export const DEFAULT_CITY_NAME = 'My City';
 const CITY_NAMES = ['Willowbrook', 'Riverton', 'Maple Bay', 'Fairhaven', 'Linden Park', 'Ashford', 'Brightwater',
@@ -53,6 +54,8 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     garbageGrace: 0,          // months before garbage matters (older saves)
     health: 0,                // population-weighted health
     garbage: { made: 0, capacity: 0, uncollected: 0 },
+    tradeDeals: {},           // buy_power, sell_power, buy_water, sell_water
+    trade: {},                // last month's utility trade (region.js)
     rating: CONFIG.mayor.start, // mayor rating 0..100
     goals: emptyGoals('tutorial'),
     scenario: null,           // { id, status: 'active'|'won'|'lost', banned, deadlineYear }
@@ -311,7 +314,7 @@ export function targetDemand(state) {
   // Commercial: shoppers need shops.
   let c = Math.min(norm(P * D.comPerResident + D.comBase, C), laborRoom);
   // Industrial: goods for residents + regional exports.
-  let i = Math.min(norm(P * D.indPerResident + D.indBase, I), laborRoom);
+  let i = Math.min(norm(P * D.indPerResident + D.indBase + exportDemand(state), I), laborRoom);
   // Offices: skilled workers looking for skilled work.
   const skilled = P * D.workforceRatio * (state.education ?? 0);
   let o = Math.min(norm(skilled * D.officePerSkilled + D.officeBase, O), laborRoom);
