@@ -1,0 +1,9 @@
+{
+  "name": "gridline",
+  "private": true,
+  "type": "module",
+  "description": "Gridline: a small browser city builder. No build step; package.json only enables the headless playtest.",
+  "scripts": {
+    "playtest": "node tools/playtest.js"
+  }
+}

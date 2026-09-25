@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gridline</title>
+  <meta name="description" content="A cozy browser city builder: roads, zones, density and budgets.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23a9cf8c'/%3E%3Crect x='7' width='2' height='16' fill='%235c6370'/%3E%3Crect x='2' y='2' width='4' height='4' fill='%23e07b58'/%3E%3Crect x='10' y='3' width='4' height='6' fill='%235b9bdb'/%3E%3Crect x='2' y='10' width='4' height='4' fill='%23c9a04a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-tool="road">
+  <header id="topbar">
+    <div class="brand">Gridline</div>
+    <div class="stat"><label>Funds</label><span id="funds">$0</span></div>
+    <button class="stat clickable" id="budgetStat" title="Show budget breakdown">
+      <label>Last month ▾</label><span id="net">—</span><small id="netDetail"></small>
+    </button>
+    <div class="stat"><label>Population</label><span id="pop">0</span><small id="jobs"></small></div>
+    <div class="stat"><label>Date</label><span id="date">Jan 2000</span></div>
+    <div class="group" role="group" aria-label="Speed">
+      <button data-speed="0" title="Pause (Space)">❚❚</button>
+      <button data-speed="1" title="Normal speed">1×</button>
+      <button data-speed="2" title="Fast">2×</button>
+      <button data-speed="3" title="Fastest">3×</button>
+    </div>
+    <div class="group tax" role="group" aria-label="Tax rate">
+      <label>Tax</label>
+      <button id="taxDown" title="Lower taxes (more demand, less income)">−</button>
+      <span id="tax">9%</span>
+      <button id="taxUp" title="Raise taxes (more income, less demand)">+</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button id="btnNew">New</button>
+      <button id="btnSave" title="Download city as JSON">Save</button>
+      <button id="btnLoad" title="Load a city JSON file">Load</button>
+      <button id="helpBtn" title="How to play">?</button>
+    </div>
+    <input type="file" id="fileInput" accept=".json,application/json" hidden>
+  </header>
+
+  <main>
+    <aside id="sidebar">
+      <div id="tools"></div>
+      <div class="section">
+        <h4>Overlays</h4>
+        <button class="ovl" data-overlay="landValue">Land value <kbd>L</kbd></button>
+        <button class="ovl" data-overlay="pollution">Pollution <kbd>P</kbd></button>
+      </div>
+      <div class="section">
+        <h4>Demand</h4>
+        <div id="rci">
+          <div class="col"><div class="track"><div class="bar r" id="rci-r"></div></div><span>R</span></div>
+          <div class="col"><div class="track"><div class="bar c" id="rci-c"></div></div><span>C</span></div>
+          <div class="col"><div class="track"><div class="bar i" id="rci-i"></div></div><span>I</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <div id="viewport">
+      <canvas id="game"></canvas>
+      <div id="costTip" hidden></div>
+      <div id="info" class="panel" hidden></div>
+      <div id="legend" class="panel" hidden></div>
+      <div id="budget" class="panel"></div>
+      <div id="toasts"></div>
+      <div id="help" class="panel">
+        <button id="helpClose" aria-label="Close">×</button>
+        <h3>How to play</h3>
+        <ol>
+          <li><b>Extend the highway</b> (grey road at the west edge) with the Road tool. Only roads connected to it count.</li>
+          <li><b>Zone beside roads</b>: Residential, Commercial, Industrial. Drag to paint rectangles.</li>
+          <li><b>Watch the RCI meter</b>: homes need jobs, shops need residents, industry needs workers &amp; customers.</li>
+          <li><b>Raise land value</b> with parks and waterfront; keep industry away from homes to reach high density.</li>
+          <li><b>Mind the budget</b>: roads cost upkeep. Six months in debt and you're fired.</li>
+        </ol>
+        <p><kbd>1</kbd>–<kbd>6</kbd> tools · <kbd>0</kbd>/<kbd>Esc</kbd> inspect · <kbd>WASD</kbd>/arrows pan · wheel zoom ·
+          right-drag pan · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd> overlays</p>
+      </div>
+    </div>
+  </main>
+
+  <div id="modal" hidden>
+    <div class="modal-card">
+      <h2></h2>
+      <p></p>
+      <div class="modal-actions"><button id="modalCancel">Cancel</button><button id="modalOk" class="primary">OK</button></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
