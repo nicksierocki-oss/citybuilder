@@ -5,6 +5,7 @@
 import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, JUNCTION, skilledShare } from './map.js';
 import { ordinance } from './cityhall.js';
+import { funding } from './services.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -168,7 +169,7 @@ export function trafficSystem(state) {
         if (remaining[j] + remainingS[j] > 0) jobs.push(j);
       }
     }
-    stations.push({ i, k, x: x0, y: y0, jobs, left: B[k].capacity });
+    stations.push({ i, k, x: x0, y: y0, jobs, left: B[k].capacity * funding(state, k) });
   }
   const nearStations = (home) => {
     const x = home % w, y = (home / w) | 0;

@@ -388,6 +388,7 @@ export class Renderer3D {
         this.streetLamp(map, x, y, i);
       }
       if (map.hasFlag(i, FLAG.FIRE)) this.burning.push({ x, y, v });
+      if (map.trash[i] > 25) for (let k = 0; k < Math.min(4, Math.ceil(map.trash[i] / 18)); k++) this.blobs.add(x + 0.15 + ((v >> k) & 7) * 0.09, 0, y + 0.85 - (k % 2) * 0.08, 0.1, 0.09, 0.1, ['#5f6670', '#7b8a6e', '#6d6272'][(v + k) % 3]);
       if (t === TILE.ROAD && map.hasFlag(i, FLAG.INTERCHANGE)) this.interchange(map, x, y);
       if (t === TILE.ROAD && map.hasFlag(i, FLAG.LIGHTS)) {
         // Four signal poles at the corners; their lamps change colour every frame (buildSignals).
@@ -651,6 +652,19 @@ export class Renderer3D {
       for (const [tx, ty, r] of spots) this.tree(x + tx / 32, y + ty / 32, r * 0.065, v + tx * 3 + ty);
       this.cylinders.add(x + 46 / 32, 0, y + 62 / 32, 0.3, 0.18, 0.3, '#eee5d8');
       this.cones.add(x + 46 / 32, 0.18, y + 62 / 32, 0.38, 0.16, 0.38, sn('#d3a390'));
+    } else if (k === 'hospital') {
+      this.lit = { seed: v, share: 0.6 };
+      const P0 = (b, u, ww, sx, sz, y0, hh, hex) => b.add(u, y0, ww, sx, hh, sz, hex);
+      this.rboxes.add(cx, 0, y + 0.72, w - 0.3, 1.1, 1.1, '#ffffff');
+      this.win(P0, cx, y + 0.72, w - 0.3, 1.1, 1.1);
+      this.rboxes.add(cx - 0.35, 0, y + h - 0.45, 0.9, 0.45, 0.6, '#f4f1ec');
+      this.boxes.add(cx, 1.1, y + 0.72, 0.12, 0.02, 0.5, S.cross);
+      this.boxes.add(cx, 1.1, y + 0.72, 0.5, 0.02, 0.12, S.cross);
+      this.cylinders.add(x + w - 0.45, 0, y + h - 0.45, 0.5, 0.03, 0.5, '#c9d6ec'); // helipad
+      this.lit = null;
+    } else if (k === 'landfill') {
+      for (const [mx, mz, r, c] of [[0.62, 0.7, 0.8, '#b9ab8c'], [1.3, 0.62, 0.62, '#a99b7d'], [0.95, 1.3, 0.72, '#c2b596']]) this.blobs.add(x + mx, -0.15, y + mz, r, 0.5, r, this.snowy(c));
+      this.rboxes.add(x + 1.55, 0, y + 1.5, 0.28, 0.14, 0.18, '#e8c86a');
     } else if (k === 'townpark') {
       for (const [tx, ty, r] of [[10, 10, 6], [26, 50, 7], [10, 44, 5], [54, 50, 6], [36, 14, 5]]) this.tree(x + tx / 32, y + ty / 32, r * 0.065, v + tx + ty);
       const sx = x + 1.35, sz = y + 0.5; // swing set over the sandpit

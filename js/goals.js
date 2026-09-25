@@ -39,6 +39,8 @@ export const CHAINS = {
     { id: 't-250', text: 'Grow to 250 residents', hint: 'Follow the demand panel: zone whatever is positive.', ...reach(250), reward: 750 },
     { id: 't-school', text: 'Build a school', hint: 'Schools make residents happier and more skilled.', tool: 'school',
       check: (s) => svc(s, 'school') >= 1, reward: 750 },
+    { id: 't-landfill', text: 'Build a landfill away from homes', hint: 'Towns over 400 people make garbage. A landfill collects it from 24 tiles around but smells: put it by industry.', tool: 'landfill',
+      check: (s) => svc(s, 'landfill') + svc(s, 'recycling') >= 1, reward: 750 },
     { id: 't-district', text: 'Create a district and paint it', hint: 'Districts panel in the sidebar: + New, then drag on the map.', highlight: '#btnNewDistrict',
       check: (s) => (s.districts?.length ?? 0) > 0 && s.map.district.some((v) => v), reward: 500 },
     { id: 't-1000', text: 'Reach 1,000 residents', hint: 'Keep power and water ahead of demand and add services as neighbourhoods fill.', ...reach(1000), reward: 2000 },
@@ -116,6 +118,7 @@ export const SCENARIOS = {
       api.applyTool(state, 'commercial', line(17, H + 1, 18, H + 8));
       api.applyTool(state, 'coal', [m.idx(12, H + 1)]);
       api.applyTool(state, 'pump', [m.idx(12, H + 3)]);
+      api.applyTool(state, 'landfill', line(2, H + 5, 3, H + 6)); // the town dump, by the factories
       api.refreshFields(state);
       for (let k = 0; k < 30 * CONFIG.time.ticksPerMonth; k++) api.tick(state);
       // Heavy, dirty industry right next to the homes.

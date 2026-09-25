@@ -3,6 +3,7 @@
 import { CONFIG } from './config.js';
 import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZone, footprintSize } from './map.js';
 import { ordinance, ordinancesCost } from './cityhall.js';
+import { funding, groupOf } from './services.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -36,6 +37,8 @@ export const TOOLS = {
   university:  { label: 'University',   shape: 'footprint', building: 'university', footprint: true },
   stadium:     { label: 'Stadium',      shape: 'footprint', building: 'stadium', footprint: true },
   statue:      { label: "Mayor's statue", shape: 'single', building: 'statue' },
+  hospital:    { label: 'Hospital',     shape: 'footprint', building: 'hospital', footprint: true },
+  landfill:    { label: 'Landfill',     shape: 'footprint', building: 'landfill', footprint: true },
   // Paints the selected district (arg = district id, 0 erases)
   district:    { label: 'Paint district', shape: 'rect' },
 };
@@ -296,7 +299,7 @@ export function monthlyBudget(state) {
     avenues: s.avenues * E.avenueMaintenance,
     highways: s.highways * E.highwayMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
-    parks: s.parks * E.parkMaintenance,
+    parks: s.parks * E.parkMaintenance * (state.budgets?.parks ?? 1),
     junctions: s.lights * E.lightsMaintenance + s.interchanges * E.interchangeMaintenance,
     utilities: 0,
     services: 0,
@@ -304,7 +307,7 @@ export function monthlyBudget(state) {
     ordinances: ordinancesCost(state),
   };
   for (const [k, n] of Object.entries(s.services || {})) {
-    const upkeep = n * CONFIG.buildings[k].upkeep;
+    const upkeep = n * CONFIG.buildings[k].upkeep * funding(state, k);
     if (k === 'coal' || k === 'wind' || k === 'pump') expenses.utilities += upkeep; else expenses.services += upkeep;
   }
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -340,6 +343,13 @@ export function economySystem(state) {
       state.lastBudgetWarn = state.tick;
       push(state, `Budget: losing $${-net}/month, about ${runway} months of money left. Open “Last month” for tips.`, 'bad');
     }
+  }
+
+  if (state.garbageGrace > 0) {
+    state.garbageGrace--;
+    const g = state.garbageGrace;
+    if (g === 6 || g === 3 || g === 1) push(state, `Garbage collection needed in ${g} month${g === 1 ? '' : 's'}: build a landfill`, 'bad');
+    if (g === 0) push(state, 'Uncollected garbage now piles up: landfills and recycling centres collect it', 'bad');
   }
 
   if (state.utilityGrace > 0) {
@@ -444,6 +454,10 @@ export function budgetAdvice(state) {
   }
   if (atGrade) out.push(`${atGrade} highway junction${atGrade > 1 ? 's' : ''} cross other roads at grade: an Interchange ($${CONFIG.costs.interchange.toLocaleString()}) removes the slowdown.`);
   if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic lights: lights ($${CONFIG.costs.lights}) cut the delay.`);
+  const gb = state.garbage;
+  if (gb && gb.uncollected > 20) out.push(`${gb.uncollected.toLocaleString()} units of garbage a month go uncollected (capacity ${gb.capacity.toLocaleString()}, made ${gb.made.toLocaleString()}): a landfill ($${CONFIG.buildings.landfill.cost.toLocaleString()}) collects ${CONFIG.buildings.landfill.garbage}. Keep it away from homes.`);
+  const cut = Object.entries(state.budgets ?? {}).filter(([, f]) => f < 1);
+  if (cut.length && net > 0) out.push(`Services running below full funding: ${cut.map(([g, f]) => `${CONFIG.budgets.groups[g].label} ${Math.round(f * 100)}%`).join(', ')}. You can afford to restore them.`);
   const open = Math.round(state.traffic?.skilledOpen ?? 0);
   if (open >= 15) out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. Schools${s.population >= CONFIG.buildings.university.unlock ? ' and a university' : ''} raise education over time.`);
   const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);

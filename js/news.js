@@ -21,6 +21,8 @@ function residentLine(state, i, rng) {
   if (why.some((w) => w.startsWith('crime'))) return ['crime', pick(rng, ["Another break-in on our street. We need police around here.", "I don't walk home alone after dark any more."])];
   if (why.includes('pollution')) return ['pollution', pick(rng, ["Can't hang the washing out: the air here is filthy.", 'The kids keep coughing. Move the factories away from homes!'])];
   if (why.includes('no school nearby')) return ['school', 'The nearest school is miles away. Our kids deserve better.'];
+  if (why.includes('uncollected garbage')) return ['garbage', pick(rng, ['The bins have not been emptied in weeks. The whole street stinks!', 'Rubbish bags piled up to the fence. Where is the garbage truck?'])];
+  if (why.includes('poor health care')) return ['health', 'Three hours in the waiting room again. We need a proper hospital.'];
   if (why.includes('no clinic nearby')) return ['clinic', 'Had to go across town to see a doctor. A clinic nearby, please?'];
   if (state.taxRate >= CONFIG.demand.taxNeutral + 3) return ['tax', `${state.taxRate}% tax? That's daylight robbery.`];
   if (hp >= 72) {

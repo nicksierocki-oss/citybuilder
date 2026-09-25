@@ -198,6 +198,7 @@ function rescue(state) {
     if (month === 20) applyTool(state, 'commercial', rect(state, 23, H - 8, 23, H + 8).filter((i) => state.map.terrain[i] === TERRAIN.GRASS));
     if (month === 30 && state.funds > 800) { applyTool(state, 'bulldoze', rect(state, 20, H + 1, 21, H + 8)); applyTool(state, 'residential', rect(state, 20, H + 1, 21, H + 8)); }
     if (month === 44) applyTool(state, 'industrial', rect(state, 2, H + 1, 9, H + 2));
+    if (state.funds < 300 && state.loans.length < 2) takeLoan(state); // bridge the lean years, as the advisor suggests
     for (const l of [...state.loans]) if (state.funds > loanPayoff(l) + 3000) repayLoan(state);
   };
 }
@@ -213,6 +214,7 @@ function runScenario(id, strategy) {
     for (let t = 0; t < TPM; t++) tick(state);
     state.events.length = 0;
     step(mo);
+    garbageCare(state);
     refreshFields(state);
     if (process.env.TRACE === id && mo % 3 === 0) { const b = state.lastMonth?.breakdown; console.log(`  m${mo} pop ${state.stats.population} ind ${state.stats.indJobs} com ${state.stats.comJobs} funds ${Math.round(state.funds)} net ${state.lastMonth?.net} exp ${b ? JSON.stringify(Object.fromEntries(Object.entries(b.expenses).filter(([, v]) => v > 1).map(([k, v]) => [k, Math.round(v)]))) : ''} RCI ${state.demand.r.toFixed(2)} ${state.demand.c.toFixed(2)} ${state.demand.i.toFixed(2)} water ${JSON.stringify(state.utilities.water)}`); }
   }
@@ -224,6 +226,14 @@ function runScenario(id, strategy) {
   const s = state.stats;
   console.log(`\n=== scenario ${def.name} === ${state.scenario.status.toUpperCase()} in ${state.year - (state.scenario.deadlineYear - def.years)} yr: pop ${s.population}, funds ${Math.round(state.funds)}, loans ${state.loans.length}, happiness ${Math.round(state.happiness)}, home pollution ${homePollution(state).toFixed(1)}, rating ${Math.round(state.rating)}${state.bankrupt ? ', BANKRUPT' : ''}`);
   console.log('   goals:', def.goals.map((g) => `${g.id} ${g.check(state) ? 'ok' : 'no'}`).join(', '));
+}
+
+// What any attentive player does when the advisor says garbage is piling up: a landfill at the
+// far edge of the industrial area.
+function garbageCare(state) {
+  if ((state.garbage?.uncollected ?? 0) < 10 || state.funds < 2500 || state.stats.services.landfill) return;
+  const H = highwayEntry(state.map.width, state.map.height).row;
+  for (const [x, y] of [[2, H + 8], [2, H - 7], [5, H + 8], [2, H + 11]]) if (applyTool(state, 'landfill', rect(state, x, y, x + 1, y + 1)).applied) return;
 }
 
 function run(name, strategy, months = 72, seed = 12345) {
@@ -241,9 +251,11 @@ function run(name, strategy, months = 72, seed = 12345) {
   for (let m = 1; m <= months && !state.bankrupt; m++) {
     for (let t = 0; t < TPM; t++) { tick(state); countBurn(); }
     step(m);
+    if (name !== 'careless') garbageCare(state);
     refreshFields(state);
     const s = state.stats, d = state.demand;
     if (hit1000 == null && s.population >= 1000) hit1000 = m;
+    if (process.env.GARB && name === 'sensible' && m % 3 === 0) console.log(`  m${m} pop ${s.population} garbage ${JSON.stringify(state.garbage)} landfill ${state.stats.services.landfill ?? 0} health ${state.health.toFixed(0)} happy ${state.happiness.toFixed(0)} funds ${Math.round(state.funds)}`);
     if (m % 6 === 0 || state.bankrupt) {
       const lvl = [0, 0, 0, 0]; for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.RES) lvl[state.map.level[i]]++;
       console.log(`m${String(m).padStart(3)} pop ${String(s.population).padStart(5)} com ${String(s.comJobs).padStart(4)} ind ${String(s.indJobs).padStart(4)} ` +

@@ -545,7 +545,18 @@ export class Renderer {
       else if (!ab && map.hasFlag(i, FLAG.HIGHTECH)) this.drawHighTech(px, py, lv, v);
       else this.drawIndustrial(px, py, lv, v, ab);
     }
+    if (map.trash[i] > 25) this.drawTrash(px, py, v, map.trash[i]);
     if (map.hasFlag(i, FLAG.FIRE)) this.drawFire(px, py, v);
+  }
+
+  // Bin bags piling up at the kerb.
+  drawTrash(px, py, v, level) {
+    const ctx = this.ctx, n = Math.min(5, Math.ceil(level / 15));
+    for (let k = 0; k < n; k++) {
+      const x = px + 4 + ((v >> k) & 7) * 3, y = py + 26 - (k % 2) * 3;
+      ctx.fillStyle = ['#5f6670', '#7b8a6e', '#6d6272'][(v + k) % 3];
+      ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   // Flickering flames and a smoke plume over a burning building.
@@ -731,6 +742,13 @@ export class Renderer {
       ctx.beginPath(); ctx.ellipse(ax + w * 0.7, ay + h * 0.3, 17, 10.5, -0.3, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = PAL.waterLight; ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(ax + w * 0.64, ay + h * 0.29); ctx.quadraticCurveTo(ax + w * 0.68, ay + h * 0.26, ax + w * 0.72, ay + h * 0.29); ctx.stroke();
+    } else if (k === 'hospital') {
+      ctx.fillStyle = S.plazaStone; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, 10); ctx.fill();
+      ctx.fillStyle = PAL.svc.yard; roundRect(ctx, ax + 4, ay + h - 16, w - 8, 12, 5); ctx.fill();
+    } else if (k === 'landfill') {
+      ctx.fillStyle = '#d9cfb8'; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, 8); ctx.fill();
+      ctx.strokeStyle = '#b3a88f'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 2]);
+      roundRect(ctx, ax + 3, ay + 3, w - 6, h - 6, 7); ctx.stroke(); ctx.setLineDash([]);
     } else if (k === 'townpark') {
       lawn(this.env.park);
       path([2, h * 0.3, w * 0.45, h * 0.35, w * 0.55, h * 0.65, w * 0.7, h - 2, w * 0.72, h - 2], 4);
@@ -782,6 +800,26 @@ export class Renderer {
       this.round(ax + 46, ay + 62, 5, this.snowy('#e4d6c4'), 3);             // bandstand
       ctx.fillStyle = this.snowy('#d3a390');
       ctx.beginPath(); ctx.arc(ax + 46, ay + 62, 3, 0, Math.PI * 2); ctx.fill();
+    } else if (k === 'hospital') {
+      this.box(ax + 5, ay + 5, w - 10, h - 24, 7, '#ffffff', false, 5);
+      this.box(ax + 8, ay + h - 22, 20, 14, 4, '#f4f1ec', false, 3);
+      ctx.fillStyle = S.cross;
+      roundRect(ctx, ax + w / 2 - 3, ay + 11, 6, 18, 1.5); ctx.fill();
+      roundRect(ctx, ax + w / 2 - 9, ay + 17, 18, 6, 1.5); ctx.fill();
+      ctx.strokeStyle = '#9fb6e0'; ctx.lineWidth = 1.4;                  // helipad
+      ctx.beginPath(); ctx.arc(ax + w - 16, ay + h - 15, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#9fb6e0'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('H', ax + w - 16, ay + h - 15);
+    } else if (k === 'landfill') {
+      for (const [mx, my, r, c] of [[20, 22, 13, '#b9ab8c'], [42, 20, 10, '#a99b7d'], [30, 42, 12, '#c2b596']]) {
+        ctx.fillStyle = PAL.shadow; ctx.beginPath(); ctx.arc(ax + mx + 3, ay + my + 3, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = this.snowy(c); ctx.beginPath(); ctx.arc(ax + mx, ay + my, r, 0, Math.PI * 2); ctx.fill();
+      }
+      for (let k2 = 0; k2 < 10; k2++) {                                      // scattered junk
+        ctx.fillStyle = ['#8f96a0', '#a7c1a0', '#c7a79a'][k2 % 3];
+        ctx.fillRect(ax + 10 + ((v * (k2 + 3)) % 42), ay + 10 + ((v * (k2 + 7)) % 40), 2.5, 2);
+      }
+      this.box(ax + 46, ay + 44, 12, 7, 3, '#e8c86a', false, 2);           // bulldozer
     } else if (k === 'townpark') {
       for (const [tx, ty, r] of [[10, 10, 6], [26, 50, 7], [10, 44, 5], [54, 50, 6], [36, 14, 5]]) this.treeBlob(ax + tx, ay + ty, r, v + tx + ty);
       ctx.strokeStyle = '#b8a894'; ctx.lineWidth = 1.5;                        // swing set

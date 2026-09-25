@@ -8,7 +8,21 @@ import { ordinance } from './cityhall.js';
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ZONE_KEY = { [TILE.RES]: 'residential', [TILE.COM]: 'commercial', [TILE.IND]: 'industrial' };
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
-export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue'];
+export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital'];
+
+// Funding group of each public building kind (see CONFIG.budgets.groups).
+const GROUP_OF = Object.fromEntries(Object.entries(CONFIG.budgets.groups).flatMap(([g, d]) => d.kinds.map((k) => [k, g])));
+export function groupOf(kind) { return GROUP_OF[kind] ?? null; }
+
+// Funding level (0.5..1.5) for a building kind; 1 when it has no group.
+export function funding(state, kind) {
+  const g = GROUP_OF[kind];
+  return g ? (state.budgets?.[g] ?? 1) : 1;
+}
+// How strongly a service works at a funding level: full at 100%, less below, a little more above.
+export function fundingStrength(f) {
+  return f <= 1 ? f : 1 + (f - 1) * CONFIG.budgets.overSpend;
+}
 
 export function kindOf(map, i) {
   return map.type[i] === TILE.SERVICE ? KINDS[map.kind[i]] : null;
@@ -34,7 +48,7 @@ export function useOf(map, i, res) {
   const U = CONFIG.utilities, t = map.type[i];
   if (t === TILE.SERVICE) {
     const k = kindOf(map, i);
-    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus' || CONFIG.buildings[k]?.park || map.part[i]) return 0;
+    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus' || k === 'landfill' || CONFIG.buildings[k]?.park || map.part[i]) return 0;
     return U.serviceUse * (CONFIG.buildings[k]?.size ? 3 : 1); // landmarks use more, counted on their anchor
   }
   const key = ZONE_KEY[t];
@@ -122,7 +136,8 @@ export function coverageSystem(state) {
   for (let i = 0; i < map.size; i++) {
     const k = kindOf(map, i);
     if (!k || !map.coverage[k] || map.part[i]) continue;
-    const r = CONFIG.buildings[k].radius, layer = map.coverage[k];
+    const f = funding(state, k), BU = CONFIG.budgets, strength = fundingStrength(f);
+    const r = Math.max(1, Math.round(CONFIG.buildings[k].radius * (BU.radiusBase + BU.radiusPer * f))), layer = map.coverage[k];
     const [fw, fh] = footprintSize(k);
     const x0 = i % w, y0 = (i / w) | 0;
     for (let y = Math.max(0, y0 - r); y <= Math.min(h - 1, y0 + fh - 1 + r); y++) {
@@ -131,7 +146,7 @@ export function coverageSystem(state) {
         const dx = x < x0 ? x0 - x : x > x0 + fw - 1 ? x - (x0 + fw - 1) : 0;
         const d = Math.hypot(dx, dy);
         if (d > r) continue;
-        const v = 1 - d / (r + 1), j = y * w + x;
+        const v = strength * (1 - d / (r + 1)), j = y * w + x;
         if (v > layer[j]) layer[j] = v;
       }
     }
@@ -211,7 +226,7 @@ export function happinessSystem(state) {
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
     for (const k of AMENITY_KINDS) v += c[k][i] * B[k].happiness;
-    v += carFree;
+    v += carFree + (map.health[i] - 50) * CONFIG.health.happinessWeight - map.trash[i] * CONFIG.garbage.happinessWeight;
     v -= map.crime[i] * CONFIG.crime.happinessWeight;
     if (map.hasFlag(i, FLAG.FIRE)) v -= 30;
     if (map.type[i] === TILE.RES) {
@@ -232,6 +247,66 @@ export function happinessSystem(state) {
   state.happiness = weight > 0 ? sum / weight : 0;
 }
 
+// ---------------------------------------------------------------- health & garbage
+
+// Health (0..100): clinics and hospitals raise it; pollution and uncollected trash lower it.
+export function healthSystem(state) {
+  const map = state.map, H = CONFIG.health, c = map.coverage, cap = CONFIG.capacity.residential;
+  let sum = 0, w = 0;
+  for (let i = 0; i < map.size; i++) {
+    if (map.terrain[i] === TERRAIN.WATER) { map.health[i] = 0; continue; }
+    const v = H.base + Math.min(1, c.clinic[i]) * H.clinic + Math.min(1.2, c.hospital[i]) * H.hospital
+      - map.pollution[i] * H.pollutionWeight - map.trash[i] * H.trashWeight;
+    map.health[i] = Math.max(0, Math.min(100, v));
+    if (map.type[i] === TILE.RES && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) { const p = cap[map.level[i]]; sum += map.health[i] * p; w += p; }
+  }
+  state.health = w ? sum / w : 0;
+}
+
+// Trash made by tile i each month.
+export function trashOf(map, i) {
+  const t = map.type[i], G = CONFIG.garbage, C = CONFIG.capacity;
+  if (!map.level[i] || map.hasFlag(i, FLAG.ABANDONED)) return 0;
+  if (t === TILE.RES) return C.residential[map.level[i]] * G.perResident;
+  if (t === TILE.COM) return C.commercial[map.level[i]] * G.perJob;
+  if (t === TILE.IND) return C.industrial[map.level[i]] * G.perJob;
+  return 0;
+}
+
+// Garbage: buildings covered by a landfill or recycling centre get collected, as far as the
+// city's collection capacity stretches. Everyone else's trash piles up (it builds up and clears
+// gradually). Small towns cope on their own; the effect grows with the city.
+export function garbageSystem(state) {
+  const map = state.map, G = CONFIG.garbage, B = CONFIG.buildings, pop = state.stats?.population ?? 0;
+  let capacity = 0;
+  for (let i = 0; i < map.size; i++) {
+    const k = kindOf(map, i);
+    if (k && B[k].garbage && !map.part[i]) capacity += B[k].garbage * fundingStrength(funding(state, k));
+  }
+  let made = 0, covered = 0;
+  for (let i = 0; i < map.size; i++) {
+    const g = trashOf(map, i);
+    if (!g) continue;
+    made += g;
+    if (map.coverage.landfill[i] > 0.02 || map.coverage.recycling[i] > 0.02) covered += g;
+  }
+  const rate = covered > 0 ? Math.min(1, capacity / covered) : 0;
+  const severity = state.garbageGrace > 0 ? 0 : Math.max(0, Math.min(1, (pop - G.startPop) / (G.fullPop - G.startPop)));
+  let piled = 0;
+  for (let i = 0; i < map.size; i++) {
+    const g = trashOf(map, i);
+    let target = 0;
+    if (g) {
+      const served = map.coverage.landfill[i] > 0.02 || map.coverage.recycling[i] > 0.02 ? rate : 0;
+      target = (1 - served) * G.maxLevel * severity;
+      if (target > 1) piled += g * (1 - served);
+    }
+    map.trash[i] += (target - map.trash[i]) * G.settle;
+    if (map.trash[i] < 0.05) map.trash[i] = 0;
+  }
+  state.garbage = { made: Math.round(made), capacity: Math.round(capacity), uncollected: Math.round(piled) };
+}
+
 // Human-readable reasons a home is unhappy (for the tile info panel).
 export function happinessReasons(state, i) {
   const map = state.map, out = [];
@@ -240,6 +315,8 @@ export function happinessReasons(state, i) {
   if (map.pollution[i] > 20) out.push('pollution');
   if (map.crime[i] > 25) out.push(map.coverage.police[i] < 0.05 ? 'crime (no police nearby)' : 'crime');
   if (map.landValue[i] < 30) out.push('low land value');
+  if (map.trash[i] > 20) out.push('uncollected garbage');
+  if (map.health[i] < 35) out.push('poor health care');
   if (utilitiesEnforced(state) && map.level[i] > 0) {
     if (map.power[i] !== SUPPLY.OK) out.push('no power');
     if (map.water[i] !== SUPPLY.OK) out.push('no water');

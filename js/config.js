@@ -168,7 +168,7 @@ export const CONFIG = {
     school:    { label: 'School',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 8 },
     clinic:    { label: 'Clinic',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 5 },
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
-    recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5 },
+    recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5, garbage: 250 },
     police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 10 },
     // Transit: people within `radius` tiles may ride to jobs near another stop on the network.
     bus:       { label: 'Bus stop',      cost: 150,  upkeep: 6,  radius: 3, capacity: 150, wait: 4, minutesPerTile: 0.7,  share: 0.35, landValue: 3, happiness: 3 },
@@ -183,6 +183,43 @@ export const CONFIG = {
       income: 180, visitorsAt: 8000 }, // ticket income reaches `income` at `visitorsAt` residents
     // Unlocked by a high mayor rating (see `mayor.statueRating`), not population.
     statue:      { label: "Mayor's statue", cost: 500, upkeep: 5, radius: 6, landValue: 8, happiness: 6, unlockRating: 80 },
+    hospital:    { label: 'Hospital',     cost: 5000, upkeep: 70, size: [2, 2], radius: 14, happiness: 6, landValue: 4, unlock: 2000 },
+    // Collects `garbage` units a month from buildings within `radius`; smelly nearby.
+    landfill:    { label: 'Landfill',     cost: 1500, upkeep: 25, size: [2, 2], radius: 24, garbage: 700, pollution: 30, pollutionRadius: 3 },
+  },
+
+  // Service funding: 50%..150% per group. Coverage radius × (radiusBase + radiusPer × funding);
+  // strength = funding (above 100% it counts at `overSpend` per point); upkeep × funding.
+  budgets: {
+    min: 0.5, max: 1.5, step: 0.1,
+    radiusBase: 0.75, radiusPer: 0.25, overSpend: 0.4,
+    groups: {
+      education: { label: 'Education', kinds: ['school', 'university'] },
+      health:    { label: 'Health',    kinds: ['clinic', 'hospital'] },
+      police:    { label: 'Police',    kinds: ['police'] },
+      fire:      { label: 'Fire',      kinds: ['fire'] },
+      transit:   { label: 'Transit',   kinds: ['bus', 'metro'] },
+      parks:     { label: 'Parks',     kinds: ['plaza', 'townpark', 'centralpark', 'statue'] },
+      garbage:   { label: 'Garbage',   kinds: ['landfill', 'recycling'] },
+    },
+  },
+
+  // Health (0..100 per tile) feeds happiness.
+  health: {
+    base: 45, clinic: 22, hospital: 40,
+    pollutionWeight: 0.4, trashWeight: 0.15,
+    happinessWeight: 0.15,   // happiness per point of health above/below 50
+  },
+
+  // Garbage: buildings make trash each month; landfills and recycling centres collect it.
+  garbage: {
+    perResident: 0.25, perJob: 0.3,
+    startPop: 400,           // below this the city manages on its own...
+    fullPop: 1600,           // ...and uncollected trash reaches full effect here
+    maxLevel: 65,            // trash level (0..100) of an unserved building at full effect
+    settle: 0.2,             // share of the gap to the target closed per update
+    happinessWeight: 0.2, landValueWeight: 0.12,
+    graceMonths: 12,         // older saves get this long to build a landfill
   },
 
   // City-wide ordinances: monthly cost = base + perResident × population.

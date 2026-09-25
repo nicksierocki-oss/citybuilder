@@ -23,11 +23,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const GROUPS = [
   ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange']],
   ['Zones', ['residential', 'commercial', 'industrial']],
-  ['Utilities', ['wind', 'coal', 'pump']],
+  ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
   ['Transit', ['bus', 'metro']],
   ['Safety', ['police', 'fire']],
-  ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'statue']],
+  ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'hospital', 'statue']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
 
@@ -38,7 +38,7 @@ const TOOL_COLOR = {
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
-  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a',
+  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e',
 };
 
 const TOOL_HELP = {
@@ -69,6 +69,8 @@ const TOOL_HELP = {
   university: '3×2 campus: educates residents within 14 tiles, making room for offices and high-tech industry.',
   stadium: '3×3 stadium: visitors bring ticket income, busier shops and happier residents across 16 tiles.',
   statue: 'A bronze mayor: raises land value and happiness nearby. Unlocked by a mayor rating of 80.',
+  hospital: '2×2 hospital: big health boost within 14 tiles (healthier residents are happier). Unlocks at 2,000 residents.',
+  landfill: '2×2 dump: collects 700 units of garbage a month within 24 tiles. Smells: keep it away from homes.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
 };
@@ -104,6 +106,8 @@ const ICONS = {
   centralpark: I('<rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="15" cy="9" rx="3.5" ry="2.2"/><circle cx="8" cy="15" r="2.6"/><path d="M8 17.6V20"/>'),
   university: I('<path d="M3 20h18M5 20V10M19 20V10M9 20v-6h6v6"/><path d="M3 10 12 4l9 6z"/>'),
   stadium: I('<ellipse cx="12" cy="12" rx="9" ry="7"/><rect x="8" y="9.5" width="8" height="5" rx="1"/><path d="M12 9.5v5"/>'),
+  hospital: I('<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M12 9v8M8 13h8"/><path d="M8 6V3h8v3"/>'),
+  landfill: I('<path d="M3 19c2-5 5-8 9-8s7 3 9 8z"/><path d="M8 8l1-3M13 7l1-4M17 9l2-2"/>'),
   statue: I('<circle cx="12" cy="5" r="2"/><path d="M10 8h4l1 7h-6zM7 21h10M8 21v-3h8v3"/>'),
 };
 
@@ -149,7 +153,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -228,6 +232,14 @@ export class UI {
     $('budget').addEventListener('click', (e) => {
       const id = e.target.closest('button')?.id;
       if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
+      const fund = e.target.closest('[data-fund]');
+      if (fund) {
+        const s = this.game.state, g = fund.dataset.fund, B = CONFIG.budgets;
+        s.budgets ??= {};
+        const v = Math.round(Math.max(B.min, Math.min(B.max, (s.budgets[g] ?? 1) + Number(fund.dataset.d) * B.step)) * 10) / 10;
+        if (v === 1) delete s.budgets[g]; else s.budgets[g] = v;
+        this.lastBudgetHtml = null; this.updateBudget();
+      }
       if (id === 'btnRepay') { if (!repayLoan(this.game.state)) this.toast('Not enough money to repay a loan yet.', 'info'); this.lastBudgetHtml = null; this.updateBudget(); }
       if (id === 'btnBudgetClose') this.toggleBudget(false);
     });
@@ -588,6 +600,7 @@ export class UI {
       ${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}
       ${row('Net', net, 'total')}
     </table>
+    ${this.fundingHtml(s)}
     ${runway != null ? `<p class="warnline">At this rate the money runs out in about ${runway} month${runway === 1 ? '' : 's'}.</p>` : ''}
     <div class="loans">
       <div><b>Loans</b> <span class="muted">${loans.length}/${E.maxLoans}${loans.length ? ` · ${loans.map((l) => `${Math.ceil(l.monthsLeft / 12)} yr left`).join(', ')}` : ''}</span></div>
@@ -596,6 +609,22 @@ export class UI {
     </div>
     ${advice.length ? `<h4>Advisor</h4><ul class="advice">${advice.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="muted">Advisor: the budget looks healthy.</p>'}`;
     if (html !== this.lastBudgetHtml) { el.innerHTML = html; this.lastBudgetHtml = html; }
+  }
+
+  // Service funding rows in the budget panel (only groups the city has buildings for).
+  fundingHtml(s) {
+    const B = CONFIG.budgets, have = s.stats.services ?? {};
+    const rows = Object.entries(B.groups).filter(([g, d]) => d.kinds.some((k) => have[k]) || (g === 'parks' && s.stats.parks)).map(([g, d]) => {
+      const f = s.budgets?.[g] ?? 1;
+      let cost = d.kinds.reduce((a, k) => a + (have[k] ?? 0) * CONFIG.buildings[k].upkeep, 0);
+      if (g === 'parks') cost += s.stats.parks * CONFIG.economy.parkMaintenance;
+      return `<tr><td>${d.label}</td><td class="fund"><button data-fund="${g}" data-d="-1" ${f <= B.min ? 'disabled' : ''}>−</button>
+        <b class="${f < 1 ? 'low' : f > 1 ? 'high' : ''}">${Math.round(f * 100)}%</b><button data-fund="${g}" data-d="1" ${f >= B.max ? 'disabled' : ''}>+</button></td>
+        <td>${money(-cost * f)}</td></tr>`;
+    });
+    if (!rows.length) return '';
+    return `<h4>Service funding</h4><table class="funding">${rows.join('')}</table>
+      <p class="muted small">Less money shrinks a service's reach and effect; more stretches both a little.</p>`;
   }
 
   updateInfo() {
@@ -666,6 +695,8 @@ export class UI {
         else if (jk === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) notes.push('Busy intersection: traffic lights would cut the delay');
       }
     }
+    if (type === TILE.RES && lv > 0 && !ab) rows.push(['Health', bar(map.health[i], 'hp')]);
+    if (map.trash[i] > 3) rows.push(['Garbage', `${bar(map.trash[i], 'trash')}${map.coverage.landfill[i] < 0.02 && map.coverage.recycling[i] < 0.02 ? ' · no pickup' : ''}`]);
     if (type === TILE.RES && lv > 0 && !ab) {
       const c = map.commute[i], edu = map.education[i] / 2.55, target = educationTarget(map, i) * 100;
       rows.push(['Happiness', bar(map.happiness[i], 'hp')]);
@@ -684,7 +715,7 @@ export class UI {
     if (!water) {
       rows.push(['Land value', bar(map.landValue[i], 'lv')]);
       rows.push(['Pollution', bar(map.pollution[i], 'pol')]);
-      const cov = ['school', 'university', 'clinic', 'plaza', 'townpark', 'centralpark', 'stadium', 'recycling', 'police', 'fire']
+      const cov = ['school', 'university', 'clinic', 'hospital', 'plaza', 'townpark', 'centralpark', 'stadium', 'recycling', 'landfill', 'police', 'fire']
         .filter((k) => map.coverage[k][i] > 0.05)
         .map((k) => ({ fire: 'fire station', townpark: 'town park', centralpark: 'central park' }[k] ?? k));
       if (cov.length) rows.push(['Served by', cov.join(', ')]);

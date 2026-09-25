@@ -30,6 +30,7 @@ const haze = ramp([[0, [170, 120, 200, 0.0]], [0.15, [170, 120, 200, 0.18]], [1,
 const dusk = ramp([[0, [140, 130, 210, 0.0]], [0.12, [140, 130, 210, 0.2]], [0.5, [150, 120, 205, 0.5]], [1, [200, 90, 130, 0.72]]]);
 const ember = ramp([[0, [245, 170, 100, 0.0]], [0.12, [245, 190, 110, 0.22]], [0.5, [242, 150, 90, 0.5]], [1, [226, 96, 80, 0.75]]]);
 const cover = ramp([[0, [120, 190, 210, 0.0]], [0.1, [120, 190, 210, 0.2]], [1, [60, 150, 190, 0.65]]]);
+const grime = ramp([[0, [180, 160, 120, 0.0]], [0.1, [190, 165, 110, 0.25]], [1, [140, 100, 60, 0.75]]]);
 const learn = ramp([[0, [230, 200, 120, 0.15]], [0.35, [240, 214, 130, 0.35]], [1, [90, 120, 210, 0.7]]]);
 
 const isLand = (map, i) => map.terrain[i] !== TERRAIN.WATER || map.type[i] === TILE.ROAD;
@@ -86,6 +87,20 @@ export const OVERLAYS = {
     color: (v) => cover(v / 100),
     legend: { gradient: gradient(cover), labels: ['walk too far', 'nearby', 'at the stop'] },
     hint: 'Walking distance to a bus stop (3 tiles) or metro station (4). Riders go to jobs near another stop on the same network.',
+  },
+  health: {
+    label: 'Health', kind: 'field',
+    value: (map, i) => (isLand(map, i) && map.type[i] !== TILE.ROAD ? map.health[i] : null),
+    color: (v) => goodBad(v / 100),
+    legend: { gradient: gradient(goodBad), labels: ['poor', 'fair', 'good'] },
+    hint: 'Clinics and hospitals raise health; pollution and garbage lower it. Healthy residents are happier.',
+  },
+  garbage: {
+    label: 'Garbage', kind: 'field',
+    value: (map, i) => (isLand(map, i) ? Math.max(map.trash[i], map.coverage.landfill[i] > 0.02 || map.coverage.recycling[i] > 0.02 ? 0 : 0.01) : null),
+    color: (v) => grime(v / 60),
+    legend: { gradient: gradient(grime), labels: ['collected', 'piling up', 'overflowing'] },
+    hint: 'Uncollected garbage by building. Landfills (24 tiles) and recycling centres collect it up to their capacity; see the budget advisor.',
   },
   education: {
     label: 'Education', key: 'n', kind: 'field',
@@ -145,7 +160,7 @@ export const OVERLAYS = {
   },
 };
 
-export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'education', 'transit', 'crime', 'fireRisk', 'traffic', 'power', 'water', 'districts'];
+export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'health', 'garbage', 'services', 'education', 'transit', 'crime', 'fireRisk', 'traffic', 'power', 'water', 'districts'];
 
 // Draw an overlay into a 2D context whose transform maps 1 tile to `ts` units.
 const offscreen = typeof document !== 'undefined' ? document.createElement('canvas') : null;

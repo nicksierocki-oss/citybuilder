@@ -400,3 +400,13 @@ body:not(.brushable) #brushSection { opacity: 0.45; }
 #budget .loans #btnRepay { background: var(--good); }
 .gc-head { white-space: nowrap; }
 #btnHideGoals { color: var(--muted); }
+
+/* service funding */
+#budget table.funding td { padding: 2px 0; }
+#budget td.fund { text-align: center !important; white-space: nowrap; }
+#budget td.fund button { width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; padding: 0; }
+#budget td.fund button[disabled] { opacity: 0.35; cursor: default; }
+#budget td.fund b { display: inline-block; min-width: 44px; font-variant-numeric: tabular-nums; }
+#budget td.fund b.low { color: var(--bad); }
+#budget td.fund b.high { color: var(--good); }
+.mbar.trash i { background: #b8a27e; }

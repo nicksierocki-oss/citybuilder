@@ -117,7 +117,14 @@ There's an optional **3D view**, built with Three.js. The library is included in
    Boomtown, River Town (no coal), Green City and Rust Belt (fix a polluted, indebted town).
 17. **City news** (top right) has residents and business owners saying what bothers them at
    their address (click one to fly there), plus a monthly headline.
-18. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+18. **Fund services, heal and clean up.** The budget panel has a funding control (50–150%) for
+   each service group: less money shrinks a service's reach and effect, more stretches them a little.
+   A **hospital** (2×2, from 2,000 residents) raises health; health, from clinics and hospitals minus
+   pollution and garbage, nudges happiness (**Health** overlay). Towns over 400 people make
+   **garbage**: a **landfill** (2×2, collects 700 a month within 24 tiles, smelly) or recycling centres
+   collect it; uncollected garbage piles up at the kerb and hurts happiness, land value and health
+   (**Garbage** overlay).
+19. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
    drains. Loans can be repaid early from the same panel. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt

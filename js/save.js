@@ -6,7 +6,7 @@ import { refreshFields, emptyHistory, DEFAULT_CITY_NAME } from './simulation.js'
 import { CHAINS, SCENARIOS, emptyGoals, startChain } from './goals.js';
 import { ORDINANCE_ORDER } from './cityhall.js';
 
-const VERSION = 4;
+const VERSION = 5;
 const LAYERS = PERSISTENT_LAYERS;
 // Layers added after v1; older saves simply don't have them (defaults to zeros).
 const OPTIONAL_LAYERS = new Set(['roadClass', 'kind', 'part', 'district', 'education']);
@@ -43,6 +43,8 @@ export function serialize(state) {
     districts: state.districts ?? [],
     history: state.history,
     ordinances: state.ordinances ?? {},
+    budgets: state.budgets ?? {},
+    garbageGrace: state.garbageGrace | 0,
     rating: state.rating,
     goals: state.goals,
     scenario: state.scenario,
@@ -113,6 +115,11 @@ export function deserialize(data) {
     scenario: data.scenario && SCENARIOS[data.scenario.id] ? { banned: [], ...data.scenario } : null,
     achievements: Array.isArray(data.achievements) ? data.achievements : [],
     news: Array.isArray(data.news) ? data.news : [],
+    budgets: Object.fromEntries(Object.keys(CONFIG.budgets.groups).filter((g) => Number.isFinite(data.budgets?.[g]))
+      .map((g) => [g, Math.max(CONFIG.budgets.min, Math.min(CONFIG.budgets.max, Math.round(data.budgets[g] * 10) / 10))])),
+    garbageGrace: data.garbageGrace | 0,
+    garbage: { made: 0, capacity: 0, uncollected: 0 },
+    health: 0,
     loansPaid: data.loansPaid | 0,
     positiveMonths: data.positiveMonths | 0,
   };
@@ -126,6 +133,15 @@ export function deserialize(data) {
     if (dense) {
       state.utilityGrace = CONFIG.utilities.graceMonths;
       state.events.push({ text: `New: power & water! You have ${state.utilityGrace} months to supply your denser buildings.`, kind: 'bad' });
+    }
+  }
+  // Cities from before garbage existed get time to build a landfill.
+  if ((data.version | 0) < 5) {
+    let pop = 0;
+    for (let i = 0; i < map.size; i++) if (map.type[i] === TILE.RES) pop += CONFIG.capacity.residential[map.level[i]];
+    if (pop >= CONFIG.garbage.startPop) {
+      state.garbageGrace = CONFIG.garbage.graceMonths;
+      state.events.push({ text: `New: garbage! Build a landfill within ${state.garbageGrace} months before rubbish piles up.`, kind: 'bad' });
     }
   }
   refreshFields(state);

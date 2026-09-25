@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, isZone, skilledShare } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
-import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem,
+import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem, healthSystem, garbageSystem,
   educationFieldSystem, educationMonthlySystem, isParkTile, AMENITY_KINDS } from './services.js';
 import { ordinance, mayorSystem } from './cityhall.js';
 import { goalsSystem, emptyGoals } from './goals.js';
@@ -49,6 +49,10 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     history: emptyHistory(),  // monthly samples for the graphs panel
     education: 0,             // population-weighted skilled share of residents
     ordinances: {},           // city-wide policies in force (see cityhall.js)
+    budgets: {},              // service funding per group, 0.5..1.5 (missing = 1)
+    garbageGrace: 0,          // months before garbage matters (older saves)
+    health: 0,                // population-weighted health
+    garbage: { made: 0, capacity: 0, uncollected: 0 },
     rating: CONFIG.mayor.start, // mayor rating 0..100
     goals: emptyGoals('tutorial'),
     scenario: null,           // { id, status: 'active'|'won'|'lost', banned, deadlineYear }
@@ -120,7 +124,8 @@ export function pollutionSystem(state) {
     const t = map.type[i], lv = map.level[i];
     if ((lv === 0 && t !== TILE.SERVICE) || map.hasFlag(i, FLAG.ABANDONED)) continue;
     let e = 0, r = 0;
-    if (t === TILE.SERVICE && kindOf(map, i) === 'coal') { e = CONFIG.buildings.coal.pollution; r = CONFIG.buildings.coal.pollutionRadius; }
+    const sk = t === TILE.SERVICE && !map.part[i] ? kindOf(map, i) : null;
+    if (sk && CONFIG.buildings[sk].pollution) { e = CONFIG.buildings[sk].pollution; r = CONFIG.buildings[sk].pollutionRadius; }
     else if (t === TILE.IND) {
       e = P.industryEmission[lv] * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.emission : 1);
       r = P.industryRadius[lv];
@@ -207,7 +212,7 @@ export function landValueSystem(state) {
     for (const k of AMENITY_KINDS) v += cov[k][i] * B[k].landValue;
     v += Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
-    v -= map.pollution[i] * L.pollutionWeight;
+    v -= map.pollution[i] * L.pollutionWeight + map.trash[i] * CONFIG.garbage.landValueWeight;
     lv[i] = Math.max(0, Math.min(100, v));
   }
 }
@@ -503,9 +508,11 @@ function runFieldSystems(state) {
   trafficSystem(state);
   utilitySystem(state);
   pollutionSystem(state);
+  garbageSystem(state);
   landValueSystem(state);
   shopperSystem(state);
   safetySystem(state);
+  healthSystem(state);
   happinessSystem(state);
 }
 
@@ -559,9 +566,11 @@ export const SYSTEMS = [
   { name: 'educationField', run: educationFieldSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'utilities', run: utilitySystem, every: CONFIG.utilities.everyTicks },
   { name: 'pollution', run: pollutionSystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'garbage', run: garbageSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'landValue', run: landValueSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'shoppers', run: shopperSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'safety', run: safetySystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'health', run: healthSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'happiness', run: happinessSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'stats', run: computeStats },
   { name: 'demand', run: demandSystem },
