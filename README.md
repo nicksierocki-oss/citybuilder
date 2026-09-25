@@ -6,6 +6,7 @@ and watch a small city grow. Zoning, density and circulation drive everything.
 **Play:** https://nicksierocki-oss.github.io/citybuilder/ (once GitHub Pages is enabled, see [Deploying](#deploying))
 
 Plain HTML + CSS + JavaScript (ES modules) on a `<canvas>`. No frameworks, no build step, no image assets.
+There's an optional **3D view**, built with Three.js. The library is included in the repo and only loads the first time you switch to 3D.
 
 ---
 
@@ -42,9 +43,10 @@ among the homes.
 | Tools | `1` Road · `7` Avenue (paint over a street to upgrade) · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
 | Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles |
 | Pan | `WASD` / arrow keys, right- or middle-drag, or left-drag with the Inspect tool |
+| 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits, `Q`/`E` rotate, middle-drag or `Shift`+right-drag pans |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution · `T` traffic |
+| Overlays | `L` land value · `P` pollution · `T` traffic (buildings turn see-through in 3D) |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
 | Taxes | `−` / `+` in the top bar (higher tax = more income, less demand) |
@@ -136,7 +138,9 @@ js/map.js           GameMap: grid of typed-array layers + map generator (river, 
 js/simulation.js    systems pipeline: roads, traffic, pollution, land value, demand, growth, stats
 js/traffic.js       commuting, freight, congestion (Dijkstra over the road graph)
 js/economy.js       tools, build costs, monthly budget, bankruptcy
-js/renderer.js      canvas drawing, camera (pan/zoom), overlays
+js/renderer.js      2D canvas drawing, camera (pan/zoom), overlays
+js/renderer3d.js    3D view (Three.js): instanced buildings/trees/cars, orbit camera, ground-plane picking
+vendor/three/       three.js r186, unmodified (MIT), loaded only when 3D is first used
 js/input.js         mouse painting, panning, keyboard shortcuts
 js/ui.js            DOM: top bar, toolbar, RCI meter, tile info, toasts, dialogs
 js/save.js          JSON save/load (+ localStorage autosave)
@@ -147,6 +151,15 @@ tools/playtest.js   headless balance test (Node)
 **Data model.** `GameMap` stores one flat typed array per layer.
 - Persistent layers: `terrain`, `type` (empty/road/R/C/I/park), `level` (0 = vacant lot, 1–3 = density), `flags` (trees, abandoned), `variant` (cosmetic).
 - Derived layers, recomputed by systems: `pollution`, `landValue`, `roadDist`, `shoppers`.
+
+**Views.** Both renderers expose the same small interface: `render`, `screenToTile`,
+`tileToScreen`, `panBy`, `zoomAt`, `centerOn` and `resize`, so input and UI don't care
+which view is active. The 3D view paints its ground with the 2D tile painter. That means
+roads, lots and overlays look identical in both views, and anything new drawn in 2D
+shows up in 3D automatically.
+- **Buildings, trees and cars** use a few `InstancedMesh`es (boxes, pyramids,
+  cylinders, blobs), so the whole city draws in a handful of calls.
+- **A new building style** is a few lines in `Renderer3D.building()`.
 
 **Separation.** The simulation modules (`map`, `simulation`, `economy`, `config`)
 never touch the DOM, which is why the playtest can run in Node. The renderer only

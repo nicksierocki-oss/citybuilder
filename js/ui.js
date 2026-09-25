@@ -68,6 +68,12 @@ export class UI {
     for (const b of document.querySelectorAll('.tool')) b.classList.toggle('active', b.dataset.tool === name);
     document.body.dataset.tool = name;
   }
+  setView(view) {
+    const b = $('btnView');
+    b.textContent = view === '3d' ? '2D' : '3D';
+    b.title = view === '3d' ? 'Switch to the 2D map (V)' : 'Switch to the 3D view (V)';
+    document.body.dataset.view = view;
+  }
   setActiveSpeed(s) {
     for (const b of document.querySelectorAll('[data-speed]')) b.classList.toggle('active', Number(b.dataset.speed) === s);
   }
@@ -206,7 +212,7 @@ export class UI {
     if (!h) return;
     const r = this.game.renderer;
     tip.hidden = false;
-    const sx = ((h.x + 1) * 32 - r.cam.x) * r.cam.zoom + 8, sy = ((h.y + 1) * 32 - r.cam.y) * r.cam.zoom + 8;
+    const sp = r.tileToScreen(h.x, h.y), sx = sp.x + 8, sy = sp.y + 8;
     tip.style.transform = `translate(${Math.min(sx, r.viewW - 120)}px, ${Math.min(sy, r.viewH - 30)}px)`;
     tip.className = p.ok ? '' : 'bad';
     tip.textContent = p.cost.count ? `${p.cost.count} tile${p.cost.count > 1 ? 's' : ''} · $${p.cost.total.toLocaleString()}` : 'Nothing to build here';

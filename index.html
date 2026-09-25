@@ -32,6 +32,9 @@
     </div>
     <div class="spacer"></div>
     <div class="group">
+      <button id="btnView" class="view" title="Switch to the 3D view (V)">3D</button>
+    </div>
+    <div class="group">
       <button id="btnNew">New</button>
       <button id="btnSave" title="Download city as JSON">Save</button>
       <button id="btnLoad" title="Load a city JSON file">Load</button>
@@ -61,6 +64,8 @@
 
     <div id="viewport">
       <canvas id="game"></canvas>
+      <canvas id="game3d" hidden></canvas>
+      <div id="viewHint" class="muted">Right-drag to orbit · middle-drag or WASD to pan · Q/E rotate · wheel zoom</div>
       <div id="costTip" hidden></div>
       <div id="info" class="panel" hidden></div>
       <div id="legend" class="panel" hidden></div>
@@ -78,7 +83,7 @@
           <li><b>Mind the budget</b>: roads cost upkeep. Six months in debt and you're fired.</li>
         </ol>
         <p><kbd>1</kbd>–<kbd>6</kbd> tools · <kbd>0</kbd>/<kbd>Esc</kbd> inspect · <kbd>WASD</kbd>/arrows pan · wheel zoom ·
-          right-drag pan · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd>/<kbd>T</kbd> overlays</p>
+          right-drag pan (orbit in 3D) · <kbd>V</kbd> 2D/3D view · <kbd>Q</kbd>/<kbd>E</kbd> rotate (3D) · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd>/<kbd>T</kbd> overlays</p>
       </div>
     </div>
   </main>

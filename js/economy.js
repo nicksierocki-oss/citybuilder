@@ -69,6 +69,7 @@ function applyOne(state, tool, i) {
     map.setFlag(i, FLAG.ABANDONED, false);
   }
   if (wasRoad || map.type[i] === TILE.ROAD) map.roadsDirty = true;
+  map.version++;
 }
 
 // Apply a tool to a list of tile indices, stopping when money runs out.

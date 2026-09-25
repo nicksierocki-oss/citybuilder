@@ -35,9 +35,9 @@ export function tilesForDrag(map, shape, a, b) {
 }
 
 export class Input {
-  constructor(game, canvas) {
+  constructor(game, canvases) {
     this.game = game;
-    this.canvas = canvas;
+    this.canvases = canvases;
     this.keys = new Set();
     this.drag = null;   // { start: {x,y}, end: {x,y} }
     this.pan = null;    // { sx, sy, cx, cy }
@@ -46,23 +46,26 @@ export class Input {
 
   get renderer() { return this.game.renderer; }
 
+  get canvas() { return this.renderer.canvas; }
+
   localPos(e) {
     const r = this.canvas.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
   bind() {
-    const c = this.canvas;
-    c.addEventListener('contextmenu', (e) => e.preventDefault());
-    c.addEventListener('pointerdown', (e) => this.onDown(e));
-    c.addEventListener('pointermove', (e) => this.onMove(e));
+    for (const c of this.canvases) {
+      c.addEventListener('contextmenu', (e) => e.preventDefault());
+      c.addEventListener('pointerdown', (e) => this.onDown(e));
+      c.addEventListener('pointermove', (e) => this.onMove(e));
+      c.addEventListener('pointerleave', () => { if (!this.drag) this.game.hover = null; });
+      c.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const p = this.localPos(e);
+        this.renderer.zoomAt(this.game.state.map, p.x, p.y, Math.exp(-e.deltaY * 0.0015));
+      }, { passive: false });
+    }
     window.addEventListener('pointerup', (e) => this.onUp(e));
-    c.addEventListener('pointerleave', () => { if (!this.drag) this.game.hover = null; });
-    c.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const p = this.localPos(e);
-      this.renderer.zoomAt(this.game.state.map, p.x, p.y, Math.exp(-e.deltaY * 0.0015));
-    }, { passive: false });
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
     window.addEventListener('blur', () => this.keys.clear());
@@ -73,7 +76,9 @@ export class Input {
     const tool = this.game.tool;
     this.canvas.setPointerCapture?.(e.pointerId);
     if (e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'inspect')) {
-      this.pan = { sx: p.x, sy: p.y, cx: this.renderer.cam.x, cy: this.renderer.cam.y, moved: false };
+      // In 3D, right-drag orbits the camera; everything else pans.
+      const orbit = e.button === 2 && this.renderer.rotateBy && !e.shiftKey;
+      this.pan = { sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: false, orbit };
       return;
     }
     if (e.button !== 0) return;
@@ -87,11 +92,11 @@ export class Input {
     const t = this.renderer.screenToTile(p.x, p.y);
     this.game.hover = t;
     if (this.pan) {
-      const z = this.renderer.cam.zoom;
       if (Math.abs(p.x - this.pan.sx) + Math.abs(p.y - this.pan.sy) > 3) this.pan.moved = true;
-      this.renderer.cam.x = this.pan.cx - (p.x - this.pan.sx) / z;
-      this.renderer.cam.y = this.pan.cy - (p.y - this.pan.sy) / z;
-      this.renderer.clampCamera(this.game.state.map);
+      const dx = p.x - this.pan.lx, dy = p.y - this.pan.ly;
+      this.pan.lx = p.x; this.pan.ly = p.y;
+      if (this.pan.orbit) this.renderer.rotateBy(dx, dy);
+      else this.renderer.panBy(this.game.state.map, dx, dy);
     } else if (this.drag) {
       this.drag.end = t;
       this.updatePreview();
@@ -145,6 +150,9 @@ export class Input {
       case 'l': g.toggleOverlay('landValue'); break;
       case 'p': g.toggleOverlay('pollution'); break;
       case 't': g.toggleOverlay('traffic'); break;
+      case 'v': g.toggle3D(); break;
+      case 'q': this.renderer.rotateBy?.(-40, 0); break;
+      case 'e': this.renderer.rotateBy?.(40, 0); break;
       case '=': case '+': this.renderer.zoomAt(g.state.map, this.renderer.viewW / 2, this.renderer.viewH / 2, 1.2); break;
       case '-': case '_': this.renderer.zoomAt(g.state.map, this.renderer.viewW / 2, this.renderer.viewH / 2, 1 / 1.2); break;
       case '.': case '>': g.setSpeed(Math.min(3, g.speed + 1)); break;
@@ -158,9 +166,7 @@ export class Input {
     let dx = 0, dy = 0;
     for (const k of this.keys) { dx += PAN_KEYS[k][0]; dy += PAN_KEYS[k][1]; }
     if (!dx && !dy) return;
-    const speed = 700 / this.renderer.cam.zoom; // world units per second
-    this.renderer.cam.x += dx * speed * dt;
-    this.renderer.cam.y += dy * speed * dt;
-    this.renderer.clampCamera(this.game.state.map);
+    const speed = 700; // screen pixels per second
+    this.renderer.panBy(this.game.state.map, -dx * speed * dt, -dy * speed * dt);
   }
 }

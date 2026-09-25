@@ -60,6 +60,22 @@ export class Renderer {
     this.cam.y = vh > mh + 2 * margin ? (mh - vh) / 2 : Math.max(-margin, Math.min(mh + margin - vh, this.cam.y));
   }
 
+  // Drag the map by a screen-space offset (content follows the pointer).
+  panBy(map, dx, dy) {
+    this.cam.x -= dx / this.cam.zoom;
+    this.cam.y -= dy / this.cam.zoom;
+    this.clampCamera(map);
+  }
+
+  // Screen position of a tile's bottom-right corner (for tooltips).
+  tileToScreen(x, y) {
+    return { x: ((x + 1) * TS - this.cam.x) * this.cam.zoom, y: ((y + 1) * TS - this.cam.y) * this.cam.zoom };
+  }
+
+  viewCenterTile() {
+    return this.screenToTile(this.viewW / 2, this.viewH / 2);
+  }
+
   screenToTile(sx, sy) {
     const wx = sx / this.cam.zoom + this.cam.x, wy = sy / this.cam.zoom + this.cam.y;
     return { x: Math.floor(wx / TS), y: Math.floor(wy / TS) };
@@ -247,6 +263,7 @@ export class Renderer {
     if (v & 1) { ctx.moveTo(px + 2, py + 20); ctx.quadraticCurveTo(px + 16, py + 8, px + 30, py + 14); }
     else { ctx.moveTo(px + 12, py + 2); ctx.quadraticCurveTo(px + 22, py + 16, px + 16, py + 30); }
     ctx.stroke();
+    if (this.flatOnly) return; // the 3D view draws park trees as meshes
     this.treeBlob(px + 8, py + 9, 5, v);
     this.treeBlob(px + 24, py + 23, 6, v >> 2);
     if (v & 4) this.treeBlob(px + 23, py + 7, 4, v >> 3);

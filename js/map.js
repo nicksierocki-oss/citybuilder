@@ -53,6 +53,7 @@ export class GameMap {
     this.passing = new Float32Array(n);   // trips on roads next to this tile
     this.employed.fill(1);
     this.roadsDirty = true;
+    this.version = 0;                   // bumped on every player edit (renderers cache on it)
   }
 
   idx(x, y) { return y * this.width + x; }
