@@ -38,6 +38,7 @@ export const CONFIG = {
     avenueMaintenance: 3,
     lightsMaintenance: 2,
     interchangeMaintenance: 10,
+    roundaboutMaintenance: 2,
     highwayMaintenance: 8,
     parkMaintenance: 4,
     // consecutive months with negative funds before the council fires you
@@ -58,6 +59,8 @@ export const CONFIG = {
     avenueBridge: 120,
     lights: 150,             // traffic lights on an intersection
     interchange: 1500,       // grade-separated highway junction (ramps)
+    oneway: 5,               // per tile, to make a street one-way (or two-way again)
+    roundabout: 400,         // replaces an intersection
     highway: 80,             // limited access: buildings can't use it as their frontage road
     highwayBridge: 240,
     // The Upgrade tool (and painting a bigger road over a smaller one) charges the difference.
@@ -148,6 +151,7 @@ export const CONFIG = {
     everyTicks: 4,              // recompute commuting every N ticks
     minutesPerTile: [0.8, 0.5, 0.3], // free-flow travel time per tile: [street, avenue, highway]
     capacity: [160, 480, 1200],      // trips/month before a tile is "full": [street, avenue, highway]
+    oneWayCapacity: 1.6,             // one-way streets carry more (all lanes one way, no oncoming turns)
     congestionK: 1.6,           // travel time x (1 + K * load^2) where load = volume / capacity
     maxCongestion: 5,           // cap on that multiplier
     smoothing: 0.8,             // share of last run's volume kept (higher = steadier routes, slower to react)
@@ -168,7 +172,7 @@ export const CONFIG = {
     // grade are slow unless an interchange carries them over.
     junction: {
       plain: [0.15, 4], lights: [0.3, 1], highwayAtGrade: [0.8, 3], highwayLights: [0.5, 1.5],
-      interchange: [0.1, 0.5], merge: [0.1, 2],
+      interchange: [0.1, 0.5], merge: [0.1, 2], roundabout: [0.12, 3],
     },
     walkMinutes: 3,             // to and from transit stops
   },
@@ -181,6 +185,7 @@ export const CONFIG = {
     pump:      { label: 'Water pump',   cost: 800,  upkeep: 20, water: 400, dryWater: 130, nearWaterRange: 2 },
     school:    { label: 'School',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 8 },
     clinic:    { label: 'Clinic',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 5 },
+    parking:   { label: 'Parking lot', cost: 300, upkeep: 4, radius: 4, shopBonus: 0.1, officeBonus: 0.06 },
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
     recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5, garbage: 250 },
     police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 10 },
@@ -213,7 +218,7 @@ export const CONFIG = {
       health:    { label: 'Health',    kinds: ['clinic', 'hospital'] },
       police:    { label: 'Police',    kinds: ['police'] },
       fire:      { label: 'Fire',      kinds: ['fire'] },
-      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation'] },
+      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation', 'parking'] },
       parks:     { label: 'Parks',     kinds: ['plaza', 'townpark', 'centralpark', 'statue'] },
       garbage:   { label: 'Garbage',   kinds: ['landfill', 'recycling'] },
     },

@@ -759,6 +759,16 @@ export class Renderer3D {
           P(this.blobs, u, w, 0.2, 0.2, 0.08, 0.22, COL.leaves[(v + Math.round(u * 5)) % 3]);
         }
         break;
+      case 'parking': {
+        // Parked cars on the painted stalls (same slots as the 2D lot).
+        const cars = ['#e9a59c', '#ffffff', '#a6c4e2', '#eed7a0', '#9098a3', '#b4d8c3', '#d3c1e0'];
+        for (let s = 0; s < 8; s++) {
+          if (!((v >> s) & 1) && s % 3) continue;
+          const col = s % 4, row = s >> 2;
+          P(this.rboxes, (7.4 + col * 6) / 32 - 0.5, row ? 0.284 : -0.278, 0.12, 0.19, 0, 0.08, cars[(v + s) % cars.length]);
+        }
+        break;
+      }
       case 'bus':
         P(this.rboxes, 0, 0.12, 0.62, 0.22, 0.26, 0.04, S.bus);          // shelter roof
         for (const u of [-0.27, 0.27]) P(this.cylinders, u, 0.18, 0.03, 0.03, 0, 0.26, '#b8c0ca');

@@ -2,7 +2,7 @@
 
 import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome, repayLoan, loanPayoff } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, ROADMOD, ONEWAY_NAMES, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
 import { evaluateTile, levelName, districtAt, tourismScore } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
 import { supplyOf, happinessReasons, educationTarget } from './services.js';
@@ -23,7 +23,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // Toolbar layout: groups of tools.
 const GROUPS = [
-  ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange']],
+  ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange', 'oneway', 'roundabout', 'parking']],
   ['Zones', ['residential', 'commercial', 'industrial', 'office', 'farm', 'mixed']],
   ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
@@ -37,7 +37,7 @@ const TOOL_COLOR = {
   road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
   residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a', office: '#5abec8', farm: '#b9c46a', mixed: '#cd9678',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
-  police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
+  police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', oneway: '#7fa6c9', roundabout: '#8fbf8a', parking: '#8a9bb8', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
   townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e', rail: '#9a8f82', railstation: '#c98f6a',
@@ -65,6 +65,9 @@ const TOOL_HELP = {
   trees: 'Plant trees on open land: cheap clean air.',
   police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
   lights: 'Add to busy intersections: a small fixed wait, but far less congestion.',
+  oneway: 'Drag along a street in the direction traffic should flow: one-way streets carry 60% more, but cars can only drive one way. Click to flip; drag the same way again to make it two-way.',
+  roundabout: 'Replaces an intersection (not with highways): hardly any wait at light or medium traffic; lights cope better when it is jammed.',
+  parking: 'Parking lot: shops and offices within 4 tiles do better. No power or water needed.',
   interchange: 'Carries a highway over a crossing road with ramps: no more at-grade bottleneck.',
   bus: 'Bus or tram stop. Riders within 3 tiles use the lines that call here: create lines under Transit lines.',
   metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
@@ -105,6 +108,9 @@ const ICONS = {
   park: I('<circle cx="12" cy="9" r="5"/><path d="M12 14v7"/>'),
   trees: I('<circle cx="8" cy="10" r="4"/><circle cx="16" cy="8" r="3.5"/><path d="M8 14v6M16 11.5V20"/>'),
   inspect: I('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>'),
+  oneway: I('<path d="M3 12h15"/><path d="m13 7 5 5-5 5"/>'),
+  roundabout: I('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  parking: I('<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10 17V8h3a2.5 2.5 0 0 1 0 5h-3"/>'),
   lights: I('<rect x="8" y="2" width="8" height="16" rx="3"/><circle cx="12" cy="6.5" r="1.5"/><circle cx="12" cy="13.5" r="1.5"/><path d="M12 18v4"/>'),
   interchange: I('<path d="M3 12h18"/><path d="M12 3v18"/><path d="M7 7a7 7 0 0 0 5 5M17 17a7 7 0 0 0-5-5"/>'),
   bus: I('<rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 21v-3M16 21v-3"/><circle cx="8" cy="14.5" r="1"/><circle cx="16" cy="14.5" r="1"/>'),
@@ -167,7 +173,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', oneway: 'One-way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -614,7 +620,7 @@ export class UI {
       ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
-      ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
+      ${nz('Bridges', b.expenses.bridges)}${nz('Junctions', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
       ${nz('Transit lines', b.expenses.transitLines)}${nz('Railways', b.expenses.rail)}${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
       ${row('Net', net, 'total')}
@@ -725,14 +731,15 @@ export class UI {
         }
       }
       if (map.roadClass[i] === 2) notes.push('Limited access: buildings can\'t use a highway as their street');
+      if (map.roadMod[i] & ROADMOD.DIR) rows.push(['One-way', `heading ${ONEWAY_NAMES[map.roadMod[i] & ROADMOD.DIR]}`]);
       const jk = map.junctionKind(i);
       if (jk !== JUNCTION.NONE) {
         const what = jk === JUNCTION.MERGE ? 'Merge' : jk === JUNCTION.INTERSECTION ? 'Intersection' : 'Highway junction';
-        const control = map.hasFlag(i, FLAG.INTERCHANGE) ? ' · interchange' : map.hasFlag(i, FLAG.LIGHTS) ? ' · traffic lights' : '';
+        const control = map.hasFlag(i, FLAG.INTERCHANGE) ? ' · interchange' : map.hasFlag(i, FLAG.LIGHTS) ? ' · traffic lights' : map.roadMod[i] & ROADMOD.ROUNDABOUT ? ' · roundabout' : '';
         rows.push(['Junction', `${what}${control} · +${junctionDelay(map, i).toFixed(1)} min`]);
         const load = roadLoad(map, i);
         if (jk === JUNCTION.HIGHWAY && !map.hasFlag(i, FLAG.INTERCHANGE)) notes.push('Highway crossing at grade: an Interchange removes the bottleneck');
-        else if (jk === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) notes.push('Busy intersection: traffic lights would cut the delay');
+        else if (jk === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && !(map.roadMod[i] & ROADMOD.ROUNDABOUT) && load > 0.7) notes.push('Busy intersection: a roundabout or traffic lights would cut the delay');
       }
     }
     if (isHome(type) && lv > 0 && !ab) rows.push(['Health', bar(map.health[i], 'hp')]);

@@ -1,6 +1,6 @@
 // Rendering: draws the map with soft flat shapes on a 2D canvas. Reads state, never mutates it.
 
-import { TILE, TERRAIN, FLAG, KINDS, footprintSize, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KINDS, ROADMOD, ONEWAY, footprintSize, isZone } from './map.js';
 import { roadTime } from './traffic.js';
 import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
@@ -396,6 +396,15 @@ export class Renderer {
       if (cw || ce) { ctx.fillRect(px, py + c - 3.2, TS, 1.3); ctx.fillRect(px, py + c + 1.9, TS, 1.3); }
       if (cn || cs) { ctx.fillRect(px + c - 3.2, py, 1.3, TS); ctx.fillRect(px + c + 1.9, py, 1.3, TS); }
     }
+    if (map.roadMod[i] & ROADMOD.ROUNDABOUT && links >= 3) {
+      // Roundabout: a wider circle of road around a planted island.
+      ctx.fillStyle = PAL.asphalt[cls];
+      ctx.beginPath(); ctx.arc(px + c, py + c, Math.min(c + 1, hw + 5), 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = PAL.laneWhite; ctx.lineWidth = 1; ctx.setLineDash([2.5, 2.5]);
+      ctx.beginPath(); ctx.arc(px + c, py + c, hw - 1, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#e8e4da'; ctx.beginPath(); ctx.arc(px + c, py + c, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = this.env.park; ctx.beginPath(); ctx.arc(px + c, py + c, 5.8, 0, Math.PI * 2); ctx.fill();
+    }
     if (map.hasFlag(i, FLAG.LIGHTS) && links >= 3) this.drawLights(px, py, hw);
     if (bridge) {
       ctx.fillStyle = PAL.bridgeRail;
@@ -404,6 +413,23 @@ export class Renderer {
     }
     // lane markings (skip at intersections and corners)
     if (!horiz && !vert) return;
+    const ow = map.roadMod[i] & ROADMOD.DIR;
+    if (ow) {
+      // One-way: arrows along the carriageway instead of a centre line.
+      const [ax, ay] = ONEWAY[ow];
+      ctx.fillStyle = PAL.laneWhite;
+      const offs = cls > 0 ? [-6.5, 6.5] : [0];
+      for (const o of offs) {
+        const cx = px + c + (ay ? o : 0), cy = py + c + (ax ? o : 0);
+        ctx.beginPath();
+        ctx.moveTo(cx + ax * 6, cy + ay * 6);
+        ctx.lineTo(cx - ax * 1 + ay * 3.5, cy - ay * 1 + ax * 3.5);
+        ctx.lineTo(cx - ax * 1 - ay * 3.5, cy - ay * 1 - ax * 3.5);
+        ctx.closePath(); ctx.fill();
+        if (ax) ctx.fillRect(cx - (ax > 0 ? 7 : -1), cy - 0.8, 6, 1.6); else ctx.fillRect(cx - 0.8, cy - (ay > 0 ? 7 : -1), 1.6, 6);
+      }
+      return;
+    }
     const along = (fn) => { for (let k = 2; k < TS; k += 10) fn(k); };
     const dash = (x0, y0, w0, h0) => { roundRect(ctx, x0, y0, w0, h0, Math.min(w0, h0) / 2); ctx.fill(); };
     if (highway) {
@@ -572,7 +598,7 @@ export class Renderer {
   // Ground-level parts of public buildings (the 3D view reuses these).
   drawServicePad(map, i, px, py) {
     const ctx = this.ctx, k = KINDS[map.kind[i]], S = PAL.svc;
-    const pad = { plaza: S.plaza, school: S.yard, wind: PAL.park, bus: S.plaza, metro: S.plaza }[k] ?? '#ece8e0';
+    const pad = { plaza: S.plaza, school: S.yard, wind: PAL.park, bus: S.plaza, metro: S.plaza, parking: '#b9bec6' }[k] ?? '#ece8e0';
     ctx.fillStyle = pad;
     roundRect(ctx, px + 1.5, py + 1.5, TS - 3, TS - 3, 6);
     ctx.fill();
@@ -586,6 +612,17 @@ export class Renderer {
       ctx.beginPath(); ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = S.fountain;
       ctx.beginPath(); ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2); ctx.fill();
+    } else if (k === 'parking') {
+      // Stalls either side of an aisle, some with cars in them.
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      for (let a = 4; a <= 28; a += 6) { ctx.fillRect(px + a, py + 3, 1, 8); ctx.fillRect(px + a, py + 21, 1, 8); }
+      const v = map.variant[i];
+      for (let s = 0; s < 8; s++) {
+        if (!((v >> s) & 1) && s % 3) continue;
+        const col = s % 4, row = s >> 2;
+        ctx.fillStyle = PAL.cars[(v + s) % PAL.cars.length];
+        roundRect(ctx, px + 5.5 + col * 6, py + (row ? 22 : 4), 3.8, 6.2, 1.4); ctx.fill();
+      }
     } else if (k === 'school') {
       ctx.strokeStyle = '#f4ecd2';
       ctx.lineWidth = 2;
@@ -1119,7 +1156,8 @@ export function forEachCar(map, x, y, t, emit) {
   const speed = 34 * (cls === 2 ? 1.6 : 1) / (roadTime(map, i) / free); // px/s, slows when congested
   const seed = map.variant[i];
   for (let l = 0; l < lanes.length; l++) {
-    const dir = lanes[l] < 0 ? -1 : 1; // opposite directions either side of the centre line
+    const ow = map.roadMod[i] & ROADMOD.DIR; // one-way: every lane runs the same way
+    const dir = ow ? (ow === 1 || ow === 3 ? 1 : -1) : lanes[l] < 0 ? -1 : 1; // else opposite directions either side of the centre line
     for (let k = 0; k < perLane; k++) {
       let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;
       if (dir < 0) pos = TS - pos;

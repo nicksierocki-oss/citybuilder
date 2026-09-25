@@ -3,7 +3,7 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, JUNCTION, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
+import { TILE, FLAG, KINDS, JUNCTION, ROADMOD, canDrive, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
 import { buildRoutes, lineCapacity, railNetwork, railExits } from './transit.js';
@@ -47,26 +47,32 @@ class Heap {
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 // Travel minutes through one road tile given its current volume, including any junction delay.
+// Trips a month a road tile carries before it is full (one-way streets carry more).
+export function roadCapacity(map, i) {
+  const T = CONFIG.traffic;
+  return T.capacity[map.roadClass[i]] * (map.roadMod[i] & ROADMOD.DIR ? T.oneWayCapacity : 1);
+}
+
 export function roadTime(map, i) {
   const T = CONFIG.traffic, c = map.roadClass[i];
-  const load = map.traffic[i] / T.capacity[c];
+  const load = map.traffic[i] / roadCapacity(map, i);
   return T.minutesPerTile[c] * Math.min(T.maxCongestion, 1 + T.congestionK * load * load) + junctionDelay(map, i, load);
 }
 
 // Extra minutes spent crossing a junction tile (0 on plain road).
-export function junctionDelay(map, i, load = map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]]) {
+export function junctionDelay(map, i, load = map.traffic[i] / roadCapacity(map, i)) {
   const J = CONFIG.traffic.junction, kind = map.junctionKind(i), crossing = map.rail[i] ? CONFIG.rail.crossingDelay : 0;
   if (kind === JUNCTION.NONE) return crossing;
   const lights = map.hasFlag(i, FLAG.LIGHTS);
   const [base, k] = kind === JUNCTION.MERGE ? J.merge
-    : kind === JUNCTION.INTERSECTION ? (lights ? J.lights : J.plain)
+    : kind === JUNCTION.INTERSECTION ? (map.roadMod[i] & ROADMOD.ROUNDABOUT ? J.roundabout : lights ? J.lights : J.plain)
     : map.hasFlag(i, FLAG.INTERCHANGE) ? J.interchange
     : lights ? J.highwayLights : J.highwayAtGrade;
   return base * (1 + k * Math.min(4, load * load)) + crossing;
 }
 
 export function roadLoad(map, i) {
-  return map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]];
+  return map.traffic[i] / roadCapacity(map, i);
 }
 
 export function trafficSystem(state) {
@@ -132,7 +138,7 @@ export function trafficSystem(state) {
     const u = heap.pop();
     if (heap.lastPri > access[u]) continue;
     for (const v of nbrs(u, tmp)) {
-      if (!isNode[v]) continue;
+      if (!isNode[v] || !canDrive(map, v, u)) continue;
       const nd = access[u] + time[v];
       if (nd < access[v] && nd <= T.maxCommute) { access[v] = nd; heap.push(v, nd); }
     }
@@ -337,7 +343,7 @@ export function trafficSystem(state) {
         for (let p = u; p !== -1; p = parent[p]) volume[p] += took;
       }
       for (const v of nbrs(u, tmp)) {
-        if (!isNode[v]) continue;
+        if (!isNode[v] || !canDrive(map, u, v)) continue;
         const nd = d + time[v];
         if (nd > T.maxCommute) continue;
         if (stamp[v] !== run || nd < dist[v]) { dist[v] = nd; stamp[v] = run; parent[v] = u; heap.push(v, nd); }
@@ -373,7 +379,7 @@ export function trafficSystem(state) {
     const u = heap.pop();
     if (heap.lastPri > toEdge[u]) continue;
     for (const v of nbrs(u, tmp)) {
-      if (!isNode[v]) continue;
+      if (!isNode[v] || !canDrive(map, v, u)) continue;
       const nd = toEdge[u] + time[v];
       if (nd < toEdge[v]) { toEdge[v] = nd; edgeParent[v] = u; heap.push(v, nd); }
     }

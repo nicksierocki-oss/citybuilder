@@ -21,10 +21,16 @@ Deferred: **Weather and disasters.** Floods (levee tool), heatwaves, winter stor
 tornadoes; rain and snow particles; Disasters off / mild / full.
 
 **Phase D: engine-level (own branch each, extra save-compatibility testing)**
-9. **Road tools 2.0.** One-way streets, roundabouts, parking; diagonal roads last.
+9. **Road tools 2.0.** One-way streets, roundabouts and parking are done; still to do: diagonal
+   roads (needs diagonal adjacency in pathfinding, rendering and zoning).
 10. **Terrain.** Height layer, hills and coastline maps, slope costs, terraforming.
 
 ## Done (recent)
+
+- Phase D item 9 (part): `map.roadMod` layer (one-way direction in the low bits, `ROADMOD.ROUNDABOUT`),
+  `canDrive(map, a, b)` used by every road search (reverse searches check `canDrive(map, v, u)`),
+  `roadCapacity` (one-way ×1.6), roundabout junction delay, `onewayDirs` for drags, parking lot
+  building (`parking`, shop/office bonus).
 
 - Phase C, Transit 2.0 (`js/transit.js`, `js/lines-ui.js`): drawn bus and tram lines
   (`state.lines`, frequency and cost, road-path routes, vehicles in 2D/3D, tram track via

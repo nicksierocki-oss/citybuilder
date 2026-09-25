@@ -48,7 +48,7 @@ export function useOf(map, i, res) {
   const U = CONFIG.utilities, t = map.type[i];
   if (t === TILE.SERVICE) {
     const k = kindOf(map, i);
-    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus' || k === 'landfill' || CONFIG.buildings[k]?.park || map.part[i]) return 0;
+    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus' || k === 'parking' || k === 'landfill' || CONFIG.buildings[k]?.park || map.part[i]) return 0;
     return U.serviceUse * (CONFIG.buildings[k]?.size ? 3 : 1); // landmarks use more, counted on their anchor
   }
   const key = ZONE_KEY[t];

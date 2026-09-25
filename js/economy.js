@@ -1,7 +1,8 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZone, footprintSize } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, ROADMOD, PERSISTENT_LAYERS, isZone, footprintSize, onewayCode } from './map.js';
+import { roadLoad } from './traffic.js';
 import { ordinance, ordinancesCost } from './cityhall.js';
 import { funding, groupOf } from './services.js';
 import { tradeMoney } from './region.js';
@@ -15,6 +16,8 @@ export const TOOLS = {
   upgrade:     { label: 'Upgrade road', key: '9', shape: 'line' },
   lights:      { label: 'Traffic lights', shape: 'rect' },
   interchange: { label: 'Interchange', shape: 'single' },
+  oneway:      { label: 'One-way street', shape: 'line' },
+  roundabout:  { label: 'Roundabout',  shape: 'single' },
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
@@ -38,6 +41,7 @@ export const TOOLS = {
   metro:       { label: 'Metro station', shape: 'single', building: 'metro' },
   rail:        { label: 'Railway',     shape: 'line' },
   railstation: { label: 'Train station', shape: 'single', building: 'railstation' },
+  parking:     { label: 'Parking lot', shape: 'single', building: 'parking' },
   // Landmarks: multi-tile, placed centred on the cursor
   townpark:    { label: 'Town park',    shape: 'footprint', building: 'townpark', footprint: true },
   centralpark: { label: 'Central park', shape: 'footprint', building: 'centralpark', footprint: true },
@@ -111,7 +115,16 @@ export function toolCost(state, tool, i, arg = 0) {
     case 'lights': {
       const j = map.junctionKind(i);
       if ((j !== JUNCTION.INTERSECTION && j !== JUNCTION.HIGHWAY) || map.hasFlag(i, FLAG.LIGHTS) || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
+      if (map.roadMod[i] & ROADMOD.ROUNDABOUT) return null;
       return C.lights;
+    }
+    case 'roundabout':
+      if (map.junctionKind(i) !== JUNCTION.INTERSECTION || map.roadMod[i] & ROADMOD.ROUNDABOUT || water || map.rail[i]) return null;
+      return C.roundabout;
+    case 'oneway': {
+      // arg: the direction code for this tile (from the drag), 0 = make two-way again.
+      if (t !== TILE.ROAD || map.roadClass[i] === 2) return null;
+      return (map.roadMod[i] & ROADMOD.DIR) === arg ? null : C.oneway;
     }
     case 'interchange':
       if (map.junctionKind(i) !== JUNCTION.HIGHWAY || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
@@ -147,6 +160,27 @@ export function toolCost(state, tool, i, arg = 0) {
     default:
       return null;
   }
+}
+
+// One-way directions for a drag: each tile points to the next one (the last keeps the one
+// before it). A single click flips a one-way street, or makes a two-way one run east/south.
+// Dragging the way a street already runs makes it two-way again.
+export function onewayDirs(map, tiles) {
+  const out = new Map(), w = map.width;
+  if (tiles.length === 1) {
+    const i = tiles[0], cur = map.roadMod[i] & ROADMOD.DIR;
+    const vert = map.inBounds(i % w, ((i / w) | 0) - 1) && map.type[i - w] === TILE.ROAD || map.inBounds(i % w, ((i / w) | 0) + 1) && map.type[i + w] === TILE.ROAD;
+    const horiz = (i % w > 0 && map.type[i - 1] === TILE.ROAD) || (i % w < w - 1 && map.type[i + 1] === TILE.ROAD);
+    out.set(i, cur ? [0, 2, 1, 4, 3][cur] : horiz || !vert ? 1 : 3);
+    return out;
+  }
+  tiles.forEach((i, k) => {
+    const a = k < tiles.length - 1 ? i : tiles[k - 1], b = k < tiles.length - 1 ? tiles[k + 1] : i;
+    out.set(i, onewayCode((b % w) - (a % w), ((b / w) | 0) - ((a / w) | 0)));
+  });
+  const roads = tiles.filter((i) => map.type[i] === TILE.ROAD && map.roadClass[i] !== 2);
+  if (roads.length && roads.every((i) => (map.roadMod[i] & ROADMOD.DIR) === out.get(i))) for (const i of tiles) out.set(i, 0);
+  return out;
 }
 
 // Is there railway track next to tile i (train stations must be)?
@@ -192,6 +226,12 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
     map.setFlag(i, FLAG.TREES, true);
   } else if (tool === 'lights') {
     map.setFlag(i, FLAG.LIGHTS, true);
+  } else if (tool === 'oneway') {
+    map.roadMod[i] = (map.roadMod[i] & ~ROADMOD.DIR) | arg;
+    map.roadsDirty = true;
+  } else if (tool === 'roundabout') {
+    map.roadMod[i] |= ROADMOD.ROUNDABOUT;
+    map.setFlag(i, FLAG.LIGHTS, false); // the roundabout replaces the lights
   } else if (tool === 'interchange') {
     map.setFlag(i, FLAG.INTERCHANGE, true);
     map.setFlag(i, FLAG.LIGHTS, false); // ramps replace the lights
@@ -211,11 +251,13 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
     map.part[i] = 0;
     map.roadClass[i] = 0;
     map.rail[i] = 0;
+    map.roadMod[i] = 0;
     map.flags[i] = 0; // clears fire, abandonment, lights and interchanges (trees handled above)
     map.burn[i] = 0;
     map.traffic[i] = 0;
   } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {
     map.roadClass[i] = targetRoadClass(map, tool, i);
+    if (map.roadClass[i] === 2) map.roadMod[i] = 0; // highways are two carriageways already
     map.type[i] = TILE.ROAD;
     map.kind[i] = 0;
     map.level[i] = 0;
@@ -259,7 +301,9 @@ export function applyTool(state, tool, tiles, arg = 0) {
     return { applied: tiles.length, spent: cost, undo };
   }
   let applied = 0, spent = 0, broke = false;
+  const dirs = tool === 'oneway' ? onewayDirs(map, tiles) : null;
   for (const i of tiles) {
+    if (dirs) arg = dirs.get(i);
     const cost = toolCost(state, tool, i, arg);
     if (cost == null) continue;
     // Demolition is always allowed (even in debt) so players can cut upkeep to recover.
@@ -298,8 +342,9 @@ export function previewCost(state, tool, tiles, arg = 0) {
     return c == null ? { total: 0, count: 0, blocked: true } : { total: c, count: 1 };
   }
   let total = 0, count = 0;
+  const dirs = tool === 'oneway' ? onewayDirs(state.map, tiles) : null;
   for (const i of tiles) {
-    const c = toolCost(state, tool, i, arg);
+    const c = toolCost(state, tool, i, dirs ? dirs.get(i) : arg);
     if (c != null) { total += c; count++; }
   }
   return { total, count };
@@ -335,7 +380,7 @@ export function monthlyBudget(state) {
     highways: s.highways * E.highwayMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
     parks: s.parks * E.parkMaintenance * (state.budgets?.parks ?? 1),
-    junctions: s.lights * E.lightsMaintenance + s.interchanges * E.interchangeMaintenance,
+    junctions: s.lights * E.lightsMaintenance + s.interchanges * E.interchangeMaintenance + (s.roundabouts ?? 0) * E.roundaboutMaintenance,
     utilities: 0,
     services: 0,
     loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
@@ -487,12 +532,12 @@ export function budgetAdvice(state) {
   for (let i = 0; i < map.size; i++) {
     if (map.type[i] !== TILE.ROAD || map.traffic[i] < 1) continue;
     const j = map.junctionKind(i);
-    const load = map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]];
+    const load = roadLoad(map, i);
     if (j === JUNCTION.HIGHWAY && !map.hasFlag(i, FLAG.INTERCHANGE)) atGrade++;
-    else if (j === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) busyPlain++;
+    else if (j === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && !(map.roadMod[i] & ROADMOD.ROUNDABOUT) && load > 0.7) busyPlain++;
   }
   if (atGrade) out.push(`${atGrade} highway junction${atGrade > 1 ? 's' : ''} cross other roads at grade: an Interchange ($${CONFIG.costs.interchange.toLocaleString()}) removes the slowdown.`);
-  if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic lights: lights ($${CONFIG.costs.lights}) cut the delay.`);
+  if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic control: a roundabout ($${CONFIG.costs.roundabout}) or lights ($${CONFIG.costs.lights}) cut the delay.`);
   const gb = state.garbage;
   if (gb && gb.uncollected > 20) out.push(`${gb.uncollected.toLocaleString()} units of garbage a month go uncollected (capacity ${gb.capacity.toLocaleString()}, made ${gb.made.toLocaleString()}): a landfill ($${CONFIG.buildings.landfill.cost.toLocaleString()}) collects ${CONFIG.buildings.landfill.garbage}. Keep it away from homes.`);
   const cut = Object.entries(state.budgets ?? {}).filter(([, f]) => f < 1);

@@ -2,7 +2,7 @@
 // between stops (so they feel congestion), shuttling end to end. Pure simulation, no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, KINDS, FLAG } from './map.js';
+import { TILE, KINDS, FLAG, canDrive } from './map.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -88,7 +88,7 @@ function roadPath(map, a, b, time, tram = false) {
     for (const [dx, dy] of DIRS) {
       if (!map.inBounds(x + dx, y + dy)) continue;
       const v = map.idx(x + dx, y + dy);
-      if (map.type[v] !== TILE.ROAD || map.roadClass[v] === 2) continue; // buses stay off highways
+      if (map.type[v] !== TILE.ROAD || map.roadClass[v] === 2 || !canDrive(map, u, v)) continue; // buses stay off highways
       const nd = dist.get(u) + time[v] * (tram && !map.hasFlag(v, FLAG.TRAM) ? 3 : 1); // trams keep to their track
       if (!dist.has(v) || nd < dist.get(v)) { dist.set(v, nd); prev.set(v, u); heap.push(v, nd); }
     }

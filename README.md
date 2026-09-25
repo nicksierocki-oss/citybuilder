@@ -59,6 +59,12 @@ There's an optional **3D view**, built with Three.js. The library is included in
      ($1,500, the *Ramps* tool) carries the highway over on a deck.
    - **Road joins:** where a highway simply turns into an avenue, the road tapers smoothly
      (a merge, with only a small delay).
+   - **One-way streets** ($5 a tile): drag along a street or avenue in the direction traffic
+     should flow (arrows show it). They carry 60% more, but cars can't drive against them, so
+     pair them up. Click a tile to flip it; drag the same way again to make it two-way.
+   - **Roundabouts** ($400) replace an intersection: almost no wait at light or medium
+     traffic; traffic lights cope a little better once it is jammed.
+   - **Parking lots** ($300): shops and offices within 4 tiles grow better.
    - **Bus stops** ($150): people within 3 tiles ride to jobs near other bus stops.
      Up to 35% of a home's workers, 150 riders a month per stop, slower rides.
    - **Metro stations** ($2,500): people within 4 tiles ride to jobs near any other

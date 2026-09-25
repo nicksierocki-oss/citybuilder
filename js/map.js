@@ -10,7 +10,7 @@ export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Indust
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
 // New kinds go at the END (saves store the index).
 export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro',
-  'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital', 'landfill', 'railstation'];
+  'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital', 'landfill', 'railstation', 'parking'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
@@ -20,6 +20,24 @@ export const JUNCTION = { NONE: 0, MERGE: 1, INTERSECTION: 2, HIGHWAY: 3 };
 
 export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
 export const ROAD_NAMES = ['Street', 'Avenue', 'Highway'];
+
+// Road modifiers (map.roadMod): the low 3 bits are a one-way direction (index into ONEWAY),
+// plus a roundabout bit on intersections.
+export const ROADMOD = { DIR: 7, ROUNDABOUT: 8 };
+export const ONEWAY = [null, [1, 0], [-1, 0], [0, 1], [0, -1]]; // 1 east, 2 west, 3 south, 4 north
+export const ONEWAY_NAMES = ['', 'east', 'west', 'south', 'north'];
+export function onewayCode(dx, dy) { return dx > 0 ? 1 : dx < 0 ? 2 : dy > 0 ? 3 : dy < 0 ? 4 : 0; }
+
+// May a car drive from road tile a to the adjacent road tile b? Not against a one-way street
+// (leaving or entering it); turning on or off one is fine.
+export function canDrive(map, a, b) {
+  const ma = map.roadMod[a] & ROADMOD.DIR, mb = map.roadMod[b] & ROADMOD.DIR;
+  if (!ma && !mb) return true;
+  const d = b - a, w = map.width;
+  const code = d === 1 ? 1 : d === -1 ? 2 : d === w ? 3 : 4;
+  const opp = [0, 2, 1, 4, 3][code];
+  return ma !== opp && mb !== opp;
+}
 
 // Footprint [w, h] of a public building kind (1×1 unless it's a landmark).
 export function footprintSize(kind) {
@@ -88,6 +106,7 @@ export class GameMap {
     this.part = new Uint8Array(n);      // multi-tile buildings: 0 = anchor (top-left), else 1 + dx + 8 * dy
     this.district = new Uint8Array(n);  // district id, 0 = none
     this.rail = new Uint8Array(n);      // 1 = railway track (TILE.RAIL, or a road with a level crossing)
+    this.roadMod = new Uint8Array(n);   // ROADMOD: one-way direction, roundabout
     this.education = new Uint8Array(n); // homes: skilled share of residents × 255 (changes slowly)
     this.educationReady = false;        // false until education has been seeded (new maps, old saves)
     // Derived layers (recomputed by the simulation)
@@ -117,6 +136,7 @@ export class GameMap {
       townpark: new Float32Array(n), centralpark: new Float32Array(n),
       university: new Float32Array(n), stadium: new Float32Array(n), statue: new Float32Array(n),
       hospital: new Float32Array(n), landfill: new Float32Array(n), railstation: new Float32Array(n),
+      parking: new Float32Array(n),
     };
     this.riders = new Float32Array(n);    // transit boardings + alightings per station tile
     this.crime = new Float32Array(n);     // 0..100 per building
@@ -303,7 +323,7 @@ export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.
   return map;
 }
 
-export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education', 'rail'];
+export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education', 'rail', 'roadMod'];
 
 // Grow a city's map to newSize x newSize, adding land evenly on every side.
 // The river keeps meandering into the new land and every road that ran off the old

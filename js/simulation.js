@@ -3,7 +3,7 @@
 // services) plug into SYSTEMS without touching rendering.
 
 import { CONFIG } from './config.js';
-import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, isZone, isHome, isShop, homeCap, jobCap, skilledShare } from './map.js';
+import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, JUNCTION, ROADMOD, isZone, isHome, isShop, homeCap, jobCap, skilledShare } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
 import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem, healthSystem, garbageSystem,
@@ -74,7 +74,7 @@ function emptyStats() {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
     roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0, lights: 0, interchanges: 0,
     zoned: { r: 0, c: 0, i: 0, o: 0, f: 0, m: 0 }, abandoned: 0,
-    officeJobs: 0, farmJobs: 0, hotels: 0, hotelIncome: 0, rails: 0, railBridges: 0,
+    officeJobs: 0, farmJobs: 0, hotels: 0, hotelIncome: 0, rails: 0, railBridges: 0, roundabouts: 0,
     services: {},             // count per public building kind (landmarks count once)
     taxBase: { r: 0, c: 0, i: 0, o: 0, f: 0 }, // taxable residents/jobs after education, high-tech and tax breaks
     skilledJobs: 0, hightech: 0,
@@ -295,6 +295,7 @@ export function computeStats(state) {
       else s.roads++;
       if (map.hasFlag(i, FLAG.LIGHTS)) s.lights++;
       if (map.hasFlag(i, FLAG.INTERCHANGE)) s.interchanges++;
+      if (map.roadMod[i] & ROADMOD.ROUNDABOUT && map.junctionKind(i) === JUNCTION.INTERSECTION) s.roundabouts++;
     }
     else if (t === TILE.PARK) s.parks++;
     if (map.rail[i]) { if (map.terrain[i] === TERRAIN.WATER) s.railBridges++; else s.rails++; }
@@ -395,7 +396,7 @@ export function evaluateTile(state, i) {
     const shoppers = map.shoppers[i];
     const TR = CONFIG.traffic;
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
-      + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus + map.coverage.stadium[i] * CONFIG.buildings.stadium.shopBonus
+      + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus + map.coverage.stadium[i] * CONFIG.buildings.stadium.shopBonus + map.coverage.parking[i] * CONFIG.buildings.parking.shopBonus
       - map.crime[i] / 100 * CONFIG.crime.businessWeight
       + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1)
       - (ordinance(state, 'carFree') ? CONFIG.ordinances.carFree.shopPenalty : 0);
@@ -416,7 +417,8 @@ export function evaluateTile(state, i) {
     maxLevel = Math.min(a[1], Math.max(1, b[1]));
   } else if (t === TILE.OFFICE) {
     const Z = CONFIG.zones, edu = map.eduNearby[i];
-    score = (state.demand.o ?? 0) + (lv - 40) / 60 * 0.3 + (edu - 0.3) * Z.officeEduWeight - map.crime[i] / 100 * CONFIG.crime.businessWeight;
+    score = (state.demand.o ?? 0) + (lv - 40) / 60 * 0.3 + (edu - 0.3) * Z.officeEduWeight - map.crime[i] / 100 * CONFIG.crime.businessWeight
+      + map.coverage.parking[i] * CONFIG.buildings.parking.officeBonus;
     while (maxLevel > 1 && lv < Z.officeLevelLV[maxLevel]) maxLevel--;
     if ((state.demand.o ?? 0) <= 0) reasons.push('No office demand: offices need skilled residents (schools, a university)');
     if (edu < 0.3) reasons.push(`Only ${Math.round(edu * 100)}% of nearby residents are skilled: offices want 30%+`);
