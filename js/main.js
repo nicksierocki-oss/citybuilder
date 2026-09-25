@@ -9,6 +9,7 @@ import { UI } from './ui.js';
 import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave } from './save.js';
 import { undoAction } from './economy.js';
 import { environment } from './seasons.js';
+import { startUpdater } from './updater.js';
 
 const canvas = document.getElementById('game');
 const canvas3d = document.getElementById('game3d');
@@ -200,6 +201,9 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => { if (!game.state.bankrupt) autosave(game.state); });
+
+// Pick up new deploys while the game is open (the city is saved first and restored on reload).
+startUpdater(game, { onBeforeReload: () => { if (!game.state.bankrupt) autosave(game.state); } });
 
 // Handy for tinkering from the dev console.
 window.gridline = game;
