@@ -1,3 +1,4 @@
+// @ts-check
 // Simulation: pure data in, data out. No DOM, no canvas.
 // A tick runs an ordered list of systems. Future systems (traffic, power,
 // services) plug into SYSTEMS without touching rendering.

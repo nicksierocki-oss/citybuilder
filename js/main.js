@@ -1,7 +1,9 @@
+// @ts-check
 // Entry point: wires state, simulation clock, renderer, input and UI together.
 
 import { CONFIG } from './config.js';
 import { createGame, tick, refreshFields } from './simulation.js';
+import { undoLast } from './economy.js';
 import { expandMap, highwayEntry } from './map.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
@@ -108,6 +110,11 @@ const game = {
     this.ui.toast(`The city now spans ${size}×${size}. New land on every side!`, 'good', 4500);
     autosave(s);
   },
+  undo() {
+    const r = undoLast(this.state);
+    if (r.ok) refreshFields(this.state);
+    this.ui.toast(r.text, r.ok ? 'info' : 'bad');
+  },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {
     try {
@@ -176,4 +183,4 @@ window.addEventListener('beforeunload', saveOnExit);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveOnExit(); });
 
 // Handy for tinkering from the dev console.
-window.gridline = game;
+/** @type {any} */ (window).gridline = game;

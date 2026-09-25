@@ -1,3 +1,4 @@
+// @ts-check
 // Overlay registry shared by the 2D view, the 3D ground texture and the UI legend.
 // kind 'field'  -> smooth heatmap (bilinear-blended per-tile colours)
 // kind 'roads'  -> colours road tiles only

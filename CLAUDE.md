@@ -23,11 +23,13 @@ move it to **Done** with a one-line note.
    multi-tile buildings that draw visitors and lift a whole area.
 5. **Statistics and history graphs.** Population, budget, commute, happiness over time.
 
-Smaller ideas: undo for the last action, a mini-map, zoning brushes (line or circle),
+Smaller ideas: a mini-map, zoning brushes (line or circle),
 naming your city.
 
 ## Done (recent)
 
+- Hardening: save files validated and repaired on load, sim errors pause instead of freezing,
+  autosave on tab hide, undo (Ctrl+Z, last 20 actions), type checks, tests and CI gating deploys.
 - Public transit (bus stops, metro stations), traffic lights, interchanges (Ramps tool),
   tapered road joins; traffic smoothing raised to 0.8 to stop jam/empty oscillation.
 - Code review: in-debt demolition, fire/abandonment stats, save tax default, cleanup.
@@ -50,11 +52,17 @@ naming your city.
 
 ## Checks before pushing
 
-- `node tools/playtest.js` (add `DIAG=1` for detail): balance scenarios. A sensible city
-  should reach 1,000 people in about 25–30 in-game months without going bankrupt;
-  "careless" should still go bankrupt.
+- `npm install` once, then `npm run check` runs everything below. CI (`.github/workflows/check.yml`)
+  runs the same on every push, and the Pages deploy only happens if it passes.
+- `npm run typecheck`: `tsc` over `// @ts-check` JSDoc (all of `js/` except `renderer3d.js`).
+- `npm test` (`tools/test.js`): save round-trip, damaged-save fuzzing, undo.
+- `npm run playtest` (`tools/playtest.js`, add `DIAG=1` for detail): balance scenarios. A sensible
+  city should reach 1,000 people in about 25–30 in-game months without going bankrupt;
+  "careless" should still go bankrupt. It exits non-zero if either breaks.
+- `npm run smoke` (`tools/smoke.js`): headless Chromium plays the game (build, undo, save/load,
+  3D). Chromium is preinstalled here; CI installs it.
 - `node tools/analyze.js <save.json>`: report on a player's saved city.
-- Browser check: `python3 -m http.server 8123`, then drive it with Playwright (Chromium
-  is preinstalled; for 3D launch with `--use-angle=swiftshader`).
 - Saves must stay backward compatible: add new persistent layers to `OPTIONAL_LAYERS` in
-  `js/save.js`, and add new building kinds at the **end** of `KINDS`.
+  `js/save.js`, and add new building kinds at the **end** of `KINDS`. The loader repairs unknown
+  values using the enums in `map.js` (`sanitizeLayers`); `npm test` fails if it would alter a
+  valid city, so keep `MAX_LEVEL` there in step if densities ever go above 3.

@@ -1,6 +1,7 @@
+// @ts-check
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
-import { GameMap, TILE, KINDS, highwayEntry } from './map.js';
+import { GameMap, TILE, TERRAIN, FLAG, ROAD_CLASS, KINDS, highwayEntry } from './map.js';
 import { CONFIG } from './config.js';
 import { refreshFields } from './simulation.js';
 
@@ -101,19 +102,27 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v, def) => (v != null && Number.isFinite(Number(v)) ? Number(v) : def);
 
 // Hand-edited or damaged saves must not put unknown values in the map: the renderers
-// and simulation index lookup tables by these.
-function sanitizeLayers(map) {
-  const maxType = Math.max(...Object.values(TILE)), flagMask = 31;
+// and simulation index lookup tables by these. Limits come from the enums, so new
+// tile types, flags, road classes and KINDS are accepted automatically.
+const MAX_LEVEL = 3;
+const maxOf = (o) => Math.max(...Object.values(o));
+export function sanitizeLayers(map) {
+  const maxTerrain = maxOf(TERRAIN), maxType = maxOf(TILE), maxRoad = maxOf(ROAD_CLASS);
+  const flagMask = Object.values(FLAG).reduce((a, b) => a | b, 0);
+  let fixed = 0;
   for (let i = 0; i < map.size; i++) {
-    if (map.terrain[i] > 1) map.terrain[i] = 0;
+    const t = map.terrain[i], ty = map.type[i], lv = map.level[i], fl = map.flags[i], rc = map.roadClass[i], k = map.kind[i];
+    if (map.terrain[i] > maxTerrain) map.terrain[i] = TERRAIN.GRASS;
     if (map.type[i] > maxType) map.type[i] = TILE.EMPTY;
-    if (map.level[i] > 3) map.level[i] = 3;
+    if (map.level[i] > MAX_LEVEL) map.level[i] = MAX_LEVEL;
     map.flags[i] &= flagMask;
-    if (map.type[i] === TILE.ROAD) { if (map.roadClass[i] > 2) map.roadClass[i] = 2; } else map.roadClass[i] = 0;
+    if (map.type[i] === TILE.ROAD) { if (map.roadClass[i] > maxRoad) map.roadClass[i] = maxRoad; } else map.roadClass[i] = 0;
     if (map.type[i] === TILE.SERVICE) {
       if (!map.kind[i] || map.kind[i] >= KINDS.length) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; map.level[i] = 0; }
     } else map.kind[i] = 0;
+    if (t !== map.terrain[i] || ty !== map.type[i] || lv !== map.level[i] || fl !== map.flags[i] || rc !== map.roadClass[i] || k !== map.kind[i]) fixed++;
   }
+  return fixed; // tiles repaired (0 for any save the game itself wrote)
 }
 
 // v1 had no avenues. New maps start with the regional highway as an avenue,

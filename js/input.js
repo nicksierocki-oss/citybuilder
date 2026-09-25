@@ -1,3 +1,4 @@
+// @ts-check
 // Input: mouse painting, panning, zooming and keyboard shortcuts.
 
 import { TOOLS, applyTool, previewCost } from './economy.js';
@@ -73,7 +74,7 @@ export class Input {
         this.renderer.zoomAt(this.game.state.map, p.x, p.y, Math.exp(-e.deltaY * 0.0015));
       }, { passive: false });
     }
-    window.addEventListener('pointerup', (e) => this.onUp(e));
+    window.addEventListener('pointerup', () => this.onUp());
     // A cancelled pointer (touch interrupted, capture lost) must not leave a drag or pan stuck.
     window.addEventListener('pointercancel', () => { this.drag = null; this.pan = null; this.game.preview = null; });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -153,6 +154,12 @@ export class Input {
 
   onKey(e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      this.drag = null; this.game.preview = null;
+      this.game.undo();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Shift') { document.body.classList.add('shift-pan'); return; }
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;

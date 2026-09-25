@@ -1,3 +1,4 @@
+// @ts-check
 // Map data model: a fixed grid stored as flat typed-array layers.
 // Adding a system later (power, water, traffic) = adding a layer here.
 
@@ -74,6 +75,8 @@ export class GameMap {
     this.fireRisk = new Float32Array(n);  // 0..100 per building
     this.burn = new Uint16Array(n);       // ticks a fire has been burning (FLAG.FIRE tiles)
     this.happiness = new Float32Array(n);
+    /** @type {number | null} */
+    this.seed = null;                   // generation seed (null for unknown)
     this.roadsDirty = true;
     this.version = 0;                   // bumped on every player edit (renderers cache on it)
   }
@@ -163,7 +166,8 @@ export function highwayEntry(width, height) {
 }
 
 // Tree clumps: seed some, then let them spread. `mask(i)` limits where trees may appear.
-function growTrees(map, rng, mask = () => true) {
+/** @param {(i: number) => boolean} [mask] */
+function growTrees(map, rng, mask = (_i) => true) {
   const { width, height } = map, treeChance = CONFIG.map.treeChance;
   for (let i = 0; i < map.size; i++) {
     if (mask(i) && map.terrain[i] === TERRAIN.GRASS && rng() < treeChance * 0.35) map.setFlag(i, FLAG.TREES, true);
