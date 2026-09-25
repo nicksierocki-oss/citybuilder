@@ -166,7 +166,7 @@ export function landValueSystem(state) {
     v += Math.min(L.parkCap, parkB[i]);
     v += Math.min(L.treeCap, treeB[i]);
     v += Math.min(L.commercialCap, comB[i]);
-    v -= abB[i];
+    v -= Math.min(L.abandonedCap, abB[i]);
     v -= map.crime[i] * CONFIG.crime.landValueWeight;
     const B = CONFIG.buildings, cov = map.coverage;
     v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue;

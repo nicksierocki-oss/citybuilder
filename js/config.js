@@ -121,7 +121,7 @@ export const CONFIG = {
     parkBonus: 18,  parkRadius: 5, parkCap: 36,
     treeBonus: 2,   treeRadius: 2, treeCap: 8,
     commercialBonus: 2, commercialRadius: 3, commercialCap: 10,
-    abandonedPenalty: 8, abandonedRadius: 2,
+    abandonedPenalty: 8, abandonedRadius: 2, abandonedCap: 16, // blight, capped so clusters can recover
     pollutionWeight: 0.8,
   },
 
