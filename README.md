@@ -67,6 +67,9 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **One-way streets** ($5 a tile): drag along a street or avenue in the direction traffic
      should flow (arrows show it). They carry 60% more, but cars can't drive against them, so
      pair them up. Click a tile to flip it; drag the same way again to make it two-way.
+     Intersections stay two-way (the streets either side decide). Roads cars can't get into
+     or out of show purple on the Traffic overlay, and the advisor lists them. Bus and tram
+     lines run out through their stops and back in reverse, each way on legal streets.
    - **Roundabouts** ($400) replace an intersection: almost no wait at light or medium
      traffic; traffic lights cope a little better once it is jammed.
    - **Parking lots** ($300): shops and offices within 4 tiles grow better.

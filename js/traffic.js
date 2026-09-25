@@ -3,10 +3,10 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, JUNCTION, ROADMOD, canDrive, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
+import { TILE, FLAG, KINDS, JUNCTION, ROADMOD, canDrive, onewayAt, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
-import { buildRoutes, lineCapacity, railNetwork, railExits } from './transit.js';
+import { buildRoutes, lineCapacity, railNetwork, railExits, rideMinutes } from './transit.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -50,7 +50,7 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Trips a month a road tile carries before it is full (one-way streets carry more).
 export function roadCapacity(map, i) {
   const T = CONFIG.traffic;
-  return T.capacity[map.roadClass[i]] * (map.roadMod[i] & ROADMOD.DIR ? T.oneWayCapacity : 1);
+  return T.capacity[map.roadClass[i]] * (onewayAt(map, i) ? T.oneWayCapacity : 1);
 }
 
 export function roadTime(map, i) {
@@ -248,7 +248,7 @@ export function trafficSystem(state) {
       const before = left;
       let want = Math.min(left, workers * Math.min(0.95, L.M.share * shareMult) - (onLine.get(L) ?? 0), L.left);
       if (want <= 0) continue;
-      const wait = L.M.wait / L.line.freq, dests = L.line.stops.map((si, d) => [d, Math.abs(L.route.at[d] - L.route.at[k])])
+      const wait = L.M.wait / L.line.freq, dests = L.line.stops.map((si, d) => [d, rideMinutes(L.route, k, d)])
         .filter(([d]) => d !== k).sort((a, b) => a[1] - b[1]);
       for (const [d, t] of dests) {
         if (want <= 0 || L.left <= 0) break;
@@ -359,7 +359,7 @@ export function trafficSystem(state) {
   // --- buses and trams are on the roads too
   state.lineStats = {};
   for (const L of lines) {
-    for (const p of L.route.path) volume[p] += L.line.freq * L.M.roadTrips;
+    for (const p of L.route.path) volume[p] += L.line.freq * L.M.roadTrips / 2; // the loop passes each way once
     state.lineStats[L.line.id] = { riders: Math.round(L.riders), capacity: Math.round(lineCapacity(state, L.line)) };
   }
 
@@ -385,6 +385,24 @@ export function trafficSystem(state) {
       if (nd < toEdge[v]) { toEdge[v] = nd; edgeParent[v] = u; heap.push(v, nd); }
     }
   }
+  // --- one-way traps: road that can't drive out to the map edge (1) or be reached from it (2)
+  const trap = map.oneWayTrap;
+  trap.fill(0);
+  let trapped = 0;
+  if (map.roadMod.some((m) => m & ROADMOD.DIR)) {
+    const reach = new Uint8Array(size), q = [];
+    for (let i = 0; i < size; i++) if (isNode[i] && isEdge(i)) { reach[i] = 1; q.push(i); }
+    for (let hd = 0; hd < q.length; hd++) {
+      const u = q[hd];
+      for (const v of nbrs(u, tmp)) if (isNode[v] && !reach[v] && canDrive(map, u, v)) { reach[v] = 1; q.push(v); }
+    }
+    for (let i = 0; i < size; i++) {
+      if (!isNode[i]) continue;
+      trap[i] = (toEdge[i] === Infinity ? 1 : 0) | (reach[i] ? 0 : 2);
+      if (trap[i]) trapped++;
+    }
+  }
+
   let freightTrips = 0;
   for (let i = 0; i < size; i++) {
     if ((map.type[i] !== TILE.IND && map.type[i] !== TILE.FARM) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED)) continue;
@@ -419,5 +437,6 @@ export function trafficSystem(state) {
     transitRiders,
     skilledJobs: skilledTotal,
     skilledOpen,
+    trapped,
   };
 }

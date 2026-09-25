@@ -1,7 +1,7 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, ROADMOD, PERSISTENT_LAYERS, isZone, footprintSize, onewayCode } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, ROADMOD, PERSISTENT_LAYERS, isZone, footprintSize, onewayCode, roadLegs } from './map.js';
 import { roadLoad } from './traffic.js';
 import { ordinance, ordinancesCost } from './cityhall.js';
 import { funding, groupOf } from './services.js';
@@ -138,6 +138,7 @@ export function toolCost(state, tool, i, arg = 0) {
     case 'oneway': {
       // arg: the direction code for this tile (from the drag), 0 = make two-way again.
       if (t !== TILE.ROAD || map.roadClass[i] === 2) return null;
+      if (roadLegs(map, i) >= 3) return (map.roadMod[i] & ROADMOD.DIR) ? 0 : null; // junctions stay two-way (clears any old setting for free)
       return (map.roadMod[i] & ROADMOD.DIR) === arg ? null : C.oneway;
     }
     case 'interchange':
@@ -194,7 +195,7 @@ export function onewayDirs(map, tiles) {
     const a = k < tiles.length - 1 ? i : tiles[k - 1], b = k < tiles.length - 1 ? tiles[k + 1] : i;
     out.set(i, onewayCode((b % w) - (a % w), ((b / w) | 0) - ((a / w) | 0)));
   });
-  const roads = tiles.filter((i) => map.type[i] === TILE.ROAD && map.roadClass[i] !== 2);
+  const roads = tiles.filter((i) => map.type[i] === TILE.ROAD && map.roadClass[i] !== 2 && roadLegs(map, i) < 3);
   if (roads.length && roads.every((i) => (map.roadMod[i] & ROADMOD.DIR) === out.get(i))) for (const i of tiles) out.set(i, 0);
   return out;
 }
@@ -243,7 +244,7 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
   } else if (tool === 'lights') {
     map.setFlag(i, FLAG.LIGHTS, true);
   } else if (tool === 'oneway') {
-    map.roadMod[i] = (map.roadMod[i] & ~ROADMOD.DIR) | arg;
+    map.roadMod[i] = (map.roadMod[i] & ~ROADMOD.DIR) | (roadLegs(map, i) >= 3 ? 0 : arg);
     map.roadsDirty = true;
   } else if (tool === 'raise' || tool === 'lower') {
     if (tool === 'raise') { if (map.terrain[i] === TERRAIN.WATER) map.terrain[i] = TERRAIN.GRASS; else map.elev[i]++; }
@@ -562,6 +563,8 @@ export function budgetAdvice(state) {
     else if (j === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && !(map.roadMod[i] & ROADMOD.ROUNDABOUT) && load > 0.7) busyPlain++;
   }
   if (atGrade) out.push(`${atGrade} highway junction${atGrade > 1 ? 's' : ''} cross other roads at grade: an Interchange ($${CONFIG.costs.interchange.toLocaleString()}) removes the slowdown.`);
+  const trapped = state.traffic?.trapped ?? 0;
+  if (trapped) out.push(`${trapped} road tile${trapped > 1 ? 's are' : ' is'} cut off by one-way streets: cars can't get in or out. Flip a one-way street (click it with the One-way tool) or make it two-way.`);
   if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic control: a roundabout ($${CONFIG.costs.roundabout}) or lights ($${CONFIG.costs.lights}) cut the delay.`);
   const gb = state.garbage;
   if (gb && gb.uncollected > 20) out.push(`${gb.uncollected.toLocaleString()} units of garbage a month go uncollected (capacity ${gb.capacity.toLocaleString()}, made ${gb.made.toLocaleString()}): a landfill ($${CONFIG.buildings.landfill.cost.toLocaleString()}) collects ${CONFIG.buildings.landfill.garbage}. Keep it away from homes.`);

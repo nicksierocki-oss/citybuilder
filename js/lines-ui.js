@@ -85,7 +85,7 @@ export class LinesUI {
     const lines = s.lines ?? [], routes = s.transitRoutes ?? {}, stats = s.lineStats ?? {};
     box.innerHTML = lines.map((l) => {
       const sel = l.id === this.selected, editing = this.game.activeLine === l.id, r = routes[l.id], st = stats[l.id];
-      const status = l.stops.length < 2 ? 'needs 2+ stops' : r?.broken ? 'stops not connected by road' : `${st?.riders ?? 0}/${Math.round(lineCapacity(s, l))} riders`;
+      const status = l.stops.length < 2 ? 'needs 2+ stops' : r?.broken ? r.reason : `${st?.riders ?? 0}/${Math.round(lineCapacity(s, l))} riders`;
       return `<div class="district tline${sel ? ' sel' : ''}${editing ? ' editing' : ''}" data-line="${l.id}">
         <div class="dhead"><i style="background:${l.color}"></i><b>${esc(l.name)}</b><small class="${r?.broken ? 'bad' : ''}">${l.stops.length} stops · ${status}</small></div>
         ${sel ? `<div class="leditor deditor">

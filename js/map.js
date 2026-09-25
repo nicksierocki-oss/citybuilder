@@ -28,10 +28,25 @@ export const ONEWAY = [null, [1, 0], [-1, 0], [0, 1], [0, -1]]; // 1 east, 2 wes
 export const ONEWAY_NAMES = ['', 'east', 'west', 'south', 'north'];
 export function onewayCode(dx, dy) { return dx > 0 ? 1 : dx < 0 ? 2 : dy > 0 ? 3 : dy < 0 ? 4 : 0; }
 
+// Road tiles next to i (a junction has 3 or 4).
+export function roadLegs(map, i) {
+  const w = map.width, x = i % w;
+  return (x > 0 && map.type[i - 1] === TILE.ROAD) + (x < w - 1 && map.type[i + 1] === TILE.ROAD)
+    + (i >= w && map.type[i - w] === TILE.ROAD) + (i + w < map.size && map.type[i + w] === TILE.ROAD);
+}
+
+// One-way direction that applies at road tile i (junctions never restrict: the streets either
+// side of them do).
+export function onewayAt(map, i) {
+  const d = map.roadMod[i] & ROADMOD.DIR;
+  return d && roadLegs(map, i) < 3 ? d : 0;
+}
+
 // May a car drive from road tile a to the adjacent road tile b? Not against a one-way street
 // (leaving or entering it); turning on or off one is fine.
 export function canDrive(map, a, b) {
-  const ma = map.roadMod[a] & ROADMOD.DIR, mb = map.roadMod[b] & ROADMOD.DIR;
+  if (!(map.roadMod[a] & ROADMOD.DIR) && !(map.roadMod[b] & ROADMOD.DIR)) return true;
+  const ma = onewayAt(map, a), mb = onewayAt(map, b);
   if (!ma && !mb) return true;
   const d = b - a, w = map.width;
   const code = d === 1 ? 1 : d === -1 ? 2 : d === w ? 3 : 4;
@@ -115,6 +130,7 @@ export class GameMap {
     this.pollution = new Float32Array(n);
     this.landValue = new Float32Array(n);
     this.roadDist = new Int32Array(n);  // road tiles to the map edge, -1 = not connected
+    this.oneWayTrap = new Uint8Array(n); // road cut off by one-way streets: 1 no way out, 2 no way in
     this.shoppers = new Float32Array(n);// residents within shopping radius
     this.waterDist = new Float32Array(n);
     // Traffic (derived, see traffic.js)

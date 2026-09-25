@@ -1,6 +1,6 @@
 // Rendering: draws the map with soft flat shapes on a 2D canvas. Reads state, never mutates it.
 
-import { TILE, TERRAIN, FLAG, KINDS, ROADMOD, ONEWAY, footprintSize, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KINDS, ROADMOD, ONEWAY, onewayAt, footprintSize, isZone } from './map.js';
 import { roadTime } from './traffic.js';
 import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
@@ -414,7 +414,7 @@ export class Renderer {
     }
     // lane markings (skip at intersections and corners)
     if (!horiz && !vert) return;
-    const ow = map.roadMod[i] & ROADMOD.DIR;
+    const ow = onewayAt(map, i);
     if (ow) {
       // One-way: arrows along the carriageway instead of a centre line.
       const [ax, ay] = ONEWAY[ow];
@@ -1175,7 +1175,7 @@ export function forEachCar(map, x, y, t, emit) {
   const speed = 34 * (cls === 2 ? 1.6 : 1) / (roadTime(map, i) / free); // px/s, slows when congested
   const seed = map.variant[i];
   for (let l = 0; l < lanes.length; l++) {
-    const ow = map.roadMod[i] & ROADMOD.DIR; // one-way: every lane runs the same way
+    const ow = onewayAt(map, i); // one-way: every lane runs the same way
     const dir = ow ? (ow === 1 || ow === 3 ? 1 : -1) : lanes[l] < 0 ? -1 : 1; // else opposite directions either side of the centre line
     for (let k = 0; k < perLane; k++) {
       let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;

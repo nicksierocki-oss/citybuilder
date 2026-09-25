@@ -2,7 +2,7 @@
 
 import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome, repayLoan, loanPayoff } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, ROADMOD, ONEWAY_NAMES, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, ROADMOD, ONEWAY_NAMES, onewayAt, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
 import { evaluateTile, levelName, districtAt, tourismScore } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
 import { supplyOf, happinessReasons, educationTarget } from './services.js';
@@ -178,7 +178,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', raise: 'Raise', lower: 'Lower', oneway: 'One-way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', raise: 'Raise', lower: 'Lower', oneway: 'One\u2011way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -738,7 +738,9 @@ export class UI {
         }
       }
       if (map.roadClass[i] === 2) notes.push('Limited access: buildings can\'t use a highway as their street');
-      if (map.roadMod[i] & ROADMOD.DIR) rows.push(['One-way', `heading ${ONEWAY_NAMES[map.roadMod[i] & ROADMOD.DIR]}`]);
+      if (onewayAt(map, i)) rows.push(['One-way', `heading ${ONEWAY_NAMES[onewayAt(map, i)]}`]);
+      const trap = map.oneWayTrap[i];
+      if (trap) notes.push(trap === 3 ? 'Cut off by one-way streets: cars can neither reach this road nor leave it' : trap === 1 ? 'One-way trap: cars on this road can\'t drive back out to the rest of the city' : 'One-way streets point away from here: no car can drive in'); 
       const jk = map.junctionKind(i);
       if (jk !== JUNCTION.NONE) {
         const what = jk === JUNCTION.MERGE ? 'Merge' : jk === JUNCTION.INTERSECTION ? 'Intersection' : 'Highway junction';

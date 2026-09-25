@@ -35,7 +35,9 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
 - Phase D item 9 (part): `map.roadMod` layer (one-way direction in the low bits, `ROADMOD.ROUNDABOUT`),
   `canDrive(map, a, b)` used by every road search (reverse searches check `canDrive(map, v, u)`),
   `roadCapacity` (one-way ×1.6), roundabout junction delay, `onewayDirs` for drags, parking lot
-  building (`parking`, shop/office bonus).
+  building (`parking`, shop/office bonus). `onewayAt(map, i)` ignores the direction on junction
+  tiles. Lines are loops (`route.path` out then back, `at`/`back` times, `rideMinutes`); one-way
+  traps in `map.oneWayTrap` (traffic.js), purple on the Traffic overlay, listed by the advisor.
 
 - Phase C, Transit 2.0 (`js/transit.js`, `js/lines-ui.js`): drawn bus and tram lines
   (`state.lines`, frequency and cost, road-path routes, vehicles in 2D/3D, tram track via

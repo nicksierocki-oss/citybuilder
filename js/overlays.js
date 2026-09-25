@@ -137,9 +137,9 @@ export const OVERLAYS = {
   traffic: {
     label: 'Traffic', key: 't', kind: 'roads',
     value: (map, i) => (map.type[i] === TILE.ROAD ? roadLoad(map, i) * 100 : null),
-    color: (v, map, i) => (map.traffic[i] < 0.5 ? [205, 210, 216, 0.6] : v < 50 ? [120, 196, 140, 0.85] : v < 100 ? [246, 206, 110, 0.9] : v < 160 ? [240, 150, 90, 0.92] : [226, 100, 96, 0.92]),
+    color: (v, map, i) => (map.oneWayTrap[i] ? [168, 112, 204, 0.95] : map.traffic[i] < 0.5 ? [205, 210, 216, 0.6] : v < 50 ? [120, 196, 140, 0.85] : v < 100 ? [246, 206, 110, 0.9] : v < 160 ? [240, 150, 90, 0.92] : [226, 100, 96, 0.92]),
     legend: { gradient: 'linear-gradient(90deg, rgb(120,196,140) 0 33%, rgb(246,206,110) 33% 66%, rgb(226,100,96) 66%)', labels: ['free', 'busy', 'jammed'] },
-    hint: 'Share of each road\'s capacity in use. Upgrade busy roads with the Upgrade tool (9).',
+    hint: 'Share of each road\'s capacity in use. Upgrade busy roads with the Upgrade tool (9). Purple: cut off by one-way streets.',
     unit: '%',
   },
   power: {

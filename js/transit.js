@@ -47,7 +47,12 @@ export function lineColor(n) {
 // Monthly cost of running a line (vehicles; trams also pay track upkeep along the route).
 export function lineCost(state, line) {
   const M = CONFIG.transit.modes[line.mode], route = state.transitRoutes?.[line.id];
-  return line.freq * M.vehicleCost + (line.mode === 'tram' ? (route?.path.length ?? 0) * M.trackUpkeep : 0);
+  return line.freq * M.vehicleCost + (line.mode === 'tram' ? (route?.tiles ?? 0) * M.trackUpkeep : 0);
+}
+
+// Minutes riding a line from stop k to stop d: outbound if d comes later, else on the way back.
+export function rideMinutes(route, k, d) {
+  return d > k ? route.at[d] - route.at[k] : route.back[d] - route.back[k];
 }
 export function linesCost(state) {
   return (state.lines ?? []).reduce((a, l) => a + lineCost(state, l), 0);
@@ -96,24 +101,37 @@ function roadPath(map, a, b, time, tram = false) {
   return null;
 }
 
-// Rebuild every line's route: drop stops that no longer exist, find the road path between
-// consecutive stops, and the travel time from the first stop to each stop (`at`).
-// `time` is the per-tile road time (with congestion) from the traffic system.
+// Rebuild every line's route: drop stops that no longer exist, then find the road path out
+// through the stops in order and back through them in reverse (each leg obeys one-way
+// streets, so the way back can differ). `at[k]` is the time from the first stop to stop k
+// outbound, `back[k]` the time from the last stop to stop k on the way back. `path` is the
+// whole loop, out then back. `time` is the per-tile road time from the traffic system.
 export function buildRoutes(state, time) {
   const map = state.map, routes = {};
   for (const line of state.lines ?? []) {
     line.stops = line.stops.filter((i) => i < map.size && isStop(map, i));
-    const M = CONFIG.transit.modes[line.mode];
-    const path = [], at = [0];
-    let t = 0, ok = line.stops.length >= 2;
-    for (let k = 1; k < line.stops.length && ok; k++) {
-      const seg = roadPath(map, line.stops[k - 1], line.stops[k], time, line.mode === 'tram');
-      if (!seg) { ok = false; break; }
-      path.push(...(path.length && path[path.length - 1] === seg.path[0] ? seg.path.slice(1) : seg.path));
+    const M = CONFIG.transit.modes[line.mode], S = line.stops, n = S.length, tram = line.mode === 'tram';
+    const path = [], at = [0], back = new Array(n).fill(0);
+    const join = (seg) => path.push(...(path.length && path[path.length - 1] === seg.path[0] ? seg.path.slice(1) : seg.path));
+    let ok = n >= 2, reason = null, t = 0;
+    for (let k = 1; k < n && ok; k++) {
+      const seg = roadPath(map, S[k - 1], S[k], time, tram);
+      if (!seg) { ok = false; reason = 'stops not connected by road'; break; }
+      join(seg);
       t += seg.time * M.timeFactor + M.dwell;
       at.push(t);
     }
-    routes[line.id] = { ok, path: ok ? path : [], at: ok ? at : [], broken: line.stops.length >= 2 && !ok };
+    t = 0;
+    for (let k = n - 1; k > 0 && ok; k--) {
+      const seg = roadPath(map, S[k], S[k - 1], time, tram);
+      if (!seg) { ok = false; reason = 'no way back (one-way streets)'; break; }
+      join(seg);
+      t += seg.time * M.timeFactor + M.dwell;
+      back[k - 1] = t;
+    }
+    routes[line.id] = ok
+      ? { ok, path, at, back, tiles: new Set(path).size, broken: false }
+      : { ok: false, path: [], at: [], back: [], tiles: 0, broken: n >= 2, reason };
   }
   state.transitRoutes = routes;
   return routes;
@@ -123,7 +141,7 @@ export function buildRoutes(state, time) {
 // track (the caller charges for them).
 export function tramTrackNeeded(state, line) {
   const route = state.transitRoutes?.[line.id], map = state.map;
-  return (route?.path ?? []).filter((i) => !map.hasFlag(i, FLAG.TRAM));
+  return [...new Set(route?.path ?? [])].filter((i) => !map.hasFlag(i, FLAG.TRAM));
 }
 
 // Lay any missing tram track along a tram line's route. Returns false (and lays nothing) if the
@@ -138,26 +156,24 @@ export function layTramTrack(state, line) {
   return true;
 }
 
-// Where each vehicle is right now: [{ x, y, horiz, color, mode }], in tile units. Vehicles shuttle
-// end to end; `t` is the animation clock in seconds.
+// Where each vehicle is right now: [{ x, y, horiz, color, mode }], in tile units. Vehicles go
+// round the loop (out, then back); `t` is the animation clock in seconds.
 export function vehiclePositions(state, t) {
   const out = [], map = state.map;
   (state.lines ?? []).forEach((line, n) => {
     const route = state.transitRoutes?.[line.id];
     if (!route?.ok || route.path.length < 2) return;
-    const P = route.path, L = P.length - 1, cycle = L * 2;
+    const P = route.path, L = P.length - 1;
     const speed = CONFIG.transit.modes[line.mode].animSpeed;
     const count = Math.max(1, line.freq * 2);
     for (let v = 0; v < count; v++) {
-      let s = (t * speed + (v / count) * cycle + n * 1.7) % cycle;
-      const back = s > L;
-      if (back) s = cycle - s;
+      const s = (t * speed + (v / count) * L + n * 1.7) % L;
       const k = Math.min(L - 1, Math.floor(s)), f = s - k;
       const a = P[k], b = P[k + 1];
       const ax = a % map.width, ay = (a / map.width) | 0, bx = b % map.width, by = (b / map.width) | 0;
       const horiz = ay === by;
       // Keep to the right of the road for the direction of travel.
-      const side = (back ? -1 : 1) * (horiz ? Math.sign(bx - ax) : -Math.sign(by - ay)) * 0.14;
+      const side = (horiz ? Math.sign(bx - ax) : -Math.sign(by - ay)) * 0.14;
       out.push({ x: ax + (bx - ax) * f + 0.5 + (horiz ? 0 : side), y: ay + (by - ay) * f + 0.5 + (horiz ? side : 0), horiz, color: line.color, mode: line.mode });
     }
   });
