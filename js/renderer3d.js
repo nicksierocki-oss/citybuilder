@@ -5,7 +5,9 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
 import { Renderer, TS, forEachCar } from './renderer.js';
-import { TILE, FLAG, KINDS } from './map.js';
+import { TILE, FLAG, KINDS, footprintSize } from './map.js';
+import { drawDistricts } from './overlays.js';
+import { seasonPalette, timeOfDay, mix } from './seasons.js';
 
 // Ground texture pixels per tile: full 2D detail on small maps, capped near 2k px for big ones.
 const texPx = (size) => Math.max(16, Math.min(TS, Math.floor(2048 / size)));
@@ -19,6 +21,8 @@ const GEO = {
   pyramid: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4).translate(0, 0.5, 0),
   cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 16).translate(0, 0.5, 0),
   tower: new THREE.CylinderGeometry(0.36, 0.5, 1, 18, 1, true).translate(0, 0.5, 0), // cooling tower
+  bowl: new THREE.CylinderGeometry(0.5, 0.4, 1, 28, 1, true).translate(0, 0.5, 0),   // stadium stands
+  pool: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),                           // lamp light on the ground
   cone: new THREE.ConeGeometry(0.5, 1, 14).translate(0, 0.5, 0),
   blob: new THREE.IcosahedronGeometry(0.5, 2).translate(0, 0.5, 0),
 };
@@ -38,8 +42,30 @@ const COL = {
     recycling: '#c8e2c2', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'], flag: '#e4a0a4',
     bus: '#efcf9f', busSign: '#e3a35a', metro: '#ddd0ec', metroSign: '#a98bd0',
     police: '#dfe6f4', policeTrim: '#a3b5da', fire: '#efc6ba', fireTrim: '#d9998b', door: '#fbf7f0',
+    stands: '#eeeaf2', seats: ['#b9c8e8', '#e9b8b0'], pitch: '#a6d68f', mast: '#c9ced6',
+    uniWall: '#f1e6d2', uniRoof: '#d9a58f', dome: '#b9cde0', bench: '#c9a57a',
   },
+  hightech: { wall: '#e3edf5', roof: '#cfdeea', glass: '#a9cbe6', solar: '#7f98bd', green: '#bfe0b0' },
+  window: '#ffd98a', lamp: '#ffe3a8', pole: '#9aa3ad',
 };
+const DAY_BG = '#e9eff3', DUSK_BG = '#f3d8c2', NIGHT_BG = '#1b2236';
+const hash = (a, b, c) => (((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) >>> 0) % 1000 / 1000;
+const SNOW = new Map();
+
+// Soft round glow texture for lamp pools.
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,220,150,1)');
+  grad.addColorStop(0.4, 'rgba(255,200,120,0.45)');
+  grad.addColorStop(1, 'rgba(255,190,110,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 const colorCache = new Map();
 function color(hex) {
   let c = colorCache.get(hex);
@@ -102,6 +128,7 @@ export class Renderer3D {
     this.canvas = canvas;
     this.overlay = null;
     this.time = 0;
+    this.env = { ...seasonPalette(6.5), ...timeOfDay(0, false) };
     this.viewW = 1; this.viewH = 1;
 
     const gl = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -117,7 +144,8 @@ export class Renderer3D {
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
     this.orbit = { target: new THREE.Vector3(20, 0, 20), yaw: -0.6, pitch: 0.85, dist: 28 };
 
-    scene.add(new THREE.HemisphereLight('#ffffff', '#c9d6bd', 2.1));
+    this.hemi = new THREE.HemisphereLight('#ffffff', '#c9d6bd', 2.1);
+    scene.add(this.hemi);
     const sun = new THREE.DirectionalLight('#fff6ea', 1.7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -179,6 +207,18 @@ export class Renderer3D {
     this.lamps = new Batch(scene, GEO.box, Math.max(64, tiles), { shadows: false, basic: true });
     this.smoke = new Batch(scene, GEO.blob, Math.max(64, tiles / 2), { shadows: false });
     this.smoke.setOpacity(0.55);
+    // Stadium stands and night lighting (built with the buildings, shown by time of day)
+    this.bowls = new Batch(scene, GEO.bowl, Math.max(16, tiles / 9));
+    this.bowls.mesh.material.side = THREE.DoubleSide;
+    this.windows = new Batch(scene, GEO.box, tiles * 10, { shadows: false, basic: true });
+    this.poles = new Batch(scene, GEO.cylinder, tiles, { shadows: false });
+    this.heads = new Batch(scene, GEO.box, tiles, { shadows: false, basic: true });
+    this.pools = new Batch(scene, GEO.pool, tiles, { shadows: false, basic: true });
+    const pm = this.pools.mesh.material;
+    Object.assign(pm, { map: this.glowTex ??= glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.pools.mesh.renderOrder = 2;
+    this.pools.glowing = true; // keeps its additive blend when overlays fade the buildings
+    this.buildingBatches.push(this.bowls, this.windows, this.poles, this.heads, this.pools);
     this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke, this.lamps];
     this.batchTiles = tiles;
   }
@@ -305,16 +345,18 @@ export class Renderer3D {
     s.shadow.camera.updateProjectionMatrix();
   }
 
-  paintGround(map) {
+  paintGround(map, districts) {
     const ctx = this.groundCanvas.getContext('2d');
     const p = this.painter;
     p.ctx = ctx;
     p.overlay = this.overlay;
+    p.env = this.env;
     const scale = this.texPx / TS;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) p.drawGround(map, x, y);
     p.drawGrid(0, 0, map.width - 1, map.height - 1);
-    if (this.overlay) p.drawOverlay(map, 0, 0, map.width - 1, map.height - 1);
+    if (this.overlay !== 'districts') drawDistricts(ctx, map, districts, TS, 0, 0, map.width - 1, map.height - 1);
+    if (this.overlay) p.drawOverlay(map, 0, 0, map.width - 1, map.height - 1, districts);
     this.groundTex.needsUpdate = true;
   }
 
@@ -334,9 +376,16 @@ export class Renderer3D {
         this.tree(x + 24 / 32, y + 23 / 32, 0.38, v >> 2);
         if (v & 4) this.tree(x + 23 / 32, y + 7 / 32, 0.26, v >> 3);
       } else if ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) {
-        this.building(this.placer(map, x, y), t, map.level[i], v, map.hasFlag(i, FLAG.ABANDONED));
+        const ab = map.hasFlag(i, FLAG.ABANDONED), P = this.placer(map, x, y);
+        this.lit = !ab && !map.hasFlag(i, FLAG.FIRE) ? { seed: v + i, share: t === TILE.RES ? 0.5 : t === TILE.COM ? 0.6 : 0.3 } : null;
+        if (t === TILE.IND && !ab && map.hasFlag(i, FLAG.HIGHTECH)) this.hightech(P, map.level[i], v);
+        else this.building(P, t, map.level[i], v, ab);
       } else if (t === TILE.SERVICE) {
-        this.service(this.placer(map, x, y), KINDS[map.kind[i]], v, x, y);
+        const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
+        if (fw > 1 || fh > 1) { if (!map.part[i]) this.landmark(k, x, y, fw, fh, v); }
+        else this.service(this.placer(map, x, y), k, v, x, y);
+      } else if (t === TILE.ROAD && (x + y) % 2 === 0) {
+        this.streetLamp(map, x, y, i);
       }
       if (map.hasFlag(i, FLAG.FIRE)) this.burning.push({ x, y, v });
       if (t === TILE.ROAD && map.hasFlag(i, FLAG.INTERCHANGE)) this.interchange(map, x, y);
@@ -357,7 +406,45 @@ export class Renderer3D {
   tree(x, z, size, v) {
     const h = size * (0.9 + (v & 3) * 0.12);
     this.cylinders.add(x, 0, z, 0.06, h * 0.45, 0.06, COL.trunk);
-    this.blobs.add(x, h * 0.3, z, size, h, size, COL.leaves[v % 3]);
+    this.blobs.add(x, h * 0.3, z, size, h, size, this.env.tree[v % 3]);
+  }
+
+  // Roof colour dusted with snow in winter.
+  snowy(hex) {
+    const snow = Math.round((this.env.snow ?? 0) * 10) / 10;
+    if (!snow) return hex;
+    const key = hex + snow;
+    let c = SNOW.get(key);
+    if (!c) { c = mix(hex, '#ffffff', snow * 0.6); SNOW.set(key, c); }
+    return c;
+  }
+
+  // Windows on the four faces of a building body (u, w, sx, sz from y0 to y0 + h), lit at night.
+  win(P, u, w, sx, sz, h, y0 = 0, step = 0.22) {
+    const L = this.lit;
+    if (!L) return;
+    let f = 0;
+    for (let y = y0 + 0.09; y < y0 + h - 0.1; y += step, f++) {
+      for (const k of [-1, 1]) {
+        const a = hash(L.seed, f, k), b = hash(L.seed + 7, f, k);
+        if (a < L.share) P(this.windows, u + k * sx * 0.24, w + sz / 2 + 0.006, sx * 0.2, 0.012, y, 0.07, COL.window);
+        if (b < L.share) P(this.windows, u + k * sx * 0.24, w - sz / 2 - 0.006, sx * 0.2, 0.012, y, 0.07, COL.window);
+        if (hash(L.seed + 3, f, k) < L.share) P(this.windows, u + sx / 2 + 0.006, w + k * sz * 0.24, 0.012, sz * 0.2, y, 0.07, COL.window);
+        if (hash(L.seed + 5, f, k) < L.share) P(this.windows, u - sx / 2 - 0.006, w + k * sz * 0.24, 0.012, sz * 0.2, y, 0.07, COL.window);
+      }
+    }
+  }
+
+  // Street lamp on the verge of a road tile, with a pool of light on the ground at night.
+  streetLamp(map, x, y, i) {
+    const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
+    const horiz = road(-1, 0) || road(1, 0), vert = road(0, -1) || road(0, 1);
+    if (horiz && vert) return; // no lamps in the middle of junctions
+    const off = map.roadClass[i] > 0 ? 0.5 : 0.4, side = (x & 1) ? -1 : 1;
+    const px = x + 0.5 + (horiz ? 0.18 * side : off * side), pz = y + 0.5 + (horiz ? off * side : 0.18 * side);
+    this.poles.add(px, 0, pz, 0.025, 0.42, 0.025, COL.pole);
+    this.heads.add(px, 0.42, pz, 0.07, 0.035, 0.07, COL.lamp);
+    this.pools.add(px, 0.015, pz, 1.1, 1, 1.1, '#ffffff');
   }
 
   // Returns a helper that places parts in tile-local coordinates, turned so the building's
@@ -373,7 +460,7 @@ export class Renderer3D {
 
   building(P, t, lv, v, ab) {
     const wall = (hex) => (ab ? COL.abandoned : hex);
-    const roof = (hex) => (ab ? COL.abandonedRoof : hex);
+    const roof = (hex) => (ab ? COL.abandonedRoof : this.snowy(hex));
     const alt = (v >> 5) & 1; // two designs per zone and density level
     const bands = (u, w, sx, sz, h, step, hex, from = step) => {
       for (let y0 = from; y0 < h - 0.05; y0 += step) P(this.boxes, u, w, sx + 0.025, sz + 0.025, y0, 0.03, hex);
@@ -383,27 +470,32 @@ export class Renderer3D {
       if (lv === 1 && !alt) {        // two gabled cottages
         for (const [u, w] of [[-0.2, -0.18], [0.2, 0.16]]) {
           P(this.rboxes, u, w, 0.3, 0.3, 0, 0.21, wall(COL.resWall));
+          this.win(P, u, w, 0.3, 0.3, 0.21);
           P(this.roofs, u, w, 0.36, 0.36, 0.21, 0.17, r);
         }
       } else if (lv === 1) {         // bungalow with a garden hedge
         P(this.rboxes, 0, -0.08, 0.56, 0.38, 0, 0.2, wall(COL.resWall2));
+        this.win(P, 0, -0.08, 0.56, 0.38, 0.2);
         P(this.roofs, 0, -0.08, 0.66, 0.46, 0.2, 0.13, roof(COL.resRoof2[v % 3]));
         P(this.boxes, 0, 0.36, 0.7, 0.07, 0, 0.1, roof(COL.hedge));
         P(this.blobs, 0.3, 0.2, 0.2, 0.2, 0.02, 0.24, roof(COL.leaves[v % 3]));
       } else if (lv === 2 && !alt) { // apartment slab
         const h = 0.72 + (v & 3) * 0.06;
         P(this.rboxes, 0, -0.03, 0.76, 0.62, 0, h, wall(COL.resWall));
+        this.win(P, 0, -0.03, 0.76, 0.62, h, 0, 0.24);
         bands(0, -0.03, 0.76, 0.62, h, 0.24, roof(COL.band));
         P(this.rboxes, 0, -0.03, 0.8, 0.66, h, 0.06, r);
       } else if (lv === 2) {         // row of three townhouses
         for (let n = 0; n < 3; n++) {
           const u = -0.27 + n * 0.27, h = 0.5 + ((v >> n) & 1) * 0.12;
           P(this.rboxes, u, -0.02, 0.25, 0.6, 0, h, wall(n === 1 ? COL.resWall2 : COL.resWall));
+          this.win(P, u, -0.02, 0.25, 0.6, h);
           P(this.roofs, u, -0.02, 0.3, 0.66, h, 0.16, roof(COL.resRoof2[(v + n) % 3]));
         }
       } else if (!alt) {             // tower with floor bands and a roof plant
         const h = 1.9 + (v & 3) * 0.2;
         P(this.rboxes, 0, 0, 0.8, 0.8, 0, h, wall(COL.resWall));
+        this.win(P, 0, 0, 0.8, 0.8, h, 0, 0.3);
         bands(0, 0, 0.8, 0.8, h, 0.3, roof(COL.band));
         P(this.rboxes, 0, 0, 0.84, 0.84, h, 0.07, r);
         P(this.rboxes, 0, 0, 0.26, 0.26, h + 0.07, 0.18, roof('#d6b7a8'));
@@ -412,6 +504,7 @@ export class Renderer3D {
         let y0 = 0;
         steps.forEach(([sz, h], n) => {
           P(this.rboxes, 0, -0.04 * n, sz, sz, y0, h, wall(COL.resWall2));
+          this.win(P, 0, -0.04 * n, sz, sz, h, y0, 0.25);
           bands(0, -0.04 * n, sz, sz, h, 0.25, roof(COL.band), 0.25);
           y0 += h;
           P(this.boxes, 0, -0.04 * n, sz - 0.04, sz - 0.04, y0, 0.03, roof(COL.garden));
@@ -422,6 +515,7 @@ export class Renderer3D {
       const r = roof(COL.comRoof[lv]);
       if (lv === 1 && !alt) {        // shop with an awning
         P(this.rboxes, 0, -0.05, 0.7, 0.46, 0, 0.34, wall(COL.comWall));
+        this.win(P, 0, -0.05, 0.7, 0.46, 0.34);
         P(this.boxes, 0, -0.05, 0.72, 0.48, 0.34, 0.04, r);
         P(this.boxes, 0, 0.22, 0.72, 0.12, 0.22, 0.04, roof(COL.awnings[v % 3]));
       } else if (lv === 1) {         // café kiosk with a patio of umbrellas
@@ -434,21 +528,25 @@ export class Renderer3D {
       } else if (lv === 2 && !alt) { // office block
         const h = 1.0 + (v & 3) * 0.08;
         P(this.rboxes, 0, -0.03, 0.82, 0.7, 0, h, wall('#e1ebf5'));
+        this.win(P, 0, -0.03, 0.82, 0.7, h, 0, 0.22);
         bands(0, -0.03, 0.82, 0.7, h, 0.22, roof(COL.glassBand));
         P(this.rboxes, 0, -0.03, 0.85, 0.73, h, 0.05, r);
       } else if (lv === 2) {         // low mall with a glass atrium
         P(this.rboxes, 0, -0.02, 0.88, 0.76, 0, 0.42, wall(COL.comWall));
+        this.win(P, 0, -0.02, 0.88, 0.76, 0.42);
         P(this.rboxes, 0, -0.02, 0.4, 0.4, 0.42, 0.2, roof(COL.glass2));
         P(this.boxes, 0, 0.37, 0.7, 0.04, 0.3, 0.04, roof(COL.awnings[v % 3]));
       } else if (!alt) {             // glass tower with a crown
         const h = 2.6 + (v & 3) * 0.25;
         P(this.rboxes, 0, 0, 0.78, 0.78, 0, h, wall(COL.glass));
+        this.win(P, 0, 0, 0.78, 0.78, h, 0, 0.26);
         bands(0, 0, 0.78, 0.78, h, 0.26, wall(COL.glassBand));
         P(this.rboxes, 0, 0, 0.56, 0.56, h, 0.3, r);
         P(this.cylinders, 0, 0, 0.05, 0.05, h + 0.3, 0.45, roof('#eef2f6'));
       } else {                       // round tower with a spire
         const h = 2.4 + (v & 3) * 0.25;
         P(this.cylinders, 0, 0, 0.78, 0.78, 0, h, wall(COL.glass2));
+        this.win(P, 0, 0, 0.7, 0.7, h, 0, 0.28);
         for (let y0 = 0.28; y0 < h - 0.05; y0 += 0.28) P(this.cylinders, 0, 0, 0.8, 0.8, y0, 0.03, wall(COL.glassBand));
         P(this.cylinders, 0, 0, 0.6, 0.6, h, 0.2, r);
         P(this.cones, 0, 0, 0.2, 0.2, h + 0.2, 0.6, roof('#eef2f6'));
@@ -467,6 +565,7 @@ export class Renderer3D {
         P(this.rboxes, -0.18, 0.2, 0.12, 0.08, 0, 0.1, roof(COL.awnings[v % 3]));
       } else if (lv === 2 && !alt) { // sawtooth factory
         P(this.rboxes, 0, -0.03, 0.84, 0.7, 0, 0.5, wall(COL.indWall));
+        this.win(P, 0, -0.03, 0.84, 0.7, 0.5);
         for (let n = 0; n < 4; n++) P(this.boxes, 0, -0.3 + n * 0.18, 0.84, 0.09, 0.5, 0.1, r);
       } else if (lv === 2) {         // tank farm beside a small office
         P(this.rboxes, -0.25, 0.2, 0.36, 0.4, 0, 0.36, wall(COL.indWall));
@@ -476,6 +575,7 @@ export class Renderer3D {
         }
       } else if (!alt) {             // plant with smokestacks
         P(this.rboxes, -0.1, 0.03, 0.7, 0.76, 0, 0.66, wall(COL.indWall));
+        this.win(P, -0.1, 0.03, 0.7, 0.76, 0.66);
         for (let n = 0; n < 4; n++) P(this.boxes, -0.1, -0.26 + n * 0.19, 0.7, 0.09, 0.66, 0.12, r);
         P(this.cylinders, 0.36, -0.3, 0.15, 0.15, 0, 1.5, roof(COL.stack));
         P(this.cylinders, 0.36, 0, 0.12, 0.12, 0, 1.15, roof(COL.stack));
@@ -488,6 +588,75 @@ export class Renderer3D {
         P(this.boxes, 0.3, 0.2, 0.05, 0.5, 0.3, 0.05, roof(COL.stack));
         P(this.cylinders, 0.32, 0.3, 0.08, 0.08, 0, 1.8, roof(COL.stack));
       }
+    }
+  }
+
+  // High-tech industry: glass labs, solar roofs and green courtyards.
+  hightech(P, lv, v) {
+    const H = COL.hightech, sn = (c) => this.snowy(c);
+    if (lv === 1) {
+      P(this.rboxes, 0, -0.08, 0.7, 0.5, 0, 0.3, H.wall);
+      this.win(P, 0, -0.08, 0.7, 0.5, 0.3);
+      P(this.boxes, 0, -0.08, 0.4, 0.14, 0.3, 0.05, H.glass);
+      P(this.boxes, 0, 0.32, 0.72, 0.16, 0, 0.02, H.green);
+    } else if (lv === 2) {
+      P(this.rboxes, 0, -0.26, 0.84, 0.34, 0, 0.5, H.wall);
+      this.win(P, 0, -0.26, 0.84, 0.34, 0.5);
+      P(this.rboxes, -0.22, 0.18, 0.38, 0.36, 0, 0.44, H.wall);
+      this.win(P, -0.22, 0.18, 0.38, 0.36, 0.44);
+      P(this.boxes, 0.22, 0.18, 0.36, 0.34, 0, 0.02, H.green);
+      for (let k = 0; k < 4; k++) P(this.boxes, -0.3 + k * 0.2, -0.26, 0.15, 0.24, 0.5, 0.02, sn(H.solar));
+    } else {
+      P(this.cylinders, 0, 0, 0.84, 0.84, 0, 0.6, H.wall);
+      this.win(P, 0, 0, 0.74, 0.74, 0.6);
+      P(this.blobs, 0, 0, 0.72, 0.72, 0.38, 0.5, H.glass);
+      P(this.boxes, 0.3, 0.34, 0.2, 0.12, 0, 0.02, sn(H.solar));
+    }
+  }
+
+  // Multi-tile landmarks, laid out in map coordinates from their top-left tile.
+  landmark(k, x, y, w, h, v) {
+    const S = COL.svc, cx = x + w / 2, cz = y + h / 2, sn = (c) => this.snowy(c);
+    if (k === 'stadium') {
+      this.bowls.add(cx, 0, cz, 2.8, 0.6, 2.55, sn(S.stands));
+      this.bowls.add(cx, 0.02, cz, 2.5, 0.52, 2.25, S.seats[v % 2]);
+      this.boxes.add(cx, 0, cz, 1.65, 0.03, 1.07, this.env.snow > 0.5 ? '#e8f0e4' : S.pitch);
+      this.boxes.add(cx, 0.03, cz, 0.025, 0.005, 0.9, '#ffffff');
+      for (const [dx, dz] of [[-1.25, -1.25], [1.25, -1.25], [-1.25, 1.25], [1.25, 1.25]]) {
+        this.cylinders.add(cx + dx, 0, cz + dz, 0.06, 1.35, 0.06, S.mast);
+        this.boxes.add(cx + dx, 1.35, cz + dz, 0.26, 0.1, 0.1, S.mast);
+        this.heads.add(cx + dx * 0.97, 1.33, cz + dz * 0.97, 0.22, 0.05, 0.08, COL.lamp);
+        this.pools.add(cx + dx * 0.4, 0.04, cz + dz * 0.4, 1.8, 1, 1.8, '#ffffff');
+      }
+      this.lit = null;
+    } else if (k === 'university') {
+      this.lit = { seed: v, share: 0.45 };
+      const hall = [cx, y + 0.35, w - 0.35, 0.5], wings = [[x + 0.33, cz + 0.12], [x + w - 0.33, cz + 0.12]];
+      this.rboxes.add(hall[0], 0, hall[1], hall[2], 0.62, hall[3], S.uniWall);
+      this.roofs.add(hall[0], 0.62, hall[1], hall[2] + 0.06, 0.2, hall[3] + 0.06, sn(S.uniRoof));
+      const P0 = (b, u, ww, sx, sz, y0, hh, hex) => b.add(u, y0, ww, sx, hh, sz, hex);
+      this.win(P0, hall[0], hall[1], hall[2], hall[3], 0.62);
+      for (const [wx, wz] of wings) {
+        this.rboxes.add(wx, 0, wz, 0.5, 0.55, h - 0.6, S.uniWall);
+        this.roofs.add(wx, 0.55, wz, 0.56, 0.18, h - 0.54, sn(S.uniRoof));
+        this.win(P0, wx, wz, 0.5, h - 0.6, 0.55);
+      }
+      this.cylinders.add(cx, 0.62, y + 0.35, 0.44, 0.22, 0.44, S.uniWall);
+      this.blobs.add(cx, 0.72, y + 0.35, 0.46, 0.46, 0.46, sn(S.dome));
+      for (const [tx, tz] of [[x + 1.05, y + 1.05], [x + w - 1.05, y + 1.05], [x + 1.1, y + h - 0.35], [x + w - 1.1, y + h - 0.35]]) this.tree(tx, tz, 0.28, v + Math.round(tx * 7));
+      this.lit = null;
+    } else if (k === 'centralpark') {
+      const spots = [[12, 14, 7], [30, 10, 6], [14, 36, 6], [26, 60, 7], [12, 80, 6], [36, 84, 7], [60, 80, 6], [84, 82, 7],
+        [86, 58, 6], [64, 44, 5], [88, 12, 5], [46, 26, 5], [24, 48, 5], [78, 70, 5]];
+      for (const [tx, ty, r] of spots) this.tree(x + tx / 32, y + ty / 32, r * 0.065, v + tx * 3 + ty);
+      this.cylinders.add(x + 46 / 32, 0, y + 62 / 32, 0.3, 0.18, 0.3, '#eee5d8');
+      this.cones.add(x + 46 / 32, 0.18, y + 62 / 32, 0.38, 0.16, 0.38, sn('#d3a390'));
+    } else if (k === 'townpark') {
+      for (const [tx, ty, r] of [[10, 10, 6], [26, 50, 7], [10, 44, 5], [54, 50, 6], [36, 14, 5]]) this.tree(x + tx / 32, y + ty / 32, r * 0.065, v + tx + ty);
+      const sx = x + 1.35, sz = y + 0.5; // swing set over the sandpit
+      for (const d of [-0.2, 0.2]) this.cylinders.add(sx + d, 0, sz, 0.025, 0.28, 0.025, '#b8a894');
+      this.boxes.add(sx, 0.28, sz, 0.44, 0.02, 0.02, '#b8a894');
+      this.boxes.add(x + 0.7, 0.05, y + 0.92, 0.28, 0.03, 0.08, S.bench);
     }
   }
 
@@ -645,6 +814,30 @@ export class Renderer3D {
     b.end();
   }
 
+  // Sun, sky and night lights from the time of day.
+  applyLighting(map) {
+    const env = this.env, n = env.night, d = env.dusk;
+    this.hemi.intensity = 2.1 - n * 1.55;
+    this.hemi.color.set(mix(mix('#ffffff', '#ffd9b8', d * 0.7), '#8494d6', n));
+    this.hemi.groundColor.set(mix('#c9d6bd', '#39415c', n));
+    const s = this.sun, w = map.width, h = map.height, k = Math.max(w, h) / 40;
+    // The sun swings from east to west over the day; at night a dim moon takes its place.
+    const swing = n > 0.5 ? 0 : Math.max(-1, Math.min(1, (env.hour - 12) / 7));
+    const lift = n > 0.5 ? 1 : 0.45 + 0.55 * Math.max(0, env.sun);
+    s.position.set(w / 2 - 22 * k + swing * 30 * k, 38 * k * lift, h / 2 + 16 * k - Math.abs(swing) * 6 * k);
+    s.intensity = n > 0.5 ? 0.35 * n : 1.7 * (1 - n) + d * 0.2;
+    s.color.set(n > 0.5 ? '#9fb2ff' : mix('#fff6ea', '#ffb27a', d * 0.8));
+    this.scene.background = color(mix(mix(DAY_BG, DUSK_BG, d * 0.8), NIGHT_BG, n));
+    const on = n > 0.05;
+    for (const b of [this.windows, this.heads, this.pools]) b.mesh.visible = on && !this.overlay;
+    if (on) {
+      this.windows.mesh.material.color.setScalar(Math.min(1, n * 1.3));
+      this.heads.mesh.material.color.setScalar(Math.min(1, n * 1.3));
+      this.pools.mesh.material.opacity = n * 0.55;
+    }
+    this.poles.mesh.visible = true;
+  }
+
   // ------------------------------------------------------------ frame
   render(state, hover, preview) {
     const map = state.map, c = this.cache, now = performance.now();
@@ -655,8 +848,9 @@ export class Renderer3D {
     const edited = c.version !== map.version;
     const ticked = c.tick !== state.tick;
     const groundEvery = GROUND_THROTTLE_MS * (map.size > 5000 ? 2.5 : 1);
+    this.applyLighting(map);
     if (edited || c.overlay !== this.overlay || (ticked && now - c.groundAt > groundEvery)) {
-      this.paintGround(map);
+      this.paintGround(map, state.districts);
       c.groundAt = now;
       c.overlay = this.overlay;
     }
@@ -667,7 +861,7 @@ export class Renderer3D {
     }
     c.version = map.version;
     const faded = this.overlay ? 0.28 : 1;
-    for (const b of this.buildingBatches) if (b.mesh.material.opacity !== faded) b.setOpacity(faded);
+    for (const b of this.buildingBatches) if (!b.glowing && b.mesh.material.opacity !== faded) b.setOpacity(faded);
 
     // Cars: every frame on normal maps, ~30 fps on big ones; hidden when zoomed far out.
     if (this.orbit.dist >= 60) { this.cars.begin(); this.cars.end(); }

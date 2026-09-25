@@ -1,8 +1,9 @@
 // Rendering: draws the map with soft flat shapes on a 2D canvas. Reads state, never mutates it.
 
-import { TILE, TERRAIN, FLAG, KINDS } from './map.js';
+import { TILE, TERRAIN, FLAG, KINDS, footprintSize } from './map.js';
 import { roadTime } from './traffic.js';
-import { drawOverlay as paintOverlay, roundRect } from './overlays.js';
+import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
+import { seasonPalette, timeOfDay, mix } from './seasons.js';
 
 export const TS = 32; // tile size in world units
 
@@ -33,8 +34,39 @@ export const PAL = {
     plaza: '#f0eadf', fountain: '#b5dcee', recycling: '#c1ddba', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'],
     police: '#cdd7ee', policeRoof: '#a3b5da', fire: '#edc2b6', fireRoof: '#d9998b', door: '#fbf7f0',
     bus: '#efcf9f', busSign: '#e3a35a', metro: '#d9cbe9', metroSign: '#a98bd0',
+    plazaStone: '#ece8e0', pitch: '#a6d68f', pitchLine: 'rgba(255,255,255,0.85)', stands: '#eeeaf2', seats: ['#b9c8e8', '#e9b8b0'],
+    uniWall: '#f1e6d2', uniRoof: '#d9a58f', dome: '#b9cde0', path: '#f5efdc', sand: '#efe2c0',
   },
+  hightech: { roof: [null, '#dbe7f0', '#cfdeea', '#c3d5e6'], glass: '#a9cbe6', solar: '#8ea6c8', green: '#bfe0b0' },
+  window: '#ffd98a',
 };
+
+// Default environment: summer noon (the renderers get the real one every frame).
+const DEFAULT_ENV = { ...seasonPalette(6.5), ...timeOfDay(0, false) };
+
+// Soft round light sprite shared by street lamps, windows and floodlights.
+let glowSprite = null;
+function glow() {
+  if (glowSprite || typeof document === 'undefined') return glowSprite;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,214,140,0.95)');
+  grad.addColorStop(0.35, 'rgba(255,190,110,0.45)');
+  grad.addColorStop(1, 'rgba(255,170,90,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  glowSprite = c;
+  return c;
+}
+
+// Lit window rectangles per zone and density: [x, y, w, h, step] in tile pixels.
+const WINDOWS = {
+  [TILE.RES]: [null, null, [[4, 5, 24, 20, 5]], [[3, 3, 26, 26, 4]]],
+  [TILE.COM]: [null, [[5, 8, 22, 14, 4]], [[3, 4, 26, 22, 4]], [[3, 3, 26, 26, 5]]],
+  [TILE.IND]: [null, [[4, 6, 16, 18, 6]], [[3, 4, 26, 22, 6]], [[2, 5, 22, 24, 6]]],
+};
+const hash = (a, b, c) => (((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) >>> 0) % 1000 / 1000;
 
 export class Renderer {
   constructor(canvas) {
@@ -44,6 +76,8 @@ export class Renderer {
     this.dpr = 1;
     this.overlay = null; // 'landValue' | 'pollution' | 'traffic' | null
     this.time = 0;       // animation clock in seconds (advanced only while the sim runs)
+    this.env = DEFAULT_ENV; // season palette + time of day (set by main.js every frame)
+    this.districts = [];
     this.resize();
   }
 
@@ -129,10 +163,13 @@ export class Renderer {
     // Pass 1: ground (terrain, roads, lots). Pass 2: buildings & trees (they cast shadows onto neighbours).
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawGround(map, x, y);
     if (cam.zoom >= 0.7) this.drawGrid(x0, y0, x1, y1);
+    if (this.overlay !== 'districts') drawDistricts(ctx, map, state.districts, TS, x0, y0, x1, y1);
     if (cam.zoom >= 0.55) this.drawCars(map, x0, y0, x1, y1);
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawObjects(map, x, y);
+    // Objects: start a little up-left of the view so landmarks anchored off-screen still draw.
+    for (let y = Math.max(0, y0 - 2); y <= y1; y++) for (let x = Math.max(0, x0 - 2); x <= x1; x++) this.drawObjects(map, x, y);
+    this.drawNight(map, x0, y0, x1, y1);
 
-    if (this.overlay) this.drawOverlay(map, x0, y0, x1, y1);
+    if (this.overlay) this.drawOverlay(map, x0, y0, x1, y1, state.districts);
 
     if (preview && preview.tiles.size) {
       ctx.fillStyle = preview.ok ? 'rgba(255,255,255,0.5)' : 'rgba(232,110,100,0.45)';
@@ -151,15 +188,87 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawOverlay(map, x0, y0, x1, y1) {
-    paintOverlay(this.ctx, map, this.overlay, TS, x0, y0, x1, y1);
+  drawOverlay(map, x0, y0, x1, y1, districts) {
+    paintOverlay(this.ctx, map, this.overlay, TS, x0, y0, x1, y1, districts);
+  }
+
+  // Roof colour dusted with snow in winter (cached: this runs for every building every frame).
+  snowy(color) {
+    const snow = Math.round((this.env.snow ?? 0) * 10) / 10;
+    if (!snow || color[0] !== '#' || color.length !== 7) return color;
+    const key = color + snow;
+    let c = SNOW_CACHE.get(key);
+    if (!c) { c = mix(color, '#ffffff', snow * 0.55); SNOW_CACHE.set(key, c); }
+    return c;
+  }
+
+  // Dusk and night: tint everything, then add street lamps, lit windows, headlights and glows.
+  drawNight(map, x0, y0, x1, y1) {
+    const env = this.env, ctx = this.ctx;
+    if (env.night < 0.01 && env.dusk < 0.01) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = mix(mix('#ffffff', '#ffcfa6', env.dusk * 0.6), '#46538c', env.night * 0.88);
+    ctx.fillRect(x0 * TS, y0 * TS, (x1 - x0 + 1) * TS, (y1 - y0 + 1) * TS);
+    ctx.restore();
+    if (env.night < 0.05) return;
+    const sprite = glow(), n = env.night, h = env.hour;
+    const late = h >= 23 || h < 5; // fewer windows lit in the small hours
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = map.idx(x, y), t = map.type[i], px = x * TS, py = y * TS;
+      if (t === TILE.ROAD) {
+        // A lamp on every other tile, alternating sides.
+        if ((x + y) % 2) continue;
+        const side = (x & 1) ? -1 : 1, r = map.roadClass[i] ? 18 : 14;
+        ctx.globalAlpha = n * 0.55;
+        ctx.drawImage(sprite, px + TS / 2 + side * 6 - r, py + TS / 2 + side * 6 - r, r * 2, r * 2);
+      } else if ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+        ctx.globalAlpha = n * (t === TILE.COM ? 0.35 : 0.22) * (late ? 0.6 : 1);
+        ctx.drawImage(sprite, px - 4, py - 4, TS + 8, TS + 8);
+      } else if (t === TILE.SERVICE && KINDS[map.kind[i]] === 'stadium' && !map.part[i]) {
+        ctx.globalAlpha = n * 0.8;
+        ctx.drawImage(sprite, px - 24, py - 24, TS * 3 + 48, TS * 3 + 48);
+      }
+      if (map.hasFlag(i, FLAG.FIRE)) { ctx.globalAlpha = n; ctx.drawImage(sprite, px - 16, py - 16, TS + 32, TS + 32); }
+    }
+    // Headlights
+    if (this.cam.zoom >= 0.55) {
+      ctx.globalAlpha = n * 0.9;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        forEachCar(map, x, y, this.time, (along, off, horiz) => {
+          const cx = x * TS + (horiz ? along : off) * TS, cy = y * TS + (horiz ? off : along) * TS;
+          ctx.drawImage(sprite, cx - 4, cy - 4, 8, 8);
+        });
+      }
+    }
+    ctx.restore();
+    // Lit windows (only when close enough to see them)
+    if (this.cam.zoom < 0.7) return;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, n * 1.2);
+    ctx.fillStyle = PAL.window;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = map.idx(x, y), t = map.type[i], lv = map.level[i];
+      const rects = WINDOWS[t]?.[lv];
+      if (!rects || map.hasFlag(i, FLAG.ABANDONED) || map.hasFlag(i, FLAG.FIRE)) continue;
+      const share = t === TILE.RES ? (late ? 0.18 : 0.55) : t === TILE.COM ? (late ? 0.3 : 0.6) : 0.3;
+      const v = map.variant[i], px = x * TS, py = y * TS;
+      for (const [rx, ry, rw, rh, step] of rects) {
+        for (let yy = ry + 3; yy < ry + rh - 3; yy += step) for (let xx = rx + 3; xx < rx + rw - 3; xx += step) {
+          if (hash(v + i, xx, yy) < share) ctx.fillRect(px + xx, py + yy, 2, 2);
+        }
+      }
+    }
+    ctx.restore();
   }
 
   drawGround(map, x, y) {
     const ctx = this.ctx, i = map.idx(x, y), px = x * TS, py = y * TS;
     const t = map.type[i], v = map.variant[i];
     if (map.terrain[i] === TERRAIN.WATER) {
-      ctx.fillStyle = PAL.water;
+      ctx.fillStyle = this.env.water;
       ctx.fillRect(px, py, TS + 0.5, TS + 0.5);
       ctx.strokeStyle = PAL.waterLight;
       ctx.lineWidth = 1.6;
@@ -170,12 +279,27 @@ export class Renderer {
       ctx.moveTo(px + 14 - o / 2, py + 22 - (v % 4)); ctx.quadraticCurveTo(px + 18 - o / 2, py + 19 - (v % 4), px + 22 - o / 2, py + 22 - (v % 4));
       ctx.stroke();
     } else {
-      ctx.fillStyle = PAL.grass[v & 3];
+      ctx.fillStyle = this.env.grass[v & 3];
       ctx.fillRect(px, py, TS + 0.5, TS + 0.5); // overlap hides anti-aliasing seams
+      if (this.env.blossom > 0.3 && t === TILE.EMPTY && (v & 7) === 3) {
+        // Spring flowers in open meadows
+        ctx.fillStyle = ['#f3c6d6', '#f7e3a1', '#ffffff'][v % 3];
+        for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(px + 6 + ((v >> k) & 15) * 1.3, py + 7 + ((v >> (k + 2)) & 15) * 1.2, 1.3, 0, Math.PI * 2); ctx.fill(); }
+      }
     }
     if (t === TILE.ROAD) this.drawRoad(map, x, y, map.terrain[i] === TERRAIN.WATER);
     else if (t === TILE.PARK) this.drawPark(px, py, v);
-    else if (t === TILE.SERVICE) this.drawServicePad(map, i, px, py);
+    else if (t === TILE.SERVICE) {
+      const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
+      if (fw > 1 || fh > 1) {
+        // Each tile paints its own slice of the landmark's ground (works for any draw order).
+        const a = map.anchorOf(i);
+        ctx.save();
+        ctx.beginPath(); ctx.rect(px, py, TS, TS); ctx.clip();
+        this.drawLandmarkGround(k, (a % map.width) * TS, ((a / map.width) | 0) * TS, fw * TS, fh * TS, map.variant[a]);
+        ctx.restore();
+      } else this.drawServicePad(map, i, px, py);
+    }
     else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
       const ab = map.hasFlag(i, FLAG.ABANDONED);
       ctx.fillStyle = ab ? '#e2dfda' : PAL.lot[t];
@@ -348,7 +472,7 @@ export class Renderer {
 
   drawPark(px, py, v) {
     const ctx = this.ctx;
-    ctx.fillStyle = PAL.park;
+    ctx.fillStyle = this.env.park;
     roundRect(ctx, px + 1.5, py + 1.5, TS - 3, TS - 3, 7);
     ctx.fill();
     ctx.strokeStyle = PAL.parkPath;
@@ -393,10 +517,10 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.fillStyle = PAL.treeShadow;
     ctx.beginPath(); ctx.arc(cx + 1.5, cy + 2, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = PAL.tree[v % 3];
+    ctx.fillStyle = this.env.tree[v % 3];
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.beginPath(); ctx.arc(cx - r * 0.3, cy - r * 0.35, r * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = this.env.snow > 0.4 ? `rgba(255,255,255,${0.18 + this.env.snow * 0.5})` : 'rgba(255,255,255,0.18)';
+    ctx.beginPath(); ctx.arc(cx - r * 0.3, cy - r * 0.35, r * 0.45 + this.env.snow * r * 0.15, 0, Math.PI * 2); ctx.fill();
   }
 
   drawObjects(map, x, y) {
@@ -408,13 +532,17 @@ export class Renderer {
       this.treeBlob(px + 14 + ((v >> 4) & 3), py + 23, 6, v >> 2);
       return;
     }
-    if (t === TILE.SERVICE) this.drawService(map, i, px, py, v);
-    else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
+    if (t === TILE.SERVICE) {
+      const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
+      if (fw > 1 || fh > 1) { if (!map.part[i]) this.drawLandmark(k, px, py, fw * TS, fh * TS, v); }
+      else this.drawService(map, i, px, py, v);
+    } else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
       const lv = map.level[i];
       if (lv === 0) return;
       const ab = map.hasFlag(i, FLAG.ABANDONED);
       if (t === TILE.RES) this.drawResidential(px, py, lv, v, ab);
       else if (t === TILE.COM) this.drawCommercial(px, py, lv, v, ab);
+      else if (!ab && map.hasFlag(i, FLAG.HIGHTECH)) this.drawHighTech(px, py, lv, v);
       else this.drawIndustrial(px, py, lv, v, ab);
     }
     if (map.hasFlag(i, FLAG.FIRE)) this.drawFire(px, py, v);
@@ -445,7 +573,7 @@ export class Renderer {
     ctx.fillStyle = PAL.shadow;
     roundRect(ctx, x + height * 0.8, y + height, w, h, r);
     ctx.fill();
-    ctx.fillStyle = ab ? PAL.abandoned : color;
+    ctx.fillStyle = ab ? PAL.abandoned : this.snowy(color);
     roundRect(ctx, x, y, w, h, r);
     ctx.fill();
   }
@@ -546,12 +674,132 @@ export class Renderer {
     }
   }
 
+  // High-tech industry: glass-roofed labs with solar panels and green courtyards.
+  drawHighTech(px, py, lv, v) {
+    const ctx = this.ctx, H = PAL.hightech;
+    if (lv === 1) {
+      this.box(px + 5, py + 6, 22, 16, 3, H.roof[1], false, 4);
+      ctx.fillStyle = H.glass;
+      roundRect(ctx, px + 9, py + 10, 14, 4, 2); ctx.fill();
+      ctx.fillStyle = H.green;
+      roundRect(ctx, px + 5, py + 24, 22, 4, 2); ctx.fill();
+    } else if (lv === 2) {
+      this.box(px + 3, py + 4, 26, 11, 4, H.roof[2], false, 4);
+      this.box(px + 3, py + 17, 12, 11, 4, H.roof[2], false, 4);
+      ctx.fillStyle = H.green;
+      roundRect(ctx, px + 17, py + 17, 12, 11, 3); ctx.fill();
+      ctx.fillStyle = H.solar;
+      for (let k = 0; k < 4; k++) ctx.fillRect(px + 6 + k * 6, py + 7, 4, 5);
+    } else {
+      this.box(px + 3, py + 3, 26, 26, 6, H.roof[3], false, 6);
+      ctx.fillStyle = H.glass;
+      roundRect(ctx, px + 7, py + 7, 18, 18, 9); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 16, py + 7); ctx.lineTo(px + 16, py + 25); ctx.moveTo(px + 7, py + 16); ctx.lineTo(px + 25, py + 16);
+      ctx.stroke();
+      ctx.fillStyle = H.solar;
+      for (let k = 0; k < 3; k++) ctx.fillRect(px + 5 + k * 8, py + 27, 6, 1.5);
+    }
+  }
+
+  // Ground layer of a landmark covering (ax, ay, w, h) in world pixels.
+  drawLandmarkGround(k, ax, ay, w, h, v) {
+    const ctx = this.ctx, S = PAL.svc;
+    const lawn = (col) => { ctx.fillStyle = col; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, 10); ctx.fill(); };
+    const path = (pts, width = 4) => {
+      ctx.strokeStyle = S.path; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(ax + pts[0], ay + pts[1]);
+      for (let n = 2; n < pts.length; n += 4) ctx.quadraticCurveTo(ax + pts[n], ay + pts[n + 1], ax + pts[n + 2], ay + pts[n + 3]);
+      ctx.stroke();
+    };
+    if (k === 'stadium') {
+      ctx.fillStyle = S.plazaStone; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, 12); ctx.fill();
+    } else if (k === 'university') {
+      lawn(PAL.svc.yard);
+      path([w / 2, h - 2, w / 2, h - 14, w / 2, h - 26]);
+      path([22, h / 2 + 8, w / 2, h / 2 + 2, w - 22, h / 2 + 8], 3);
+    } else if (k === 'centralpark') {
+      lawn(this.env.park);
+      path([2, h * 0.7, w * 0.3, h * 0.45, w * 0.5, h * 0.55, w * 0.72, h * 0.66, w - 2, h * 0.35], 4.5);
+      path([w * 0.4, 2, w * 0.45, h * 0.3, w * 0.5, h * 0.55, w * 0.55, h * 0.8, w * 0.5, h - 2], 3.5);
+      // Pond
+      ctx.fillStyle = '#e6efe0';
+      ctx.beginPath(); ctx.ellipse(ax + w * 0.7, ay + h * 0.3, 20, 13, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = this.env.snow > 0.5 ? '#dbeaf2' : this.env.water;
+      ctx.beginPath(); ctx.ellipse(ax + w * 0.7, ay + h * 0.3, 17, 10.5, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = PAL.waterLight; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(ax + w * 0.64, ay + h * 0.29); ctx.quadraticCurveTo(ax + w * 0.68, ay + h * 0.26, ax + w * 0.72, ay + h * 0.29); ctx.stroke();
+    } else if (k === 'townpark') {
+      lawn(this.env.park);
+      path([2, h * 0.3, w * 0.45, h * 0.35, w * 0.55, h * 0.65, w * 0.7, h - 2, w * 0.72, h - 2], 4);
+      ctx.fillStyle = S.sand; roundRect(ctx, ax + w * 0.58, ay + 8, 18, 14, 4); ctx.fill();
+    }
+  }
+
+  // Raised parts of a landmark (buildings, stands, trees), drawn at its anchor.
+  drawLandmark(k, ax, ay, w, h, v) {
+    const ctx = this.ctx, S = PAL.svc;
+    if (k === 'stadium') {
+      const cx = ax + w / 2, cy = ay + h / 2;
+      ctx.fillStyle = PAL.shadow;
+      ctx.beginPath(); ctx.ellipse(cx + 6, cy + 7, 44, 40, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = this.snowy(S.stands);
+      ctx.beginPath(); ctx.ellipse(cx, cy, 44, 40, 0, 0, Math.PI * 2); ctx.fill();
+      // Seat tiers in club colours
+      ctx.fillStyle = S.seats[v % 2];
+      ctx.beginPath(); ctx.ellipse(cx, cy, 38, 34, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d7ddef';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 33, 29, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = this.env.snow > 0.5 ? '#e8f0e4' : S.pitch;
+      roundRect(ctx, cx - 26, cy - 17, 52, 34, 4); ctx.fill();
+      ctx.strokeStyle = S.pitchLine; ctx.lineWidth = 1.1;
+      roundRect(ctx, cx - 23, cy - 14, 46, 28, 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy + 14); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.stroke();
+      // Roof over the long stands
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 41, 37, 0, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx, cy, 41, 37, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      for (const [fx, fy] of [[8, 8], [w - 8, 8], [8, h - 8], [w - 8, h - 8]]) this.round(ax + fx, ay + fy, 2.6, '#c9ced6', 10);
+    } else if (k === 'university') {
+      this.box(ax + 6, ay + 4, w - 12, 18, 5, S.uniWall, false, 4);          // main hall
+      this.box(ax + 4, ay + 4, 18, h - 10, 5, S.uniWall, false, 4);           // west wing
+      this.box(ax + w - 22, ay + 4, 18, h - 10, 5, S.uniWall, false, 4);      // east wing
+      ctx.fillStyle = this.snowy(S.uniRoof);
+      roundRect(ctx, ax + 8, ay + 8, w - 16, 5, 2); ctx.fill();
+      roundRect(ctx, ax + 8, ay + 8, 5, h - 18, 2); ctx.fill();
+      roundRect(ctx, ax + w - 13, ay + 8, 5, h - 18, 2); ctx.fill();
+      this.round(ax + w / 2, ay + 13, 8, S.dome, 7);                          // dome
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(ax + w / 2 - 2.5, ay + 10.5, 3, 0, Math.PI * 2); ctx.fill();
+      for (const [tx, ty] of [[32, 34], [w - 32, 34], [34, h - 10], [w - 34, h - 10]]) this.treeBlob(ax + tx, ay + ty, 5, v + tx);
+    } else if (k === 'centralpark') {
+      const spots = [[12, 14, 7], [30, 10, 6], [14, 36, 6], [26, 60, 7], [12, 80, 6], [36, 84, 7], [60, 80, 6], [84, 82, 7],
+        [86, 58, 6], [64, 44, 5], [88, 12, 5], [46, 26, 5], [24, 48, 5], [78, 70, 5]];
+      for (const [tx, ty, r] of spots) this.treeBlob(ax + tx, ay + ty, r, v + tx * 3 + ty);
+      this.round(ax + 46, ay + 62, 5, this.snowy('#e4d6c4'), 3);             // bandstand
+      ctx.fillStyle = this.snowy('#d3a390');
+      ctx.beginPath(); ctx.arc(ax + 46, ay + 62, 3, 0, Math.PI * 2); ctx.fill();
+    } else if (k === 'townpark') {
+      for (const [tx, ty, r] of [[10, 10, 6], [26, 50, 7], [10, 44, 5], [54, 50, 6], [36, 14, 5]]) this.treeBlob(ax + tx, ay + ty, r, v + tx + ty);
+      ctx.strokeStyle = '#b8a894'; ctx.lineWidth = 1.5;                        // swing set
+      ctx.beginPath(); ctx.moveTo(ax + w * 0.58 + 3, ay + 12); ctx.lineTo(ax + w * 0.58 + 15, ay + 12); ctx.stroke();
+      ctx.fillStyle = '#e9b8b0';
+      roundRect(ctx, ax + w * 0.58 + 5, ay + 15, 3, 2, 1); ctx.fill();
+      roundRect(ctx, ax + w * 0.58 + 11, ay + 15, 3, 2, 1); ctx.fill();
+      ctx.fillStyle = '#c9a57a';
+      roundRect(ctx, ax + 18, ay + 28, 9, 3, 1.2); ctx.fill();                // bench
+    }
+  }
+
   // Round object seen from above with a shadow (towers, tanks, stacks).
   round(cx, cy, r, color, height = 3) {
     const ctx = this.ctx;
     ctx.fillStyle = PAL.shadow;
     ctx.beginPath(); ctx.arc(cx + height * 0.8, cy + height, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = color;
+    ctx.fillStyle = this.snowy(color);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
   }
 
@@ -660,6 +908,8 @@ export class Renderer {
     }
   }
 }
+
+const SNOW_CACHE = new Map();
 
 // Car placement shared by the 2D and 3D views. Calls emit(along, offset, horizontal, colour)
 // with along/offset in tile units (0..1) for every car on tile (x, y) at time t.

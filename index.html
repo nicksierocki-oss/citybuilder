@@ -13,12 +13,12 @@
 </head>
 <body data-tool="road" data-view="2d">
   <header id="topbar">
-    <div class="brand" title="Gridline"><span class="logo"></span><span class="bt">Gridline</span></div>
+    <button class="brand" title="Gridline · click to rename your city"><span class="logo"></span><span id="cityName"></span></button>
     <div class="stat"><label>Funds</label><span id="funds">$0</span></div>
     <button class="stat clickable" id="budgetStat" title="Show budget breakdown">
       <label>Last month ▾</label><span id="net">—</span><small id="netDetail"></small>
     </button>
-    <div class="stat"><label>Population</label><span id="pop">0</span><small id="jobs"></small></div>
+    <button class="stat clickable" id="popStat" title="City history graphs (G)"><label>Population ▾</label><span id="pop">0</span><small id="jobs"></small></button>
     <div class="stat"><label>Happiness</label><span id="happy">—</span><small id="happyDetail"></small></div>
     <div class="stat"><label>Safety</label><span id="safety">—</span><small id="safetyDetail"></small></div>
     <div class="stat"><label>Commute</label><span id="commute">—</span><small id="commuteDetail"></small></div>
@@ -27,7 +27,7 @@
       <div class="gauge" id="gPower"><span class="gl">Power</span><span class="gt"><i></i></span><small></small></div>
       <div class="gauge" id="gWater"><span class="gl">Water</span><span class="gt"><i></i></span><small></small></div>
     </div>
-    <div class="stat"><label>Date</label><span id="date">Jan 2000</span></div>
+    <div class="stat"><label>Date</label><span id="date">Jan 2000</span><small id="clock"></small></div>
     <div class="group seg" role="group" aria-label="Speed">
       <button data-speed="0" title="Pause (Space)">❚❚</button>
       <button data-speed="1" title="Normal speed">1×</button>
@@ -42,6 +42,7 @@
     </div>
     <div class="spacer"></div>
     <div class="group">
+      <button id="btnUndo" title="Undo the last build (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
       <button id="btnView" class="view" title="Switch to the 3D view (V)">3D</button>
       <button id="btnReset" title="Start over on a fresh map of the same size">Reset</button>
       <div class="menu">
@@ -51,6 +52,8 @@
           <button id="btnExpand">Expand map…</button>
           <button id="btnSave">Save to file</button>
           <button id="btnLoad">Load from file…</button>
+          <button id="btnDayNight">Day &amp; night</button>
+          <button id="btnMinimap">Mini-map</button>
         </div>
       </div>
       <button id="helpBtn" title="How to play">?</button>
@@ -61,6 +64,18 @@
   <main>
     <aside id="sidebar">
       <div id="tools"></div>
+      <div class="section" id="brushSection">
+        <h4>Brush <kbd>B</kbd></h4>
+        <div class="brushes" role="group" aria-label="Brush shape">
+          <button data-brush="rect" title="Drag a rectangle">▭ Area</button>
+          <button data-brush="line" title="Drag a one-tile line (L-shaped)">╱ Line</button>
+          <button data-brush="circle" title="Drag out a circle from where you start">◯ Circle</button>
+        </div>
+      </div>
+      <div class="section" id="districtSection">
+        <h4><span>Districts</span><button id="btnNewDistrict" title="Create a district, then drag on the map to paint it">+ New</button></h4>
+        <div id="districtList"></div>
+      </div>
       <div class="section">
         <h4>Overlays</h4>
         <div id="overlayChips"></div>
@@ -71,13 +86,16 @@
       <canvas id="game"></canvas>
       <canvas id="game3d" hidden></canvas>
       <div id="viewHint">Right-drag to orbit · Shift+drag, middle-drag or WASD to pan · Q/E rotate · wheel zoom</div>
+      <div id="labels"></div>
       <div id="costTip" hidden></div>
+      <div id="minimapBox" class="panel"><canvas id="minimap" title="Click or drag to move the camera"></canvas></div>
       <div id="leftStack">
         <div id="legend" class="panel" hidden></div>
         <div id="demand" class="panel"></div>
       </div>
       <div id="info" class="panel" hidden></div>
       <div id="budget" class="panel"></div>
+      <div id="graphs" class="panel"></div>
       <div id="toasts"></div>
       <div id="help" class="panel">
         <button id="helpClose" aria-label="Close">×</button>
@@ -91,6 +109,9 @@
           <li><b>Stay safe</b>: police stations cut crime (dense, run-down and jobless areas attract it). Fire stations prevent fires and put them out; without one nearby a fire can spread and burn buildings down. Click a fire alert to jump to it.</li>
           <li><b>Keep traffic moving</b>: drag the <b>Upgrade</b> tool (<kbd>9</kbd>) along busy roads: Street → Avenue → Highway (no driveways). Intersections slow cars down: add <b>Lights</b> at busy ones, and <b>Ramps</b> (an interchange) where a highway crosses another road.</li>
           <li><b>Public transit</b>: people within walking distance of a <b>bus stop</b> (3 tiles) or <b>metro station</b> (4) ride to jobs near another stop of the same kind, leaving the roads. Place stops in pairs: one among homes, one among jobs.</li>
+          <li><b>Educate</b>: schools (and later a university) raise the share of skilled residents over a few years. Offices, big shops and high-tech industry need skilled workers; skilled residents also pay more tax. Press <kbd>N</kbd> for the education overlay.</li>
+          <li><b>Landmarks</b> unlock as the city grows: a town park, a central park (1,000 residents), a university (1,500) and a stadium (2,500). They cover several tiles and lift a whole area; the stadium sells tickets.</li>
+          <li><b>Districts</b>: name neighbourhoods in the Districts panel, paint them, and give them rules: a height limit, no heavy industry, or a tax break.</li>
           <li><b>Mind the budget</b>: roads and public buildings cost upkeep. Twelve months in debt and you're fired.</li>
         </ol>
         <h4>Staying solvent</h4>
@@ -104,7 +125,8 @@
         </ul>
         <p><kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> tools · <kbd>WASD</kbd>/arrows, <kbd>Shift</kbd>+drag or scroll pan · wheel zoom ·
           right-drag pan (orbit in 3D) · <kbd>V</kbd> 2D/3D · <kbd>Q</kbd>/<kbd>E</kbd> rotate (3D) · <kbd>Space</kbd> pause ·
-          <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd> <kbd>P</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>M</kbd> <kbd>C</kbd> <kbd>F</kbd> overlays, <kbd>O</kbd> cycles all</p>
+          <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd> <kbd>P</kbd> <kbd>H</kbd> <kbd>N</kbd> <kbd>T</kbd> <kbd>M</kbd> <kbd>C</kbd> <kbd>F</kbd> overlays, <kbd>O</kbd> cycles all ·
+          <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>B</kbd> brush shape · <kbd>G</kbd> graphs</p>
       </div>
     </div>
   </main>

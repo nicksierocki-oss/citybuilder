@@ -1,7 +1,7 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZone, footprintSize } from './map.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -29,14 +29,26 @@ export const TOOLS = {
   fire:        { label: 'Fire station', shape: 'single', building: 'fire' },
   bus:         { label: 'Bus stop',    shape: 'single', building: 'bus' },
   metro:       { label: 'Metro station', shape: 'single', building: 'metro' },
+  // Landmarks: multi-tile, placed centred on the cursor
+  townpark:    { label: 'Town park',    shape: 'footprint', building: 'townpark', footprint: true },
+  centralpark: { label: 'Central park', shape: 'footprint', building: 'centralpark', footprint: true },
+  university:  { label: 'University',   shape: 'footprint', building: 'university', footprint: true },
+  stadium:     { label: 'Stadium',      shape: 'footprint', building: 'stadium', footprint: true },
+  // Paints the selected district (arg = district id, 0 erases)
+  district:    { label: 'Paint district', shape: 'rect' },
 };
+
+// Is a building available yet? Landmarks unlock at a population and stay unlocked.
+export function isUnlocked(state, kind) {
+  const B = CONFIG.buildings[kind];
+  return !B?.unlock || state.milestones.includes(`unlock:${kind}`) || state.stats.population >= B.unlock;
+}
 
 export function toolPrice(tool) {
   const def = TOOLS[tool];
   if (def.building) return CONFIG.buildings[def.building].cost;
   if (tool === 'trees') return CONFIG.costs.plantTrees;
-  if (tool === 'lights' || tool === 'interchange') return CONFIG.costs[tool];
-  return CONFIG.costs[tool];
+  return CONFIG.costs[tool] ?? 0;
 }
 
 function push(state, text, kind = 'info') { state.events.push({ text, kind }); }
@@ -55,17 +67,22 @@ function targetRoadClass(map, tool, i) {
   return want > map.roadClass[i] ? want : null; // painting a bigger road over a smaller one upgrades it
 }
 
-// Cost of applying `tool` at tile i, or null if not allowed.
-export function toolCost(state, tool, i) {
+// Cost of applying `tool` at tile i, or null if not allowed. For landmarks this is the per-tile
+// part only (clearing trees); footprintCost adds the building's price once.
+export function toolCost(state, tool, i, arg = 0) {
   const map = state.map, C = CONFIG.costs;
   const t = map.type[i], water = map.terrain[i] === TERRAIN.WATER;
   const trees = map.hasFlag(i, FLAG.TREES) ? C.clearTrees : 0;
-  if (TOOLS[tool]?.building) {
+  const def = TOOLS[tool];
+  if (def?.building) {
     if (water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
     if (isZone(t) && map.level[i] > 0) return null;
-    return CONFIG.buildings[TOOLS[tool].building].cost + trees;
+    return def.footprint ? trees : CONFIG.buildings[def.building].cost + trees;
   }
   switch (tool) {
+    case 'district':
+      if (water && t !== TILE.ROAD) return null;
+      return map.district[i] === arg ? null : 0;
     case 'lights': {
       const j = map.junctionKind(i);
       if ((j !== JUNCTION.INTERSECTION && j !== JUNCTION.HIGHWAY) || map.hasFlag(i, FLAG.LIGHTS) || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
@@ -95,8 +112,9 @@ export function toolCost(state, tool, i) {
       if (t === TILE.EMPTY) return map.hasFlag(i, FLAG.TREES) ? C.clearTrees : null;
       if (isZone(t)) return C.bulldoze + C.bulldozePerLevel * map.level[i];
       if (t === TILE.SERVICE) {
-        // Selling a public building back refunds part of its price (a negative cost).
+        // Selling a public building back refunds part of its price (a negative cost), once per landmark.
         const k = KINDS[map.kind[i]];
+        if (map.part[i]) return C.bulldoze;
         return C.bulldoze - Math.round(CONFIG.buildings[k].cost * CONFIG.economy.refundShare);
       }
       return C.bulldoze;
@@ -105,10 +123,33 @@ export function toolCost(state, tool, i) {
   }
 }
 
-function applyOne(state, tool, i) {
+// Total cost of placing a landmark on `tiles` (its footprint, row by row), or null if it can't go there.
+export function footprintCost(state, tool, tiles) {
+  const kind = TOOLS[tool].building, [w, h] = footprintSize(kind);
+  if (tiles.length !== w * h || !isUnlocked(state, kind)) return null;
+  let total = CONFIG.buildings[kind].cost;
+  for (const i of tiles) {
+    const c = toolCost(state, tool, i);
+    if (c == null) return null;
+    total += c;
+  }
+  return total;
+}
+
+// The tiles a tool really acts on: bulldozing any part of a landmark removes all of it.
+export function expandSelection(map, tool, tiles) {
+  if (tool !== 'bulldoze') return tiles;
+  const out = new Set();
+  for (const i of tiles) for (const j of map.footprintTiles(i)) out.add(j);
+  return [...out];
+}
+
+function applyOne(state, tool, i, arg = 0, part = 0) {
   const map = state.map;
   const wasRoad = map.type[i] === TILE.ROAD;
-  if (tool === 'trees') {
+  if (tool === 'district') {
+    map.district[i] = arg;
+  } else if (tool === 'trees') {
     map.setFlag(i, FLAG.TREES, true);
   } else if (tool === 'lights') {
     map.setFlag(i, FLAG.LIGHTS, true);
@@ -118,6 +159,7 @@ function applyOne(state, tool, i) {
   } else if (TOOLS[tool]?.building) {
     map.type[i] = TILE.SERVICE;
     map.kind[i] = KIND_ID[TOOLS[tool].building];
+    map.part[i] = part;
     map.level[i] = 0;
     map.roadClass[i] = 0;
     map.setFlag(i, FLAG.TREES, false);
@@ -127,6 +169,7 @@ function applyOne(state, tool, i) {
     map.type[i] = TILE.EMPTY;
     map.level[i] = 0;
     map.kind[i] = 0;
+    map.part[i] = 0;
     map.roadClass[i] = 0;
     map.flags[i] = 0; // clears fire, abandonment, lights and interchanges (trees handled above)
     map.burn[i] = 0;
@@ -150,41 +193,97 @@ function applyOne(state, tool, i) {
   map.version++;
 }
 
-// Apply a tool to a list of tile indices, stopping when money runs out.
-// Returns { applied, spent }.
-export function applyTool(state, tool, tiles) {
-  if (state.bankrupt) return { applied: 0, spent: 0 };
+// Snapshot of a tile's saved layers, so an action can be undone.
+function snapshot(map, i) {
+  return [i, PERSISTENT_LAYERS.map((k) => map[k][i])];
+}
+
+// Apply a tool to a list of tile indices, stopping when money runs out. `arg` is the district id
+// for the district brush. Returns { applied, spent, undo } where undo restores the tiles and money.
+export function applyTool(state, tool, tiles, arg = 0) {
+  const map = state.map, none = { applied: 0, spent: 0, undo: null };
+  if (state.bankrupt) return none;
+  tiles = expandSelection(map, tool, tiles);
+  const undo = { map, tool, tiles: [], spent: 0 };
+  if (TOOLS[tool]?.footprint) {
+    const cost = footprintCost(state, tool, tiles);
+    if (cost == null) { push(state, `No room for a ${CONFIG.buildings[TOOLS[tool].building].label.toLowerCase()} here`, 'bad'); return none; }
+    if (cost > state.funds) { push(state, 'Not enough funds', 'bad'); return none; }
+    const w = footprintSize(TOOLS[tool].building)[0];
+    tiles.forEach((i, k) => {
+      undo.tiles.push(snapshot(map, i));
+      applyOne(state, tool, i, arg, k === 0 ? 0 : 1 + (k % w) + 8 * Math.floor(k / w));
+    });
+    state.funds -= cost;
+    undo.spent = cost;
+    return { applied: tiles.length, spent: cost, undo };
+  }
   let applied = 0, spent = 0, broke = false;
   for (const i of tiles) {
-    const cost = toolCost(state, tool, i);
+    const cost = toolCost(state, tool, i, arg);
     if (cost == null) continue;
     // Demolition is always allowed (even in debt) so players can cut upkeep to recover.
     if (tool !== 'bulldoze' && cost > state.funds) { broke = true; break; }
     state.funds -= cost;
     spent += cost;
-    applyOne(state, tool, i);
+    undo.tiles.push(snapshot(map, i));
+    applyOne(state, tool, i, arg);
     applied++;
   }
   if (broke) push(state, 'Not enough funds', 'bad');
-  return { applied, spent };
+  undo.spent = spent;
+  return { applied, spent, undo: applied ? undo : null };
 }
 
-export function previewCost(state, tool, tiles) {
+// Put the tiles from an applyTool call back and return the money. Tiles that changed since
+// (a lot that grew, say) go back to how they were before the action.
+export function undoAction(state, undo) {
+  if (!undo || undo.map !== state.map) return false;
+  const map = state.map;
+  for (const [i, values] of undo.tiles) {
+    PERSISTENT_LAYERS.forEach((k, n) => { map[k][i] = values[n]; });
+    map.burn[i] = 0;
+    if (map.type[i] !== TILE.ROAD) map.traffic[i] = 0;
+  }
+  state.funds += undo.spent;
+  map.roadsDirty = true;
+  map.version++;
+  return true;
+}
+
+export function previewCost(state, tool, tiles, arg = 0) {
+  tiles = expandSelection(state.map, tool, tiles);
+  if (TOOLS[tool]?.footprint) {
+    const c = footprintCost(state, tool, tiles);
+    return c == null ? { total: 0, count: 0, blocked: true } : { total: c, count: 1 };
+  }
   let total = 0, count = 0;
   for (const i of tiles) {
-    const c = toolCost(state, tool, i);
+    const c = toolCost(state, tool, i, arg);
     if (c != null) { total += c; count++; }
   }
   return { total, count };
 }
 
+// Ticket income from landmarks that draw visitors, growing with the city.
+export function visitorIncome(state) {
+  let total = 0;
+  for (const [k, n] of Object.entries(state.stats.services || {})) {
+    const B = CONFIG.buildings[k];
+    if (B?.income) total += n * B.income * Math.min(1, state.stats.population / B.visitorsAt);
+  }
+  return total;
+}
+
 // What this month's budget looks like with the current city.
 export function monthlyBudget(state) {
   const E = CONFIG.economy, s = state.stats, rate = state.taxRate / 100;
+  const base = s.taxBase ?? { r: s.population, c: s.comJobs, i: s.indJobs };
   const income = {
-    residential: s.population * E.taxPerResident * rate,
-    commercial: s.comJobs * E.taxPerCommercialJob * rate,
-    industrial: s.indJobs * E.taxPerIndustrialJob * rate,
+    residential: base.r * E.taxPerResident * rate,
+    commercial: base.c * E.taxPerCommercialJob * rate,
+    industrial: base.i * E.taxPerIndustrialJob * rate,
+    visitors: visitorIncome(state),
   };
   const expenses = {
     roads: s.roads * E.roadMaintenance,
@@ -316,6 +415,10 @@ export function budgetAdvice(state) {
   }
   if (atGrade) out.push(`${atGrade} highway junction${atGrade > 1 ? 's' : ''} cross other roads at grade: an Interchange ($${CONFIG.costs.interchange.toLocaleString()}) removes the slowdown.`);
   if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic lights: lights ($${CONFIG.costs.lights}) cut the delay.`);
+  const open = Math.round(state.traffic?.skilledOpen ?? 0);
+  if (open >= 15) out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. Schools${s.population >= CONFIG.buildings.university.unlock ? ' and a university' : ''} raise education over time.`);
+  const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);
+  if (breaks.length && net < 0) out.push(`Tax breaks in ${breaks.map((d) => d.name).join(', ')} waive ${Math.round(CONFIG.districts.taxBreakCut * 100)}% of their taxes. Lift them once the district has grown.`);
   if (s.abandoned > 5) out.push(`${s.abandoned} abandoned buildings earn nothing: hover them to see why (jobs, pollution, commute).`);
   if (net < 0 && canTakeLoan(state)) out.push(`A $${E.loanAmount.toLocaleString()} loan buys time while the city grows.`);
   return out;

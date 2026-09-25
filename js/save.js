@@ -1,13 +1,13 @@
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
-import { GameMap, TILE, highwayEntry } from './map.js';
+import { GameMap, TILE, highwayEntry, PERSISTENT_LAYERS } from './map.js';
 import { CONFIG } from './config.js';
-import { refreshFields } from './simulation.js';
+import { refreshFields, emptyHistory, DEFAULT_CITY_NAME } from './simulation.js';
 
-const VERSION = 3;
-const LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind'];
+const VERSION = 4;
+const LAYERS = PERSISTENT_LAYERS;
 // Layers added after v1; older saves simply don't have them (defaults to zeros).
-const OPTIONAL_LAYERS = new Set(['roadClass', 'kind']);
+const OPTIONAL_LAYERS = new Set(['roadClass', 'kind', 'part', 'district', 'education']);
 
 // Uint8 layer -> base64 string (compact and JSON-safe)
 function encode(arr) {
@@ -37,7 +37,29 @@ export function serialize(state) {
     milestones: state.milestones, lastMonth: state.lastMonth,
     utilityGrace: state.utilityGrace,
     loans: state.loans ?? [],
+    cityName: state.cityName,
+    districts: state.districts ?? [],
+    history: state.history,
   };
+}
+
+function readDistricts(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((d) => d && (d.id | 0) > 0).map((d) => ({
+    id: d.id | 0,
+    name: String(d.name ?? `District ${d.id}`).slice(0, 40),
+    color: typeof d.color === 'string' ? d.color : CONFIG.districts.colors[(d.id - 1) % CONFIG.districts.colors.length],
+    policies: {
+      height: [1, 2, 3].includes(d.policies?.height) ? d.policies.height : 3,
+      noHeavyIndustry: !!d.policies?.noHeavyIndustry,
+      taxBreak: !!d.policies?.taxBreak,
+    },
+  }));
+}
+
+function readHistory(h) {
+  if (!h || !Array.isArray(h.samples)) return emptyHistory();
+  return { samples: h.samples.filter((x) => x && typeof x === 'object') };
 }
 
 export function deserialize(data) {
@@ -50,6 +72,7 @@ export function deserialize(data) {
     if (layers[k] == null && OPTIONAL_LAYERS.has(k)) continue;
     map[k] = decode(layers[k], width * height);
   }
+  map.educationReady = layers.education != null;
   if ((data.version | 0) < 2) migrateV1(map);
   map.computeWaterDistance();
   map.roadsDirty = true;
@@ -70,7 +93,13 @@ export function deserialize(data) {
     happiness: 0,
     crime: 0,
     fires: 0,
+    cityName: typeof data.cityName === 'string' && data.cityName.trim() ? data.cityName.slice(0, 40) : DEFAULT_CITY_NAME,
+    districts: readDistricts(data.districts),
+    history: readHistory(data.history),
   };
+  // Tiles pointing at a district that no longer exists lose it.
+  const ids = new Set(state.districts.map((d) => d.id));
+  for (let i = 0; i < map.size; i++) if (map.district[i] && !ids.has(map.district[i])) map.district[i] = 0;
   // Cities from before utilities existed get time to build power and water.
   if ((data.version | 0) < 3) {
     let dense = false;

@@ -13,20 +13,26 @@ move it to **Done** with a one-line note.
 
 ## Roadmap (next features, most impactful first)
 
-1. **Seasons and a day/night cycle.** Lit windows and streetlights at night, seasonal
-   grass and tree colours. Big atmosphere boost for little simulation cost.
-2. **Education and skill-based jobs.** Schools raise education; skilled jobs, offices and
-   high-tech industry need educated workers.
-3. **Districts and zoning policies.** Name neighbourhoods and set per-district rules:
-   low-rise only, no heavy industry, tax breaks.
-4. **Landmarks and parks of different sizes.** Stadium, university, large central park;
-   multi-tile buildings that draw visitors and lift a whole area.
-5. **Statistics and history graphs.** Population, budget, commute, happiness over time.
+The last roadmap was built in full (see Done). Ideas for the next one:
 
-Smaller ideas: undo for the last action, a mini-map, zoning brushes (line or circle),
-naming your city.
+1. **Disasters and weather events.** Storms and floods by season; the fire service already exists.
+2. **Neighbouring cities and trade.** Sell power or water, import workers, export goods.
+3. **Richer district policies.** Neighbourhood watch, green district, parking limits.
+4. **More landmarks.** Airport, harbour, hospital; tourism as its own demand.
+5. **Achievements and scenarios.** Start from a challenge map with goals.
 
 ## Done (recent)
+
+- Seasons (palette blends by month; snow on roofs) and a day/night cycle (lamps, lit windows,
+  headlights, floodlights; toggle under City menu) in 2D and 3D. `js/seasons.js`.
+- Education: skilled share per home (persistent `education` layer), skilled posts per job,
+  high-tech industry (`FLAG.HIGHTECH`), Education overlay, tax bonus.
+- Districts with height limit / no heavy industry / tax break (`district` layer, sidebar panel,
+  labels, overlay).
+- Landmarks: town park, central park, university, stadium; multi-tile via the `part` layer;
+  unlock by population; stadium ticket income.
+- History graphs (`js/graphs.js`, `state.history`), plus undo, mini-map, line/circle brushes
+  and city naming.
 
 - Public transit (bus stops, metro stations), traffic lights, interchanges (Ramps tool),
   tapered road joins; traffic smoothing raised to 0.8 to stop jam/empty oscillation.
@@ -46,6 +52,9 @@ naming your city.
 - `js/renderer.js` (2D) and `js/renderer3d.js` (3D): same camera interface; 3D ground reuses
   the 2D tile painter as a texture.
 - `js/overlays.js`, `js/ui.js`, `js/input.js`, `js/save.js`, `js/main.js`.
+- `js/seasons.js` (palettes, clock), `js/graphs.js` (history panel), `js/minimap.js`.
+- Multi-tile buildings: `map.part`, `map.anchorOf(i)`, `map.footprintTiles(i)`; landmark size in
+  `CONFIG.buildings[k].size`.
 - The simulation modules never touch the DOM, so they run headless in Node.
 
 ## Checks before pushing

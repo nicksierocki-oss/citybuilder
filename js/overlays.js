@@ -5,6 +5,7 @@
 
 import { TILE, TERRAIN, SUPPLY, FLAG, isZone } from './map.js';
 import { roadLoad } from './traffic.js';
+import { educationTarget } from './services.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 function ramp(stops) {
@@ -29,6 +30,7 @@ const haze = ramp([[0, [170, 120, 200, 0.0]], [0.15, [170, 120, 200, 0.18]], [1,
 const dusk = ramp([[0, [140, 130, 210, 0.0]], [0.12, [140, 130, 210, 0.2]], [0.5, [150, 120, 205, 0.5]], [1, [200, 90, 130, 0.72]]]);
 const ember = ramp([[0, [245, 170, 100, 0.0]], [0.12, [245, 190, 110, 0.22]], [0.5, [242, 150, 90, 0.5]], [1, [226, 96, 80, 0.75]]]);
 const cover = ramp([[0, [120, 190, 210, 0.0]], [0.1, [120, 190, 210, 0.2]], [1, [60, 150, 190, 0.65]]]);
+const learn = ramp([[0, [230, 200, 120, 0.15]], [0.35, [240, 214, 130, 0.35]], [1, [90, 120, 210, 0.7]]]);
 
 const isLand = (map, i) => map.terrain[i] !== TERRAIN.WATER || map.type[i] === TILE.ROAD;
 // Buildings and lots that sit on a road (others can't be served, so they stay neutral).
@@ -85,6 +87,24 @@ export const OVERLAYS = {
     legend: { gradient: gradient(cover), labels: ['walk too far', 'nearby', 'at the stop'] },
     hint: 'Walking distance to a bus stop (3 tiles) or metro station (4). Riders go to jobs near another stop on the same network.',
   },
+  education: {
+    label: 'Education', key: 'n', kind: 'field',
+    value: (map, i) => {
+      if (!isLand(map, i) || map.type[i] === TILE.ROAD) return null;
+      return map.type[i] === TILE.RES && map.level[i] > 0 ? map.education[i] / 2.55 : educationTarget(map, i) * 100;
+    },
+    color: (v) => learn((v - 15) / 70),
+    legend: { gradient: gradient(learn), labels: ['few skills', 'some', 'well educated'] },
+    hint: 'Skilled share of residents (for empty land: what new residents would have). Schools and universities raise it over a few years. Offices, big shops and high-tech industry need skilled workers.',
+    unit: '%',
+  },
+  districts: {
+    label: 'Districts', kind: 'districts',
+    value: (map, i) => (map.district[i] || null),
+    legend: { swatches: [] }, // filled in from the city's districts by the UI
+    hint: 'Neighbourhoods with their own rules. Create and paint them in the Districts panel on the left.',
+    format: () => '',
+  },
   crime: {
     label: 'Crime', key: 'c', kind: 'field',
     value: (map, i) => (isLand(map, i) ? map.crime[i] : null),
@@ -125,13 +145,14 @@ export const OVERLAYS = {
   },
 };
 
-export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'transit', 'crime', 'fireRisk', 'traffic', 'power', 'water'];
+export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'education', 'transit', 'crime', 'fireRisk', 'traffic', 'power', 'water', 'districts'];
 
 // Draw an overlay into a 2D context whose transform maps 1 tile to `ts` units.
 const offscreen = typeof document !== 'undefined' ? document.createElement('canvas') : null;
-export function drawOverlay(ctx, map, key, ts, x0 = 0, y0 = 0, x1 = map.width - 1, y1 = map.height - 1) {
+export function drawOverlay(ctx, map, key, ts, x0 = 0, y0 = 0, x1 = map.width - 1, y1 = map.height - 1, districts = []) {
   const o = OVERLAYS[key];
   if (!o) return;
+  if (o.kind === 'districts') { drawDistricts(ctx, map, districts, ts, x0, y0, x1, y1, true); return; }
   if (o.kind === 'field') {
     // One pixel per tile, scaled up with smoothing -> a soft heatmap.
     const w = map.width, h = map.height;
@@ -159,6 +180,42 @@ export function drawOverlay(ctx, map, key, ts, x0 = 0, y0 = 0, x1 = map.width - 
     roundRect(ctx, x * ts + ts * 0.06, y * ts + ts * 0.06, ts * 0.88, ts * 0.88, ts * 0.2);
     ctx.fill();
   }
+}
+
+// District tint (with `fill`) and a dashed border where a district meets anything else.
+export function drawDistricts(ctx, map, districts, ts, x0, y0, x1, y1, fill = false) {
+  if (!districts?.length) return;
+  const color = new Map(districts.map((d) => [d.id, d.color]));
+  ctx.save();
+  if (fill) {
+    ctx.globalAlpha = 0.34;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const c = color.get(map.district[map.idx(x, y)]);
+      if (!c) continue;
+      ctx.fillStyle = c;
+      ctx.fillRect(x * ts, y * ts, ts + 0.5, ts + 0.5);
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.lineWidth = Math.max(1.2, ts * 0.07);
+  ctx.setLineDash([ts * 0.22, ts * 0.14]);
+  ctx.lineCap = 'round';
+  const inset = ctx.lineWidth / 2;
+  for (const [id, c] of color) {
+    ctx.strokeStyle = c;
+    ctx.beginPath();
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if (map.district[map.idx(x, y)] !== id) continue;
+      const other = (dx, dy) => !map.inBounds(x + dx, y + dy) || map.district[map.idx(x + dx, y + dy)] !== id;
+      const px = x * ts, py = y * ts;
+      if (other(0, -1)) { ctx.moveTo(px, py + inset); ctx.lineTo(px + ts, py + inset); }
+      if (other(0, 1)) { ctx.moveTo(px, py + ts - inset); ctx.lineTo(px + ts, py + ts - inset); }
+      if (other(-1, 0)) { ctx.moveTo(px + inset, py); ctx.lineTo(px + inset, py + ts); }
+      if (other(1, 0)) { ctx.moveTo(px + ts - inset, py); ctx.lineTo(px + ts - inset, py + ts); }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 export function roundRect(ctx, x, y, w, h, r) {

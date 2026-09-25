@@ -17,6 +17,7 @@ export const CONFIG = {
     ticksPerMonth: 8,
     msPerTick: { 1: 400, 2: 200, 3: 90 },   // speed -> real milliseconds per tick
     startYear: 2000,
+    startMonth: 3,           // new cities start in April (0 = January)
   },
 
   economy: {
@@ -173,6 +174,13 @@ export const CONFIG = {
     bus:       { label: 'Bus stop',      cost: 150,  upkeep: 6,  radius: 3, capacity: 150, wait: 4, minutesPerTile: 0.7,  share: 0.35, landValue: 3, happiness: 3 },
     metro:     { label: 'Metro station', cost: 2500, upkeep: 40, radius: 4, capacity: 600, wait: 2, minutesPerTile: 0.25, share: 0.6,  landValue: 8, happiness: 5 },
     fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 10 },
+    // Landmarks: multi-tile (`size` = [w, h]), unlocked by population. `radius` counts from the
+    // footprint's edge. Visitors pay `income` a month at full draw (scales with city size).
+    townpark:    { label: 'Town park',    cost: 400,  upkeep: 10, size: [2, 2], radius: 6,  landValue: 14, happiness: 7,  park: true },
+    centralpark: { label: 'Central park', cost: 2500, upkeep: 30, size: [3, 3], radius: 9,  landValue: 22, happiness: 12, park: true, unlock: 1000 },
+    university:  { label: 'University',   cost: 6000, upkeep: 90, size: [3, 2], radius: 14, landValue: 10, happiness: 6,  unlock: 1500 },
+    stadium:     { label: 'Stadium',      cost: 8000, upkeep: 60, size: [3, 3], radius: 16, landValue: 6,  happiness: 10, shopBonus: 0.2, unlock: 2500,
+      income: 180, visitorsAt: 8000 }, // ticket income reaches `income` at `visitorsAt` residents
   },
 
   utilities: {
@@ -221,6 +229,51 @@ export const CONFIG = {
     noPower: 15,
     noWater: 10,
     scoreWeight: 0.25,       // residential growth score shift at 0 or 100 happiness
+  },
+
+  // Education: schools and universities raise the share of skilled residents. Denser shops,
+  // offices and industry need some skilled workers; high-tech industry needs many.
+  education: {
+    base: 0.2,               // skilled share of residents with no school nearby
+    school: 0.4,             // added at full school coverage
+    university: 0.35,        // added at full university coverage
+    max: 0.95,
+    ratePerMonth: 0.1,       // how fast a neighbourhood moves toward its target (people take time to learn)
+    taxBonus: 0.5,           // skilled residents pay up to this much more tax
+    // Share of jobs that need skilled workers, by density level
+    skilledShare: { commercial: [0, 0.05, 0.25, 0.5], industrial: [0, 0, 0.1, 0.2] },
+    minSkilledPosts: 1,      // below this many skilled posts a building doesn't care
+    growFill: 0.75,          // share of skilled posts filled before a building can grow denser
+    declineFill: 0.35,       // below this, the business loses score
+    penalty: 0.35,           // score lost with every skilled post empty
+    hightech: {
+      radius: 10,            // skilled residents counted within this many tiles of the factory
+      minShare: 0.45,        // local skilled share needed to convert
+      minSkilled: 40,        // and at least this many skilled workers nearby
+      revertShare: 0.3,      // falls back to ordinary industry below this
+      chance: 0.03,          // per tick while eligible
+      skilledShare: 0.6,
+      emission: 0.25,        // pollution multiplier
+      freight: 0.5,          // truck trips multiplier
+      taxMult: 1.8,          // tax per job multiplier
+    },
+  },
+
+  // District policies (see ui.js district panel)
+  districts: {
+    max: 12,
+    taxBreakCut: 0.5,        // share of tax waived in a tax-break district
+    taxBreakBonus: 0.15,     // growth score added there
+    colors: ['#e58f82', '#6fa6e3', '#e3b75a', '#7cc47a', '#b38fd6', '#5fc2c0', '#ee8ac0', '#a3a05a', '#8a94a6', '#f0a060', '#6f7fe0', '#9bc46a'],
+  },
+
+  history: {
+    maxSamples: 480,         // monthly samples kept at full detail; older ones are thinned
+  },
+
+  visuals: {
+    dayLengthSec: 180,       // real seconds (at 1x) for a full day/night cycle
+    startHour: 8,
   },
 
   sim: {

@@ -7,16 +7,31 @@ export const TERRAIN = { GRASS: 0, WATER: 1 };
 export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6 };
 export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building'];
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
-export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro'];
+// New kinds go at the END (saves store the index).
+export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro',
+  'townpark', 'centralpark', 'university', 'stadium'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
-export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16 };
+export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16, HIGHTECH: 32 };
 // Junction kinds (see junctionKind): how a road tile meets its neighbours.
 export const JUNCTION = { NONE: 0, MERGE: 1, INTERSECTION: 2, HIGHWAY: 3 };
 
 export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
 export const ROAD_NAMES = ['Street', 'Avenue', 'Highway'];
+
+// Footprint [w, h] of a public building kind (1×1 unless it's a landmark).
+export function footprintSize(kind) {
+  return CONFIG.buildings[kind]?.size ?? [1, 1];
+}
+
+// Share of a job tile's positions that need skilled (educated) workers.
+export function skilledShare(map, i) {
+  const E = CONFIG.education, t = map.type[i], lv = map.level[i];
+  if (t === TILE.COM) return E.skilledShare.commercial[lv];
+  if (t !== TILE.IND) return 0;
+  return lv > 0 && map.hasFlag(i, FLAG.HIGHTECH) ? E.hightech.skilledShare : E.skilledShare.industrial[lv];
+}
 
 export function isZone(type) {
   return type === TILE.RES || type === TILE.COM || type === TILE.IND;
@@ -48,6 +63,10 @@ export class GameMap {
     this.variant = new Uint8Array(n);   // cosmetic randomness per tile
     this.roadClass = new Uint8Array(n); // ROAD_CLASS for road tiles
     this.kind = new Uint8Array(n);      // KINDS index for public buildings
+    this.part = new Uint8Array(n);      // multi-tile buildings: 0 = anchor (top-left), else 1 + dx + 8 * dy
+    this.district = new Uint8Array(n);  // district id, 0 = none
+    this.education = new Uint8Array(n); // homes: skilled share of residents × 255 (changes slowly)
+    this.educationReady = false;        // false until education has been seeded (new maps, old saves)
     // Derived layers (recomputed by the simulation)
     this.pollution = new Float32Array(n);
     this.landValue = new Float32Array(n);
@@ -59,7 +78,11 @@ export class GameMap {
     this.commute = new Float32Array(n);   // residential: avg commute minutes (Infinity = no job reachable)
     this.employed = new Float32Array(n);  // residential: share of workers who found a job (1 if vacant)
     this.passing = new Float32Array(n);   // trips on roads next to this tile
+    this.skillFill = new Float32Array(n); // jobs: share of skilled posts filled (1 if none)
+    this.eduNearby = new Float32Array(n); // skilled share of residents within the high-tech radius
+    this.skilledNearby = new Float32Array(n); // skilled residents within that radius
     this.employed.fill(1);
+    this.skillFill.fill(1);
     // Utilities & services (derived, see services.js)
     this.power = new Uint8Array(n);       // SUPPLY status
     this.water = new Uint8Array(n);
@@ -68,6 +91,8 @@ export class GameMap {
       plaza: new Float32Array(n), recycling: new Float32Array(n),
       police: new Float32Array(n), fire: new Float32Array(n),
       bus: new Float32Array(n), metro: new Float32Array(n),
+      townpark: new Float32Array(n), centralpark: new Float32Array(n),
+      university: new Float32Array(n), stadium: new Float32Array(n),
     };
     this.riders = new Float32Array(n);    // transit boardings + alightings per station tile
     this.crime = new Float32Array(n);     // 0..100 per building
@@ -80,6 +105,23 @@ export class GameMap {
 
   idx(x, y) { return y * this.width + x; }
   inBounds(x, y) { return x >= 0 && y >= 0 && x < this.width && y < this.height; }
+
+  // Anchor (top-left) tile of the public building covering tile i (i itself if 1×1).
+  anchorOf(i) {
+    const p = this.part[i];
+    if (!p || this.type[i] !== TILE.SERVICE) return i;
+    return i - ((p - 1) & 7) - ((p - 1) >> 3) * this.width;
+  }
+
+  // Every tile of the public building covering tile i (just [i] for anything else).
+  footprintTiles(i) {
+    if (this.type[i] !== TILE.SERVICE) return [i];
+    const a = this.anchorOf(i), [w, h] = footprintSize(KINDS[this.kind[a]]);
+    if (w === 1 && h === 1) return [a];
+    const out = [];
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) out.push(a + dx + dy * this.width);
+    return out;
+  }
 
   hasFlag(i, f) { return (this.flags[i] & f) !== 0; }
   setFlag(i, f, on) { this.flags[i] = on ? (this.flags[i] | f) : (this.flags[i] & ~f); }
@@ -223,7 +265,7 @@ export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.
   return map;
 }
 
-const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind'];
+export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education'];
 
 // Grow a city's map to newSize x newSize, adding land evenly on every side.
 // The river keeps meandering into the new land and every road that ran off the old
@@ -234,6 +276,7 @@ export function expandMap(old, newSize, seed = (Math.random() * 1e9) | 0) {
   const dx = Math.floor((W - old.width) / 2), dy = Math.floor((H - old.height) / 2);
   const map = new GameMap(W, H);
   map.seed = old.seed;
+  map.educationReady = old.educationReady;
   const rng = makeRng(seed);
   for (let i = 0; i < map.size; i++) map.variant[i] = (rng() * 256) | 0;
   for (let y = 0; y < old.height; y++) for (let x = 0; x < old.width; x++) {

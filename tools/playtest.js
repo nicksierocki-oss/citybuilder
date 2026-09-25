@@ -143,6 +143,26 @@ function eager(state) {
   };
 }
 
+// A planner: the sensible layout plus a low-rise, tax-break district, early schooling,
+// a town park and a university once it unlocks (uses the education and district systems).
+function planner(state) {
+  const H = H0, base = sensible(state);
+  state.districts.push({ id: 1, name: 'Old Town', color: '#e58f82', policies: { height: 2, noHeavyIndustry: false, taxBreak: true } });
+  applyTool(state, 'district', rect(state, 14, H - 6, 17, H - 1), 1);
+  return (month) => {
+    base(month);
+    const s = state.stats;
+    if (month === 8) applyTool(state, 'school', [state.map.idx(12, H - 6)]);
+    if (month === 20) applyTool(state, 'townpark', rect(state, 19, H - 5, 20, H - 4));
+    if (month === 40) state.districts[0].policies.taxBreak = false; // grown enough: lift the tax break
+    if (!state.uni && s.population >= CONFIG.buildings.university.unlock && state.funds > 9000) {
+      for (const [x, y] of [[2, H + 8], [2, H - 6], [5, H + 8]]) {
+        if (applyTool(state, 'university', rect(state, x, y, x + 2, y + 1)).applied) { state.uni = month; break; }
+      }
+    }
+  };
+}
+
 function run(name, strategy, months = 72, seed = 12345) {
   const state = createGame(seed, SIZE);
   state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
@@ -182,11 +202,13 @@ function run(name, strategy, months = 72, seed = 12345) {
   }
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';
   const secs2x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[2] / 1000).toFixed(0) : '-';
+  console.log(`   education ${Math.round(state.education * 100)}% · skilled jobs open ${Math.round(state.traffic.skilledOpen ?? 0)} · high-tech ${state.stats.hightech}${state.uni ? ` · university at m${state.uni}` : ''}`);
   console.log(`-> reached 1000 pop at month ${hit1000 ?? 'never'} (${secs1x}s at 1x, ${secs2x}s at 2x); bankrupt: ${state.bankrupt}`);
 }
 
 run('sensible', sensible);
 run('sensible + avenues', (st) => sensible(st, true));
+run('planner (districts, education)', planner);
 run('eager builder', eager);
 run('sprawl', sprawl);
 run('careless', careless);

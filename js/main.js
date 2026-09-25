@@ -7,14 +7,23 @@ import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
 import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave } from './save.js';
+import { undoAction } from './economy.js';
+import { environment } from './seasons.js';
 
 const canvas = document.getElementById('game');
 const canvas3d = document.getElementById('game3d');
 const VIEW_KEY = 'gridline.view';
+const DAYNIGHT_KEY = 'gridline.daynight';
+const BRUSHES = ['rect', 'line', 'circle'];
+const pref = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 
 const game = {
   state: null,
   tool: 'road',
+  toolArg: 0,         // district id for the district brush
+  brush: 'rect',      // how rectangle tools paint: rect | line | circle
+  dayNight: pref(DAYNIGHT_KEY, '1') === '1',
+  lastUndo: null,     // undo record of the last build action
   speed: 1,           // 0 = paused
   hover: null,
   pinned: null,
@@ -26,7 +35,29 @@ const game = {
   ui: null,
   input: null,
 
-  setTool(name) { this.tool = name; this.preview = null; this.ui.setActiveTool(name); },
+  setTool(name, arg = this.toolArg) {
+    this.tool = name;
+    this.toolArg = arg;
+    this.preview = null;
+    this.ui.setActiveTool(name);
+    this.input?.hoverPreview();
+  },
+  cycleBrush() { this.setBrush(BRUSHES[(BRUSHES.indexOf(this.brush) + 1) % BRUSHES.length]); },
+  setBrush(b) { this.brush = b; this.ui.setBrush(b); },
+  setDayNight(on) {
+    this.dayNight = on;
+    try { localStorage.setItem(DAYNIGHT_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+    this.ui.toast(on ? 'Day and night cycle on.' : 'Always daytime.', 'info', 1800);
+  },
+  undo() {
+    if (!this.lastUndo || this.state.bankrupt) { this.ui.toast('Nothing to undo', 'info', 1200); return; }
+    const spent = this.lastUndo.spent;
+    if (undoAction(this.state, this.lastUndo)) {
+      refreshFields(this.state);
+      this.ui.toast(`Undone${spent > 0 ? `: ${'$' + Math.round(spent).toLocaleString()} back` : spent < 0 ? `: refund of $${Math.round(-spent).toLocaleString()} returned` : ''}`, 'info', 1800);
+    }
+    this.lastUndo = null;
+  },
   setSpeed(s) { this.speed = s; if (s > 0) this.lastSpeed = s; this.ui.setActiveSpeed(s); },
   togglePause() { this.setSpeed(this.speed === 0 ? (this.lastSpeed || 1) : 0); },
   toggleOverlay(o) {
@@ -79,6 +110,8 @@ const game = {
     this.ui.clearToasts();
     this.pinned = null;
     this.preview = null;
+    this.lastUndo = null;
+    this.ui.onNewState();
     const entry = highwayEntry(state.map.width, state.map.height);
     this.renderer2d.cam.zoom = 1.25;
     for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(state.map, entry.length + 4, entry.row);
@@ -102,6 +135,7 @@ const game = {
     }
     s.map = map;
     refreshFields(s);
+    this.lastUndo = null;
     this.pinned = null;
     this.preview = null;
     for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(map, view.x + dx, view.y + dy);
@@ -148,6 +182,7 @@ function frame(now) {
   game.input.update(dt);
   if (game.speed > 0 && !game.state.bankrupt) game.animTime += dt * (0.6 + 0.4 * game.speed);
   game.renderer.time = game.animTime;
+  game.renderer.env = environment(game.state, game.animTime, game.dayNight);
   if (game.speed > 0 && !game.state.bankrupt) {
     acc += dt * 1000;
     const step = CONFIG.time.msPerTick[game.speed];
@@ -161,6 +196,7 @@ function frame(now) {
   }
   game.renderer.render(game.state, game.hover, game.preview);
   game.ui.update(now);
+  game.ui.frame();
 }
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => { if (!game.state.bankrupt) autosave(game.state); });

@@ -1,12 +1,19 @@
 // UI: top bar, toolbar, demand panel, overlays + legend, tile info, toasts and dialogs (DOM only).
 
 import { CONFIG } from './config.js';
-import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone } from './map.js';
-import { evaluateTile, levelName } from './simulation.js';
+import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome } from './economy.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone, skilledShare, footprintSize } from './map.js';
+import { evaluateTile, levelName, districtAt } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
-import { supplyOf, happinessReasons } from './services.js';
+import { supplyOf, happinessReasons, educationTarget } from './services.js';
 import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
+import { SEASON_NAMES, seasonOf, clockText } from './seasons.js';
+import { Graphs } from './graphs.js';
+import { Minimap } from './minimap.js';
+
+const DISTRICT_NAMES = ['Old Town', 'Riverside', 'Hillcrest', 'Northside', 'Westgate', 'Eastbrook', 'Southfield', 'Uptown',
+  'Harborview', 'Parkside', 'Midtown', 'Greenwood', 'Lakeside', 'Brookfield'];
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -18,6 +25,7 @@ const GROUPS = [
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
   ['Transit', ['bus', 'metro']],
   ['Safety', ['police', 'fire']],
+  ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
 
@@ -28,6 +36,7 @@ const TOOL_COLOR = {
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
+  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0',
 };
 
 const TOOL_HELP = {
@@ -53,6 +62,10 @@ const TOOL_HELP = {
   bus: 'Cheap. People within 3 tiles ride to jobs near other bus stops (slower, shares nothing with cars).',
   metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
   fire: 'Prevents fires and puts them out within 10 tiles.',
+  townpark: '2×2 park: land value and happiness across a neighbourhood.',
+  centralpark: '3×3 park with a pond: big land value boost, cleans the air.',
+  university: '3×2 campus: educates residents within 14 tiles, making room for offices and high-tech industry.',
+  stadium: '3×3 stadium: visitors bring ticket income, busier shops and happier residents across 16 tiles.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
 };
@@ -84,6 +97,10 @@ const ICONS = {
   police: I('<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m12 8 1.2 2.5 2.8.4-2 2 .5 2.8L12 14.4l-2.5 1.3.5-2.8-2-2 2.8-.4z"/>'),
   fire: I('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-4 2.5-5 .3 1.5 1 2.5 2 3 0-3 .5-5.5.5-8z"/>'),
   bulldoze: I('<path d="M6 6l12 12M18 6 6 18"/>'),
+  townpark: I('<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="10" r="3"/><circle cx="15.5" cy="14.5" r="2.5"/>'),
+  centralpark: I('<rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="15" cy="9" rx="3.5" ry="2.2"/><circle cx="8" cy="15" r="2.6"/><path d="M8 17.6V20"/>'),
+  university: I('<path d="M3 20h18M5 20V10M19 20V10M9 20v-6h6v6"/><path d="M3 10 12 4l9 6z"/>'),
+  stadium: I('<ellipse cx="12" cy="12" rx="9" ry="7"/><rect x="8" y="9.5" width="8" height="5" rx="1"/><path d="M12 9.5v5"/>'),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -94,9 +111,23 @@ export class UI {
     this.game = game;
     this.lastUpdate = 0;
     this.overlay = null;
+    this.selectedDistrict = null;
     this.buildToolbar();
     this.buildOverlays();
     this.bindTopBar();
+    this.bindDistricts();
+    this.bindBrushes();
+    this.graphs = new Graphs($('graphs'), () => this.game.state);
+    this.minimap = new Minimap($('minimap'), game);
+    $('graphs').addEventListener('click', (e) => { if (e.target.closest('#btnGraphsClose')) this.toggleGraphs(false); });
+  }
+
+  // A different city was loaded or started.
+  onNewState() {
+    this.selectedDistrict = null;
+    this.renderDistricts();
+    this.labelKey = null;
+    if (this.overlay) this.setOverlay(this.overlay);
   }
 
   buildToolbar() {
@@ -117,7 +148,14 @@ export class UI {
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
         b.title = `${def.label}${def.key ? ` (${def.key})` : ''}${price ? ` · $${price.toLocaleString()}` : ''}\n${TOOL_HELP[name] ?? ''}`;
-        b.addEventListener('click', () => this.game.setTool(name));
+        b.addEventListener('click', () => {
+          const B = CONFIG.buildings[def.building];
+          if (B?.unlock && !isUnlocked(this.game.state, def.building)) {
+            this.toast(`${B.label} unlocks at ${B.unlock.toLocaleString()} residents.`, 'info', 2200);
+            return;
+          }
+          this.game.setTool(name);
+        });
         grid.appendChild(b);
       }
       box.appendChild(g);
@@ -184,6 +222,14 @@ export class UI {
       if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
       if (id === 'btnBudgetClose') this.toggleBudget(false);
     });
+    $('btnDayNight').addEventListener('click', () => { closeMenu(); this.game.setDayNight(!this.game.dayNight); this.updateMenuLabels(); });
+    $('btnUndo').addEventListener('click', () => this.game.undo());
+    $('popStat').addEventListener('click', () => this.toggleGraphs());
+    $('btnMinimap').addEventListener('click', () => { closeMenu(); this.minimap.toggle(); this.updateMenuLabels(); });
+    $('cityName').closest('button').addEventListener('click', () => {
+      this.prompt('Name your city', 'City name', this.game.state.cityName, (v) => { this.game.state.cityName = v; });
+    });
+    this.updateMenuLabels();
     $('helpBtn').addEventListener('click', () => $('help').classList.toggle('open'));
     $('helpClose').addEventListener('click', () => $('help').classList.remove('open'));
   }
@@ -191,6 +237,165 @@ export class UI {
   setActiveTool(name) {
     for (const b of document.querySelectorAll('.tool')) b.classList.toggle('active', b.dataset.tool === name);
     document.body.dataset.tool = name;
+    document.body.classList.toggle('brushable', TOOLS[name]?.shape === 'rect');
+    if (name !== 'district') { this.renderDistricts(); }
+  }
+
+  updateMenuLabels() {
+    $('btnDayNight').textContent = this.game.dayNight ? 'Day & night: on' : 'Day & night: off';
+    $('btnMinimap').textContent = this.minimap?.visible === false ? 'Show mini-map' : 'Hide mini-map';
+  }
+
+  // ------------------------------------------------------------ brushes
+  bindBrushes() {
+    for (const b of document.querySelectorAll('[data-brush]')) b.addEventListener('click', () => this.game.setBrush(b.dataset.brush));
+    this.setBrush(this.game.brush);
+  }
+  setBrush(brush) {
+    for (const b of document.querySelectorAll('[data-brush]')) b.classList.toggle('active', b.dataset.brush === brush);
+  }
+
+  // ------------------------------------------------------------ districts
+  bindDistricts() {
+    $('btnNewDistrict').addEventListener('click', () => this.newDistrict());
+    const list = $('districtList');
+    list.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-district]');
+      if (!row) return;
+      const id = Number(row.dataset.district), act = e.target.closest('[data-act]')?.dataset.act;
+      if (act === 'paint') { this.game.setTool('district', id); this.renderDistricts(); return; }
+      if (act === 'erase') { this.game.setTool('district', 0); this.renderDistricts(); return; }
+      if (act === 'delete') { this.deleteDistrict(id); return; }
+      if (e.target.closest('.deditor')) return;
+      this.selectedDistrict = this.selectedDistrict === id ? null : id;
+      if (this.selectedDistrict) this.game.setTool('district', id);
+      this.renderDistricts();
+    });
+    list.addEventListener('change', (e) => {
+      const d = this.districtById(Number(e.target.closest('[data-district]')?.dataset.district));
+      if (!d) return;
+      const p = e.target.dataset.policy;
+      if (p === 'height') d.policies.height = Number(e.target.value);
+      else if (p) d.policies[p] = e.target.checked;
+      if (e.target.dataset.field === 'name') {
+        d.name = e.target.value.trim().slice(0, 40) || d.name;
+        this.labelKey = null;
+      }
+      this.afterDistrictChange();
+    });
+    this.renderDistricts();
+  }
+
+  districtById(id) { return (this.game.state.districts ?? []).find((d) => d.id === id); }
+
+  newDistrict() {
+    const s = this.game.state, list = s.districts ??= [];
+    if (list.length >= CONFIG.districts.max) { this.toast(`Up to ${CONFIG.districts.max} districts.`, 'info'); return; }
+    const id = list.reduce((m, d) => Math.max(m, d.id), 0) + 1;
+    const used = new Set(list.map((d) => d.name));
+    const name = DISTRICT_NAMES.find((n) => !used.has(n)) ?? `District ${id}`;
+    const colors = CONFIG.districts.colors, usedC = new Set(list.map((d) => d.color));
+    const color = colors.find((c) => !usedC.has(c)) ?? colors[id % colors.length];
+    list.push({ id, name, color, policies: { height: 3, noHeavyIndustry: false, taxBreak: false } });
+    this.selectedDistrict = id;
+    this.game.setTool('district', id);
+    this.afterDistrictChange();
+    this.toast(`Drag on the map to paint ${name}.`, 'info', 2600);
+  }
+
+  deleteDistrict(id) {
+    const d = this.districtById(id);
+    if (!d) return;
+    this.confirm(`Delete ${d.name}?`, 'Its tiles stay as they are; only the district and its policies go.', 'Delete', () => {
+      const s = this.game.state, map = s.map;
+      for (let i = 0; i < map.size; i++) if (map.district[i] === id) map.district[i] = 0;
+      map.version++;
+      s.districts = s.districts.filter((x) => x.id !== id);
+      if (this.selectedDistrict === id) this.selectedDistrict = null;
+      if (this.game.tool === 'district') this.game.setTool('inspect');
+      this.afterDistrictChange();
+    });
+  }
+
+  afterDistrictChange() {
+    const s = this.game.state;
+    s.map.version++; // repaint borders (3D ground texture)
+    this.labelKey = null;
+    this.renderDistricts();
+    if (this.overlay === 'districts') this.setOverlay('districts');
+  }
+
+  renderDistricts() {
+    const s = this.game.state, list = s?.districts ?? [];
+    const box = $('districtList');
+    if (!box || !s) return;
+    const g = this.game, painting = g.tool === 'district';
+    const heights = [[3, 'No limit'], [2, 'Medium at most'], [1, 'Low-rise only']];
+    box.innerHTML = list.map((d) => {
+      const sel = d.id === this.selectedDistrict, P = d.policies;
+      const tags = [P.height < 3 ? (P.height === 1 ? 'low-rise' : 'mid-rise') : '', P.noHeavyIndustry ? 'no heavy ind.' : '', P.taxBreak ? 'tax break' : ''].filter(Boolean).join(' · ');
+      return `<div class="district${sel ? ' sel' : ''}" data-district="${d.id}">
+        <div class="dhead"><i style="background:${d.color}"></i><b>${esc(d.name)}</b><small data-dstat="${d.id}"></small></div>
+        ${tags && !sel ? `<div class="dtags">${tags}</div>` : ''}
+        ${sel ? `<div class="deditor">
+          <input data-field="name" value="${esc(d.name)}" maxlength="40" aria-label="District name">
+          <label>Height <select data-policy="height">${heights.map(([v, t]) => `<option value="${v}" ${P.height === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="chk"><input type="checkbox" data-policy="noHeavyIndustry" ${P.noHeavyIndustry ? 'checked' : ''}> No heavy industry <small>factories stay small unless high-tech</small></label>
+          <label class="chk"><input type="checkbox" data-policy="taxBreak" ${P.taxBreak ? 'checked' : ''}> Tax break <small>${Math.round(CONFIG.districts.taxBreakCut * 100)}% less tax here, faster growth</small></label>
+          <div class="dbtns">
+            <button data-act="paint" class="${painting && g.toolArg === d.id ? 'on' : ''}">Paint</button>
+            <button data-act="erase" class="${painting && g.toolArg === 0 ? 'on' : ''}" title="Remove tiles from any district">Erase</button>
+            <button data-act="delete" class="danger">Delete</button>
+          </div>
+        </div>` : ''}
+      </div>`;
+    }).join('') || '<p class="muted small">Name neighbourhoods and give them their own rules: height limits, no heavy industry, tax breaks.</p>';
+    this.updateDistrictStats();
+  }
+
+  updateDistrictStats() {
+    const st = this.game.state.stats?.districts ?? {};
+    for (const el of document.querySelectorAll('[data-dstat]')) {
+      const d = st[el.dataset.dstat];
+      el.textContent = d ? `${d.population.toLocaleString()} ppl · ${d.jobs.toLocaleString()} jobs${d.population ? ` · ☺ ${Math.round(d.happiness)}` : ''}` : '';
+    }
+  }
+
+  // District name labels over the map (both views), positioned at each district's centre.
+  updateLabels() {
+    const s = this.game.state, map = s.map, box = $('labels'), r = this.game.renderer;
+    const key = `${map.version}|${(s.districts ?? []).map((d) => d.id + d.name).join()}|${map.width}`;
+    if (key !== this.labelKey) {
+      this.labelKey = key;
+      const acc = new Map();
+      for (let i = 0; i < map.size; i++) {
+        const id = map.district[i];
+        if (!id) continue;
+        const a = acc.get(id) ?? { x: 0, y: 0, n: 0 };
+        a.x += i % map.width + 0.5; a.y += ((i / map.width) | 0) + 0.5; a.n++;
+        acc.set(id, a);
+      }
+      this.labelPos = (s.districts ?? []).filter((d) => acc.get(d.id)?.n).map((d) => {
+        const a = acc.get(d.id);
+        return { d, x: a.x / a.n, y: a.y / a.n };
+      });
+      box.innerHTML = this.labelPos.map(({ d }) => `<span class="dlabel" style="--c:${d.color}">${esc(d.name)}</span>`).join('');
+    }
+    const els = box.children;
+    (this.labelPos ?? []).forEach((l, k) => {
+      const p = r.tileToScreen(l.x - 1, l.y - 1), el = els[k];
+      if (!el) return;
+      const off = p.x < -50 || p.y < -20 || p.x > r.viewW + 50 || p.y > r.viewH + 20;
+      el.style.display = off ? 'none' : '';
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -50%)`;
+    });
+  }
+
+  toggleGraphs(open) {
+    const el = $('graphs');
+    const show = open ?? !el.classList.contains('open');
+    el.classList.toggle('open', show);
+    if (show) this.graphs.render(true);
   }
   setView(view) {
     const b = $('btnView');
@@ -207,7 +412,9 @@ export class UI {
     const lg = $('legend');
     lg.hidden = !o;
     if (!o) return;
-    const def = OVERLAYS[o], L = def.legend;
+    const def = OVERLAYS[o], L = o === 'districts'
+      ? { swatches: (this.game.state.districts ?? []).map((d) => [d.color, esc(d.name)]) }
+      : def.legend;
     const scale = L.swatches
       ? `<div class="swatches">${L.swatches.map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>`
       : `<div class="ramp" style="background:${L.gradient}"></div><div class="rampl">${L.labels.map((t) => `<span>${t}</span>`).join('')}</div>`;
@@ -236,8 +443,23 @@ export class UI {
       $('netDetail').textContent = `est. ${money(b.totalIncome - b.totalExpenses)}/mo`;
     }
     $('pop').textContent = st.population.toLocaleString();
-    $('jobs').textContent = `${st.jobs.toLocaleString()} jobs`;
     $('date').textContent = `${MONTHS[s.month]} ${s.year}`;
+    const env = this.game.renderer.env;
+    $('clock').textContent = `${SEASON_NAMES[seasonOf(s.month)]}${this.game.dayNight && env ? ` · ${env.night > 0.5 ? '☾' : '☀'} ${clockText(env.hour)}` : ''}`;
+    if ($('cityName').textContent !== s.cityName) $('cityName').textContent = s.cityName;
+    $('jobs').textContent = `${st.jobs.toLocaleString()} jobs · ${Math.round((s.education ?? 0) * 100)}% skilled`;
+    for (const b of document.querySelectorAll('.tool')) {
+      const B = CONFIG.buildings[TOOLS[b.dataset.tool]?.building];
+      if (!B?.unlock) continue;
+      const locked = !isUnlocked(s, TOOLS[b.dataset.tool].building);
+      b.classList.toggle('locked', locked);
+      const tc = b.querySelector('.tc');
+      if (tc) tc.textContent = locked ? `🔒 ${B.unlock.toLocaleString()}` : `$${B.cost.toLocaleString()}`;
+    }
+    $('btnUndo').disabled = !this.game.lastUndo;
+    this.updateDistrictStats();
+    this.graphs.render();
+    this.minimap.draw();
     const hp = s.happiness;
     $('happy').textContent = st.population > 0 ? `${Math.round(hp)}%` : '—';
     $('happyDetail').textContent = st.population === 0 ? 'no residents yet' : hp >= 65 ? 'cheerful' : hp >= 50 ? 'content' : hp >= 38 ? 'grumbling' : 'unhappy';
@@ -261,6 +483,12 @@ export class UI {
     this.updateBudget();
     this.updateInfo();
     this.updateLegendValue();
+  }
+
+  // Every frame: things that follow the camera.
+  frame() {
+    this.updateLabels();
+    this.minimap.drawView();
   }
 
   updateGauge(id, u, grace) {
@@ -304,7 +532,10 @@ export class UI {
     const el = $('legendHere');
     if (!el || !this.overlay) return;
     const g = this.game, t = g.pinned ?? g.hover, map = g.state.map;
-    el.textContent = t && map.inBounds(t.x, t.y) ? `here: ${overlayValueText(this.overlay, map, map.idx(t.x, t.y))}` : '';
+    if (!t || !map.inBounds(t.x, t.y)) { el.textContent = ''; return; }
+    const i = map.idx(t.x, t.y);
+    el.textContent = this.overlay === 'districts' ? (districtAt(g.state, i)?.name ?? 'no district')
+      : `here: ${overlayValueText(this.overlay, map, i)}`;
   }
 
   toggleBudget(open) {
@@ -330,6 +561,7 @@ export class UI {
       ${row('Residential tax', b.income.residential)}
       ${row('Commercial tax', b.income.commercial)}
       ${row('Industrial tax', b.income.industrial)}
+      ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
@@ -362,13 +594,22 @@ export class UI {
     const supply = (v) => `<span class="pill ${['none', 'short', 'ok'][v]}">${['none', 'shortage', 'yes'][v]}</span>`;
     if (isZone(type)) {
       const cap = CONFIG.capacity[['', '', 'residential', 'commercial', 'industrial'][type]][lv];
+      if (type === TILE.IND && lv > 0 && !ab && map.hasFlag(i, FLAG.HIGHTECH)) title = 'High-tech industry';
       rows.push(['Density', ab ? 'Abandoned' : lv === 0 ? 'Vacant lot' : `${levelName(lv)} (${lv}/3)`]);
       if (!ab && lv > 0) rows.push([type === TILE.RES ? 'Residents' : 'Jobs', cap]);
+      if (type !== TILE.RES && !ab && lv > 0) {
+        const posts = cap * skilledShare(map, i);
+        if (posts >= 0.5) rows.push(['Skilled jobs', `${Math.round(posts)} · ${Math.round(map.skillFill[i] * 100)}% filled`]);
+      }
       rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
     }
     if (type === TILE.SERVICE) {
       const k = KINDS[map.kind[i]], B = CONFIG.buildings[k];
       title = B.label;
+      if (B.size) rows.push(['Size', `${B.size[0]}×${B.size[1]} landmark`]);
+      if (B.income) rows.push(['Visitors', `${money(B.income * Math.min(1, g.state.stats.population / B.visitorsAt))}/mo in tickets`]);
+      if (k === 'university') notes.push('Educates residents in reach: offices, big shops and high-tech industry need them');
+      if (k === 'stadium') notes.push('Draws crowds: shops within reach do better, and residents are happier');
       if (B.power || k === 'pump') {
         const res = B.power ? 'power' : 'water', out = supplyOf(map, i, res);
         rows.push(['Output', `${out} ${res}`]);
@@ -381,7 +622,7 @@ export class UI {
         if (map.riders[i] < 5) notes.push(`No riders yet: people ride between ${k === 'bus' ? 'bus stops' : 'metro stations'}, so build another near jobs or homes`);
       }
       rows.push(['Upkeep', `${money(B.upkeep)}/mo`]);
-      if (!B.power && k !== 'pump') rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
+      if (!B.power && k !== 'pump' && !B.park) rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
     }
     if (type === TILE.ROAD) {
       title = ROAD_NAMES[map.roadClass[i]] + (water ? ' bridge' : '');
@@ -406,8 +647,9 @@ export class UI {
       }
     }
     if (type === TILE.RES && lv > 0 && !ab) {
-      const c = map.commute[i];
+      const c = map.commute[i], edu = map.education[i] / 2.55, target = educationTarget(map, i) * 100;
       rows.push(['Happiness', bar(map.happiness[i], 'hp')]);
+      rows.push(['Skilled', `${Math.round(edu)}%${Math.abs(target - edu) >= 3 ? ` (${target > edu ? 'rising' : 'falling'} to ${Math.round(target)}%)` : ''}`]);
       rows.push(['Commute', Number.isFinite(c) ? `${Math.round(c)} min` : 'no job in reach']);
       rows.push(['Employed', `${Math.round(map.employed[i] * 100)}%`]);
     } else if (type === TILE.RES && Number.isFinite(map.commute[i])) {
@@ -422,8 +664,9 @@ export class UI {
     if (!water) {
       rows.push(['Land value', bar(map.landValue[i], 'lv')]);
       rows.push(['Pollution', bar(map.pollution[i], 'pol')]);
-      const cov = ['school', 'clinic', 'plaza', 'recycling', 'police', 'fire'].filter((k) => map.coverage[k][i] > 0.05)
-        .map((k) => (k === 'fire' ? 'fire station' : k));
+      const cov = ['school', 'university', 'clinic', 'plaza', 'townpark', 'centralpark', 'stadium', 'recycling', 'police', 'fire']
+        .filter((k) => map.coverage[k][i] > 0.05)
+        .map((k) => ({ fire: 'fire station', townpark: 'town park', centralpark: 'central park' }[k] ?? k));
       if (cov.length) rows.push(['Served by', cov.join(', ')]);
     }
     if (isZone(type)) {
@@ -439,6 +682,8 @@ export class UI {
         if (why.length) notes.push(`Not a happy spot: ${why.join(', ')}`);
       }
     }
+    const district = districtAt(g.state, i);
+    if (district) rows.unshift(['District', `<i class="dchip" style="background:${district.color}"></i>${esc(district.name)}`]);
     el.innerHTML = `<div class="ihead"><b>${title}</b><span class="muted">${t.x}, ${t.y}${g.pinned ? ' · pinned (Esc)' : ''}</span></div>
       <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
       ${notes.length ? `<ul class="notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}`;
@@ -455,6 +700,18 @@ export class UI {
     tip.style.transform = `translate(${Math.min(sx, r.viewW - 130)}px, ${Math.min(sy, r.viewH - 30)}px)`;
     tip.className = p.ok ? '' : 'bad';
     const total = p.cost.total;
+    const tool = this.game.tool, B = CONFIG.buildings[TOOLS[tool]?.building];
+    if (TOOLS[tool]?.footprint) {
+      tip.textContent = p.cost.blocked
+        ? (!isUnlocked(this.game.state, TOOLS[tool].building) ? `Unlocks at ${B.unlock.toLocaleString()} residents` : `No room: needs ${B.size[0]}×${B.size[1]} clear land`)
+        : `${B.label} · $${total.toLocaleString()}`;
+      return;
+    }
+    if (tool === 'district') {
+      const d = this.districtById(this.game.toolArg);
+      tip.textContent = p.cost.count ? `${d ? `Paint ${d.name}` : 'Erase district'} · ${p.cost.count} tile${p.cost.count > 1 ? 's' : ''}` : 'Already painted';
+      return;
+    }
     tip.textContent = p.cost.count
       ? `${p.cost.count} tile${p.cost.count > 1 ? 's' : ''} · ${total < 0 ? `refund $${(-total).toLocaleString()}` : `$${total.toLocaleString()}`}`
       : 'Nothing to build here';
@@ -524,6 +781,25 @@ export class UI {
     const b = $('btnExpand');
     b.disabled = !next;
     b.textContent = next ? `Expand map to ${next}×${next}…` : 'Map is at its largest';
+  }
+
+  // Small text prompt in the modal.
+  prompt(title, label, value, onOk) {
+    const m = $('modal');
+    m.querySelector('h2').textContent = title;
+    m.querySelector('p').innerHTML = `<label class="field">${esc(label)}<input id="modalInput" maxlength="40" value="${esc(value)}"></label>`;
+    const ok = $('modalOk'), cancel = $('modalCancel'), input = $('modalInput');
+    ok.textContent = 'Save';
+    cancel.textContent = 'Cancel';
+    cancel.hidden = false;
+    m.hidden = false;
+    input.focus();
+    input.select();
+    const close = () => { m.hidden = true; ok.onclick = cancel.onclick = input.onkeydown = null; };
+    const done = () => { const v = input.value.trim(); close(); if (v) onOk(v.slice(0, 40)); };
+    ok.onclick = done;
+    cancel.onclick = close;
+    input.onkeydown = (e) => { if (e.key === 'Enter') done(); if (e.key === 'Escape') close(); };
   }
 
   confirm(title, body, okLabel, onOk) {

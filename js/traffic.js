@@ -3,7 +3,7 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, JUNCTION } from './map.js';
+import { TILE, FLAG, KINDS, JUNCTION, skilledShare } from './map.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -90,13 +90,18 @@ export function trafficSystem(state) {
   // Roads a building can drive onto (highways are limited-access).
   const accessRoads = (i) => nbrs(i, []).filter((j) => isNode[j] && map.roadClass[j] !== 2);
 
-  // --- job sinks: remaining positions per job tile, listed on each adjacent road
-  const remaining = new Float32Array(size);
+  // --- job sinks: open positions per job tile (unskilled in `remaining`, skilled in `remainingS`),
+  // listed on each adjacent road. Skilled workers can take any job; unskilled ones only unskilled jobs.
+  const remaining = new Float32Array(size), remainingS = new Float32Array(size), skilledPosts = new Float32Array(size);
+  let openS = 0, openU = 0; // open posts city-wide, so searches can stop when nothing is left to find
   const jobsAt = new Map(); // road index -> [job tile indices]
   for (let i = 0; i < size; i++) {
     const t = map.type[i];
     if ((t !== TILE.COM && t !== TILE.IND) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED) || map.hasFlag(i, FLAG.FIRE)) continue;
-    remaining[i] = (t === TILE.COM ? CAP.commercial : CAP.industrial)[map.level[i]];
+    const posts = (t === TILE.COM ? CAP.commercial : CAP.industrial)[map.level[i]];
+    skilledPosts[i] = remainingS[i] = posts * skilledShare(map, i);
+    remaining[i] = posts - remainingS[i];
+    openS += remainingS[i]; openU += remaining[i];
     for (const r of accessRoads(i)) {
       if (!jobsAt.has(r)) jobsAt.set(r, []);
       jobsAt.get(r).push(i);
@@ -159,7 +164,7 @@ export function trafficSystem(state) {
     for (let y = Math.max(0, y0 - r); y <= Math.min(h - 1, y0 + r); y++) {
       for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + r); x++) {
         const j = y * w + x;
-        if (remaining[j] > 0) jobs.push(j);
+        if (remaining[j] + remainingS[j] > 0) jobs.push(j);
       }
     }
     stations.push({ i, k, x: x0, y: y0, jobs, left: B[k].capacity });
@@ -171,8 +176,23 @@ export function trafficSystem(state) {
   let transitRiders = 0;
 
   let totalWorkers = 0, totalEmployed = 0, totalMinutes = 0;
+  let leftS = 0, leftU = 0; // this home's skilled / unskilled workers still looking
+  // Fill up to `max` positions at job tile j: skilled posts with skilled workers first, then
+  // unskilled posts with unskilled workers, then any spare unskilled posts with skilled workers.
+  const hire = (j, max) => {
+    let took = 0, a;
+    a = Math.min(leftS, remainingS[j], max - took); remainingS[j] -= a; leftS -= a; took += a; openS -= a;
+    a = Math.min(leftU, remaining[j], max - took); remaining[j] -= a; leftU -= a; took += a; openU -= a;
+    a = Math.min(leftS, remaining[j], max - took); remaining[j] -= a; leftS -= a; took += a; openU -= a;
+    return took;
+  };
+  // Nothing left anywhere that this home's remaining workers could take?
+  const hopeless = () => external <= 1e-6
+    && (leftU <= 1e-6 || openU <= 1e-6) && (leftS <= 1e-6 || openU + openS <= 1e-6);
   for (const home of homes) {
     const workers = CAP.residential[map.level[home]] * D.workforceRatio;
+    leftS = workers * map.education[home] / 255;
+    leftU = workers - leftS;
     let left = workers, minutes = 0;
     // Some workers near a stop ride transit to jobs near another stop on the same mode
     // (buses and metro form separate networks). Riders never touch the roads.
@@ -188,9 +208,9 @@ export function trafficSystem(state) {
           if (ride > T.maxCommute) break;
           for (const j of to.jobs) {
             if (want <= 0 || to.left <= 0) break;
-            const take = Math.min(want, remaining[j], to.left, from.left);
+            const take = hire(j, Math.min(want, to.left, from.left));
             if (take <= 0) continue;
-            remaining[j] -= take; want -= take; left -= take;
+            want -= take; left -= take;
             from.left -= take; if (to !== from) to.left -= take;
             map.riders[from.i] += take; map.riders[to.i] += take;
             minutes += take * ride;
@@ -202,7 +222,7 @@ export function trafficSystem(state) {
     run++;
     heap.clear();
     for (const r of accessRoads(home)) { dist[r] = time[r]; stamp[r] = run; parent[r] = -1; heap.push(r, time[r]); }
-    while (heap.size && left > 0) {
+    while (heap.size && left > 0 && !hopeless()) {
       const u = heap.pop();
       const d = heap.lastPri;
       if (d > dist[u]) continue;
@@ -212,13 +232,13 @@ export function trafficSystem(state) {
       if (jobs) {
         for (const j of jobs) {
           if (left <= 0) break;
-          const take = Math.min(left, remaining[j]);
-          if (take <= 0) continue;
-          remaining[j] -= take; left -= take; took += take;
+          const take = hire(j, left);
+          left -= take; took += take;
         }
       }
       if (left > 0 && external > 0 && isEdge(u)) {
-        const take = Math.min(left, external);
+        const take = Math.min(left, external), u2 = Math.min(leftU, take);
+        leftU -= u2; leftS -= take - u2;
         external -= take; left -= take; took += take;
       }
       if (took > 0) {
@@ -236,6 +256,14 @@ export function trafficSystem(state) {
     map.employed[home] = workers > 0 ? employed / workers : 1;
     if (employed > 0) map.commute[home] = minutes / employed;
     totalWorkers += workers; totalEmployed += employed; totalMinutes += minutes;
+  }
+
+  // --- skilled posts filled per job tile (smoothed like traffic so growth doesn't flicker)
+  let skilledTotal = 0, skilledOpen = 0;
+  for (let i = 0; i < size; i++) {
+    if (skilledPosts[i] <= 0) { map.skillFill[i] = 1; continue; }
+    skilledTotal += skilledPosts[i]; skilledOpen += remainingS[i];
+    map.skillFill[i] = map.skillFill[i] * 0.5 + (1 - remainingS[i] / skilledPosts[i]) * 0.5;
   }
 
   // --- freight: industry trucks to the nearest highway exit (shortest-time tree from the edge)
@@ -258,7 +286,7 @@ export function trafficSystem(state) {
     let start = -1;
     for (const r of accessRoads(i)) if (start < 0 || toEdge[r] < toEdge[start]) start = r;
     if (start < 0 || toEdge[start] === Infinity) continue;
-    const trips = CAP.industrial[map.level[i]] * T.freightPerJob;
+    const trips = CAP.industrial[map.level[i]] * T.freightPerJob * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.freight : 1);
     freightTrips += trips;
     for (let p = start; p !== -1; p = edgeParent[p]) volume[p] += trips;
   }
@@ -282,5 +310,7 @@ export function trafficSystem(state) {
     freightTrips,
     congested,
     transitRiders,
+    skilledJobs: skilledTotal,
+    skilledOpen,
   };
 }

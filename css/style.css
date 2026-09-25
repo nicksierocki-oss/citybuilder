@@ -243,3 +243,78 @@ body[data-view="3d"] #viewHint { display: block; }
   #leftStack { width: calc(100% - 28px); }
   #demand { display: none; }
 }
+
+/* ---------- city name, clock, undo ---------- */
+.brand { background: none; border: 0; padding: 4px 6px; margin: 0 -6px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 800; font-size: 16px; color: #4a6fae; flex: none; }
+.brand:hover { background: var(--panel-2); }
+#cityName { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#clock { white-space: nowrap; }
+.group button[disabled] { opacity: 0.45; cursor: default; }
+.field { display: flex; flex-direction: column; gap: 6px; color: var(--text); font-weight: 700; font-size: 13px; }
+.field input { font: inherit; font-weight: 400; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; outline: none; }
+.field input:focus { border-color: var(--accent); }
+
+/* ---------- locked landmarks ---------- */
+.tool.locked { opacity: 0.5; }
+.tool.locked .ico { filter: grayscale(1); }
+
+/* ---------- brush ---------- */
+.brushes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.brushes button { font-size: 11px; padding: 5px 2px; border-radius: 9px; background: var(--panel-2); border: 1.5px solid transparent; cursor: pointer; }
+.brushes button.active { border-color: var(--accent); background: var(--accent-soft); color: #3f6bb0; font-weight: 700; }
+body:not(.brushable) #brushSection { opacity: 0.45; }
+
+/* ---------- districts ---------- */
+#districtSection h4 { display: flex; justify-content: space-between; align-items: center; }
+#btnNewDistrict { font-size: 11px; text-transform: none; letter-spacing: 0; border: 0; background: var(--accent-soft); color: #3f6bb0; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-weight: 700; }
+.small { font-size: 11.5px; line-height: 1.4; margin: 2px; }
+.district { border-radius: 10px; background: var(--panel-2); padding: 6px 8px; margin-bottom: 5px; cursor: pointer; border: 1.5px solid transparent; }
+.district.sel { border-color: var(--accent); background: #fff; cursor: default; }
+.dhead { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.dhead i, .dchip { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; margin-right: 4px; }
+.dhead b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dhead small { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.dtags { font-size: 10.5px; color: var(--muted); margin: 2px 0 0 16px; }
+.deditor { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; font-size: 12px; }
+.deditor input[data-field] { font: inherit; padding: 5px 8px; border: 1.5px solid var(--line); border-radius: 8px; }
+.deditor select { font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 2px 4px; margin-left: 4px; }
+.deditor .chk small { display: block; color: var(--muted); font-size: 10.5px; margin-left: 20px; }
+.dbtns { display: flex; gap: 4px; }
+.dbtns button { flex: 1; font-size: 11.5px; padding: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }
+.dbtns button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.dbtns button.danger { color: #c0584c; }
+#labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.dlabel { position: absolute; left: 0; top: 0; font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255, 255, 255, 0.85); color: var(--text); border: 1.5px solid var(--c); box-shadow: 0 2px 8px rgba(52, 64, 79, 0.12); }
+
+/* ---------- mini-map ---------- */
+#minimapBox { right: 14px; top: 14px; padding: 6px; line-height: 0; }
+#minimapBox[hidden] { display: none; }
+#minimap { width: 150px; height: 150px; border-radius: 8px; cursor: pointer; image-rendering: pixelated; touch-action: none; }
+
+/* ---------- graphs ---------- */
+#graphs { left: 50%; top: 14px; transform: translateX(-50%); width: min(560px, calc(100% - 200px)); max-height: calc(100% - 28px); overflow-y: auto; display: none; z-index: 5; }
+#graphs.open { display: block; }
+#graphs h3 { margin: 0 0 8px; font-size: 14px; }
+#graphs .x { position: absolute; right: 10px; top: 6px; background: none; border: 0; font-size: 18px; cursor: pointer; color: var(--muted); }
+.gbar { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.gtabs { display: flex; gap: 2px; background: var(--panel-2); border-radius: 10px; padding: 2px; }
+.gtabs button { border: 0; background: transparent; border-radius: 8px; padding: 4px 9px; font-size: 12px; cursor: pointer; color: var(--muted); }
+.gtabs button.on { background: #fff; color: var(--text); font-weight: 700; box-shadow: 0 1px 3px rgba(52, 64, 79, 0.1); }
+.gchart { margin-top: 10px; }
+.gtitle { font-size: 12px; font-weight: 700; }
+.glegend { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); margin: 3px 0; }
+.glegend i, .gtip i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+.gwrap { position: relative; }
+.gwrap canvas { width: 100%; height: 150px; display: block; }
+.gtip { position: absolute; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 9px; font-size: 11.5px; box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; }
+.gtip b { font-variant-numeric: tabular-nums; }
+.gtable { margin-top: 10px; font-size: 12px; }
+.gtable summary { cursor: pointer; color: var(--muted); }
+.gtable table { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.gtable th, .gtable td { text-align: right; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.gtable th:first-child, .gtable td:first-child { text-align: left; }
+@media (max-width: 1600px) { #cityName { max-width: 110px; font-size: 14px; } #topbar { gap: 11px; } .gauge .gt { width: 34px; } }
+#date { white-space: nowrap; }
+.stat:has(#clock) { min-width: 104px; }
+@media (max-width: 1400px) { #cityName { max-width: 84px; } #topbar { gap: 7px; } .seg button { padding: 5px 7px; } .group button { padding: 6px 8px; } }

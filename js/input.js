@@ -1,20 +1,36 @@
 // Input: mouse painting, panning, zooming and keyboard shortcuts.
 
-import { TOOLS, applyTool, previewCost } from './economy.js';
+import { TOOLS, applyTool, previewCost, expandSelection } from './economy.js';
 import { refreshFields } from './simulation.js';
 import { OVERLAY_ORDER } from './overlays.js';
+import { footprintSize } from './map.js';
 
 const PAN_KEYS = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
   a: [-1, 0], d: [1, 0], w: [0, -1], s: [0, 1],
 };
 
-// Tiles covered by a drag for the given tool shape.
-export function tilesForDrag(map, shape, a, b) {
+// Tiles covered by a drag for the given tool shape. `size` is a landmark's [w, h] footprint.
+export function tilesForDrag(map, shape, a, b, size = [1, 1]) {
   const out = [];
   const clampX = (v) => Math.max(0, Math.min(map.width - 1, v));
   const clampY = (v) => Math.max(0, Math.min(map.height - 1, v));
   if (shape === 'single') return [map.idx(clampX(b.x), clampY(b.y))];
+  if (shape === 'footprint') {
+    // Centred on the cursor, row by row from the top-left (the anchor). Off-map tiles are
+    // dropped, which makes the placement invalid.
+    const [w, h] = size, ax = b.x - Math.floor((w - 1) / 2), ay = b.y - Math.floor((h - 1) / 2);
+    for (let y = ay; y < ay + h; y++) for (let x = ax; x < ax + w; x++) if (map.inBounds(x, y)) out.push(map.idx(x, y));
+    return out;
+  }
+  if (shape === 'circle') {
+    // Disc around the drag start, radius = drag length.
+    const r = Math.hypot(b.x - a.x, b.y - a.y);
+    for (let y = Math.floor(a.y - r); y <= Math.ceil(a.y + r); y++) for (let x = Math.floor(a.x - r); x <= Math.ceil(a.x + r); x++) {
+      if (map.inBounds(x, y) && Math.hypot(x - a.x, y - a.y) <= r + 0.35) out.push(map.idx(x, y));
+    }
+    return out;
+  }
   if (shape === 'line') {
     // L-shaped: along the longer axis first, then the other.
     const ax = clampX(a.x), ay = clampY(a.y), bx = clampX(b.x), by = clampY(b.y);
@@ -99,6 +115,16 @@ export class Input {
     this.updatePreview();
   }
 
+  // Landmarks show where they'd go while hovering, before any click.
+  hoverPreview() {
+    const g = this.game;
+    if (this.drag || this.pan || !TOOLS[g.tool]?.footprint) return;
+    if (!g.hover || !g.state.map.inBounds(g.hover.x, g.hover.y)) { g.preview = null; return; }
+    this.drag = { start: g.hover, end: g.hover };
+    this.updatePreview();
+    this.drag = null;
+  }
+
   onMove(e) {
     const p = this.localPos(e);
     const t = this.renderer.screenToTile(p.x, p.y);
@@ -112,7 +138,7 @@ export class Input {
     } else if (this.drag) {
       this.drag.end = t;
       this.updatePreview();
-    }
+    } else this.hoverPreview();
   }
 
   onUp() {
@@ -128,27 +154,31 @@ export class Input {
     this.drag = null;
     this.game.preview = null;
     if (!tiles.length) return;
-    const { applied, spent } = applyTool(state, this.game.tool, tiles);
+    const { applied, spent, undo } = applyTool(state, this.game.tool, tiles, this.game.toolArg);
     if (applied) {
+      this.game.lastUndo = undo;
       refreshFields(state);
       this.game.ui.flashCost(-spent);
     }
+    this.hoverPreview();
   }
 
   updatePreview() {
-    const map = this.game.state.map, tool = this.game.tool;
-    const shape = TOOLS[tool].shape;
-    const tiles = tilesForDrag(map, shape, this.drag.start, this.drag.end);
-    const cost = previewCost(this.game.state, tool, tiles);
-    this.game.preview = {
-      tiles: new Set(tiles),
-      ok: cost.count > 0 && (tool === 'bulldoze' || cost.total <= this.game.state.funds),
+    const g = this.game, map = g.state.map, tool = g.tool, def = TOOLS[tool];
+    // Zone-style tools can paint with a line or circle brush instead of a rectangle.
+    const shape = def.shape === 'rect' && g.brush !== 'rect' ? g.brush : def.shape;
+    const tiles = tilesForDrag(map, shape, this.drag.start, this.drag.end, def.footprint ? footprintSize(def.building) : undefined);
+    const cost = previewCost(g.state, tool, tiles, g.toolArg);
+    g.preview = {
+      tiles: new Set(expandSelection(map, tool, tiles)), // bulldozing part of a landmark shows all of it
+      ok: cost.count > 0 && (tool === 'bulldoze' || cost.total <= g.state.funds),
       cost,
     };
   }
 
   onKey(e) {
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z') { e.preventDefault(); this.game.undo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Shift') { document.body.classList.add('shift-pan'); return; }
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -174,6 +204,9 @@ export class Input {
         break;
       }
       case 'v': g.toggle3D(); break;
+      case 'b': g.cycleBrush(); break;
+      case 'g': g.ui.toggleGraphs(); break;
+      case 'n': g.toggleOverlay('education'); break;
       case 'q': this.renderer.rotateBy?.(-40, 0); break;
       case 'e': this.renderer.rotateBy?.(40, 0); break;
       case '=': case '+': this.renderer.zoomAt(g.state.map, this.renderer.viewW / 2, this.renderer.viewH / 2, 1.2); break;

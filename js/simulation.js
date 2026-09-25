@@ -3,17 +3,26 @@
 // services) plug into SYSTEMS without touching rendering.
 
 import { CONFIG } from './config.js';
-import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, isZone } from './map.js';
+import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, isZone, skilledShare } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
-import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem } from './services.js';
+import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem,
+  educationFieldSystem, educationMonthlySystem, isParkTile, AMENITY_KINDS } from './services.js';
+
+export const DEFAULT_CITY_NAME = 'My City';
+const CITY_NAMES = ['Willowbrook', 'Riverton', 'Maple Bay', 'Fairhaven', 'Linden Park', 'Ashford', 'Brightwater',
+  'Clearfield', 'Elm Harbor', 'Pine Hollow', 'Sunnydale', 'Oakridge', 'Millbrook', 'Harbor Point'];
+
+export function emptyHistory() {
+  return { samples: [] };
+}
 
 export function createGame(seed, size = CONFIG.map.defaultSize) {
   const map = generateMap(seed, size);
   const state = {
     map,
     tick: 0,
-    month: 0,
+    month: CONFIG.time.startMonth ?? 0,
     year: CONFIG.time.startYear,
     funds: CONFIG.economy.startingFunds,
     taxRate: CONFIG.economy.taxRate,
@@ -32,6 +41,10 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     loans: [],                // [{ monthsLeft, payment }]
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
+    cityName: CITY_NAMES[Math.floor(Math.random() * CITY_NAMES.length)],
+    districts: [],            // [{ id, name, color, policies: { height, noHeavyIndustry, taxBreak } }]
+    history: emptyHistory(),  // monthly samples for the graphs panel
+    education: 0,             // population-weighted skilled share of residents
   };
   runFieldSystems(state);
   computeStats(state);
@@ -43,8 +56,18 @@ function emptyStats() {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
     roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0, lights: 0, interchanges: 0,
     zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
-    services: {},             // count per public building kind
+    services: {},             // count per public building kind (landmarks count once)
+    taxBase: { r: 0, c: 0, i: 0 }, // taxable residents/jobs after education, high-tech and tax breaks
+    skilledJobs: 0, hightech: 0,
+    districts: {},            // id -> { population, jobs, happiness, homes }
   };
+}
+
+// Policies of the district tile i belongs to (null if none).
+export function districtAt(state, i) {
+  const id = state.map.district[i];
+  if (!id || !state.districts) return null;
+  return state.districts.find((d) => d.id === id) ?? null;
 }
 
 export function emit(state, text, kind = 'info') {
@@ -89,7 +112,10 @@ export function pollutionSystem(state) {
     if ((lv === 0 && t !== TILE.SERVICE) || map.hasFlag(i, FLAG.ABANDONED)) continue;
     let e = 0, r = 0;
     if (t === TILE.SERVICE && kindOf(map, i) === 'coal') { e = CONFIG.buildings.coal.pollution; r = CONFIG.buildings.coal.pollutionRadius; }
-    else if (t === TILE.IND) { e = P.industryEmission[lv]; r = P.industryRadius[lv]; }
+    else if (t === TILE.IND) {
+      e = P.industryEmission[lv] * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.emission : 1);
+      r = P.industryRadius[lv];
+    }
     else if (t === TILE.COM) { e = P.commercialEmission[lv]; r = P.commercialRadius[lv]; }
     if (e <= 0) continue;
     const x0 = i % w, y0 = (i / w) | 0;
@@ -124,7 +150,7 @@ export function pollutionSystem(state) {
       const x = x0 + dx, y = y0 + dy;
       if (x < 0 || y < 0 || x >= w || y >= h) continue;
       const j = y * w + x, self = dx === 0 && dy === 0;
-      if (map.type[j] === TILE.PARK) absorb += self ? P.parkAbsorb : P.parkAbsorb * 0.4;
+      if (isParkTile(map, j)) absorb += self ? P.parkAbsorb : P.parkAbsorb * 0.4;
       else if (map.hasFlag(j, FLAG.TREES)) absorb += self ? P.treeAbsorb : P.treeAbsorb * 0.3;
     }
     pol[i] = Math.max(0, Math.min(100, pol[i] - absorb));
@@ -168,8 +194,8 @@ export function landValueSystem(state) {
     v -= Math.min(L.abandonedCap, abB[i]);
     v -= map.crime[i] * CONFIG.crime.landValueWeight;
     const B = CONFIG.buildings, cov = map.coverage;
-    v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue
-      + Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
+    for (const k of AMENITY_KINDS) v += cov[k][i] * B[k].landValue;
+    v += Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight;
     lv[i] = Math.max(0, Math.min(100, v));
@@ -199,15 +225,37 @@ export function shopperSystem(state) {
 }
 
 export function computeStats(state) {
-  const map = state.map, cap = CONFIG.capacity;
+  const map = state.map, cap = CONFIG.capacity, E = CONFIG.education, cut = 1 - CONFIG.districts.taxBreakCut;
   const s = emptyStats();
+  const policies = new Map((state.districts ?? []).map((d) => [d.id, d.policies]));
+  let eduSum = 0;
+  for (const d of state.districts ?? []) s.districts[d.id] = { population: 0, jobs: 0, happiness: 0, homes: 0 };
   for (let i = 0; i < map.size; i++) {
     const t = map.type[i], lv = map.level[i];
     const abandoned = map.hasFlag(i, FLAG.ABANDONED);
     const alive = !abandoned && !map.hasFlag(i, FLAG.FIRE); // burning buildings are empty for now
-    if (t === TILE.RES) { s.zoned.r++; if (alive) s.population += cap.residential[lv]; }
-    else if (t === TILE.COM) { s.zoned.c++; if (alive) s.comJobs += cap.commercial[lv]; }
-    else if (t === TILE.IND) { s.zoned.i++; if (alive) s.indJobs += cap.industrial[lv]; }
+    const did = map.district[i], ds = did ? s.districts[did] : null;
+    const tax = did && policies.get(did)?.taxBreak ? cut : 1;
+    if (t === TILE.RES) {
+      s.zoned.r++;
+      if (alive) {
+        const pop = cap.residential[lv], edu = map.education[i] / 255;
+        s.population += pop;
+        eduSum += pop * edu;
+        s.taxBase.r += pop * (1 + E.taxBonus * edu) * tax;
+        if (ds && lv > 0) { ds.population += pop; ds.happiness += map.happiness[i] * pop; ds.homes++; }
+      }
+    } else if (t === TILE.COM || t === TILE.IND) {
+      if (t === TILE.COM) s.zoned.c++; else s.zoned.i++;
+      if (alive) {
+        const jobs = (t === TILE.COM ? cap.commercial : cap.industrial)[lv];
+        const ht = t === TILE.IND && lv > 0 && map.hasFlag(i, FLAG.HIGHTECH);
+        if (t === TILE.COM) { s.comJobs += jobs; s.taxBase.c += jobs * tax; } else { s.indJobs += jobs; s.taxBase.i += jobs * tax * (ht ? E.hightech.taxMult : 1); }
+        s.skilledJobs += jobs * skilledShare(map, i);
+        if (ht) s.hightech++;
+        if (ds) ds.jobs += jobs;
+      }
+    }
     else if (t === TILE.ROAD) {
       if (map.terrain[i] === TERRAIN.WATER) s.bridges++;
       else if (map.roadClass[i] === 1) s.avenues++;
@@ -217,11 +265,13 @@ export function computeStats(state) {
       if (map.hasFlag(i, FLAG.INTERCHANGE)) s.interchanges++;
     }
     else if (t === TILE.PARK) s.parks++;
-    else if (t === TILE.SERVICE) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }
+    else if (t === TILE.SERVICE && !map.part[i]) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }
     if (isZone(t) && abandoned) s.abandoned++;
   }
+  for (const ds of Object.values(s.districts)) ds.happiness = ds.population ? ds.happiness / ds.population : 0;
   s.jobs = s.comJobs + s.indJobs;
   s.workers = s.population * CONFIG.demand.workforceRatio;
+  state.education = s.population ? eduSum / s.population : 0;
   state.stats = s;
 }
 
@@ -300,7 +350,7 @@ export function evaluateTile(state, i) {
     const shoppers = map.shoppers[i];
     const TR = CONFIG.traffic;
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
-      + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus
+      + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus + map.coverage.stadium[i] * CONFIG.buildings.stadium.shopBonus
       - map.crime[i] / 100 * CONFIG.crime.businessWeight
       + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1);
     while (maxLevel > 1 && (lv < G.commercialLevelLV[maxLevel] || shoppers < G.commercialLevelShoppers[maxLevel])) maxLevel--;
@@ -311,6 +361,7 @@ export function evaluateTile(state, i) {
     }
   } else {
     const rd = map.accessRoadDist(i);
+    if (map.hasFlag(i, FLAG.HIGHTECH) && map.level[i] > 0) reasons.push('High-tech industry: clean, well paid, needs skilled workers');
     score = state.demand.i - map.crime[i] / 100 * CONFIG.crime.businessWeight;
     if (rd <= G.freightNear) score += G.freightBonus;
     else if (rd > G.freightFar) { score -= G.freightPenalty; reasons.push(`Long freight trip: ${rd} road tiles to the highway`); }
@@ -331,6 +382,31 @@ export function evaluateTile(state, i) {
       reasons.push(`${need} (caps density at ${levelName(maxLevel)})`);
     } else {
       reasons.push(`${need}. Required in ${state.utilityGrace} month${state.utilityGrace === 1 ? '' : 's'}`);
+    }
+  }
+  // District policies
+  const district = districtAt(state, i);
+  if (district) {
+    const P = district.policies;
+    if (P.height < maxLevel) { maxLevel = P.height; reasons.push(`${district.name}: height limit of ${levelName(P.height)} density`); }
+    if (t === TILE.IND && P.noHeavyIndustry && !map.hasFlag(i, FLAG.HIGHTECH) && maxLevel > 1) {
+      maxLevel = 1;
+      reasons.push(`${district.name} bans heavy industry: only small workshops or high-tech`);
+    }
+    if (P.taxBreak) score += CONFIG.districts.taxBreakBonus;
+  }
+  // Skilled jobs: denser businesses need educated workers.
+  if (t !== TILE.RES && map.level[i] > 0) {
+    const E = CONFIG.education, lv0 = map.level[i];
+    const posts = (t === TILE.COM ? CONFIG.capacity.commercial : CONFIG.capacity.industrial)[lv0] * skilledShare(map, i);
+    if (posts >= E.minSkilledPosts) {
+      const fill = map.skillFill[i];
+      const why = `Only ${Math.round(fill * 100)}% of its ${Math.round(posts)} skilled jobs are filled${map.coverage.school[i] < 0.05 ? ': build a school nearby' : ': more schools raise education'}`;
+      if (fill < E.growFill && maxLevel > lv0) { maxLevel = lv0; reasons.push(why); }
+      if (fill < E.declineFill) {
+        score -= E.penalty * (1 - fill);
+        if (!reasons.includes(why)) reasons.push(why);
+      }
     }
   }
   if (t !== TILE.RES && map.crime[i] > 30) {
@@ -375,6 +451,7 @@ export function growthSystem(state) {
       }
       continue;
     }
+    if (t === TILE.IND && level > 0) highTechCheck(state, i);
     if (level < ev.maxLevel && ev.score > G.growThreshold) {
       if (rng() < G.growChance * ev.score * G.levelGrowMult[level]) {
         map.level[i]++;
@@ -389,10 +466,30 @@ export function growthSystem(state) {
   }
 }
 
+// Industry in a well-educated area may turn high-tech (and back if education falls).
+function highTechCheck(state, i) {
+  const map = state.map, HT = CONFIG.education.hightech, rng = state.rng;
+  const ht = map.hasFlag(i, FLAG.HIGHTECH);
+  if (!ht && map.eduNearby[i] >= HT.minShare && map.skilledNearby[i] >= HT.minSkilled && rng() < HT.chance) {
+    map.setFlag(i, FLAG.HIGHTECH, true);
+    map.variant[i] = (rng() * 256) | 0;
+    map.version++;
+    if (!state.milestones.includes('hightech')) {
+      state.milestones.push('hightech');
+      const x = i % map.width, y = (i / map.width) | 0;
+      state.events.push({ text: 'Your first high-tech industry! Educated workers attract clean, well-paid jobs.', kind: 'good', x, y });
+    }
+  } else if (ht && map.eduNearby[i] < HT.revertShare && rng() < HT.chance) {
+    map.setFlag(i, FLAG.HIGHTECH, false);
+    map.version++;
+  }
+}
+
 function runFieldSystems(state) {
   roadSystem(state);
-  trafficSystem(state);
   coverageSystem(state);
+  educationFieldSystem(state);
+  trafficSystem(state);
   utilitySystem(state);
   pollutionSystem(state);
   landValueSystem(state);
@@ -411,6 +508,35 @@ function milestoneSystem(state) {
       emit(state, `Milestone: population ${m.toLocaleString()}!`, 'good');
     }
   }
+  for (const [k, B] of Object.entries(CONFIG.buildings)) {
+    if (!B.unlock || p < B.unlock || state.milestones.includes(`unlock:${k}`)) continue;
+    state.milestones.push(`unlock:${k}`);
+    emit(state, `Unlocked: ${B.label}! Find it in the Landmarks toolbar.`, 'good');
+  }
+}
+
+// One sample per month for the graphs panel. Old samples are thinned so long games stay small.
+export const HISTORY_SERIES = ['pop', 'jobs', 'funds', 'income', 'expenses', 'happiness', 'crime', 'education', 'commute', 'unemployed', 'congested'];
+function historySystem(state) {
+  if (state.tick % CONFIG.time.ticksPerMonth !== 0) return;
+  const s = state.stats, tr = state.traffic ?? {}, lm = state.lastMonth;
+  const h = state.history ??= emptyHistory();
+  h.samples.push({
+    y: state.year, m: state.month,
+    pop: s.population, jobs: s.jobs, funds: Math.round(state.funds),
+    income: lm?.income ?? 0, expenses: lm?.expenses ?? 0,
+    happiness: Math.round(state.happiness * 10) / 10, crime: Math.round(state.crime * 10) / 10,
+    education: Math.round(state.education * 1000) / 10,
+    commute: Math.round((tr.avgCommute ?? 0) * 10) / 10,
+    unemployed: Math.max(0, Math.round((tr.workers ?? 0) - (tr.employed ?? 0))),
+    congested: tr.congested ?? 0,
+  });
+  const max = CONFIG.history.maxSamples;
+  if (h.samples.length > max) {
+    // Drop every other sample from the oldest half: recent months stay monthly.
+    const half = Math.floor(max / 2);
+    h.samples = h.samples.slice(0, half).filter((_, k) => k % 2 === 0).concat(h.samples.slice(half));
+  }
 }
 
 // Ordered pipeline. Each entry: { name, run(state), every?: ticks }
@@ -418,6 +544,8 @@ export const SYSTEMS = [
   { name: 'roads', run: roadSystem },
   { name: 'traffic', run: trafficSystem, every: CONFIG.traffic.everyTicks },
   { name: 'coverage', run: coverageSystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'education', run: educationMonthlySystem },
+  { name: 'educationField', run: educationFieldSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'utilities', run: utilitySystem, every: CONFIG.utilities.everyTicks },
   { name: 'pollution', run: pollutionSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'landValue', run: landValueSystem, every: CONFIG.sim.fieldsEveryTicks },
@@ -431,6 +559,7 @@ export const SYSTEMS = [
   { name: 'stats2', run: computeStats },
   { name: 'milestones', run: milestoneSystem },
   { name: 'economy', run: economySystem },
+  { name: 'history', run: historySystem },
 ];
 
 export function tick(state) {

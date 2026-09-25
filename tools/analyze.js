@@ -27,6 +27,11 @@ if (net < 0 && state.funds > 0) console.log(`  runway: ~${Math.floor(state.funds
 console.log(`\n## Demand: homes ${pct(d.r)}, shops ${pct(d.c)}, industry ${pct(d.i)}`);
 const u = state.utilities;
 console.log(`Power ${u.power.demand}/${u.power.supply} · Water ${u.water.demand}/${u.water.supply} · happiness ${Math.round(state.happiness)} · crime ${Math.round(state.crime)} · fires ${state.fires}`);
+console.log(`Education: ${Math.round(state.education * 100)}% of residents skilled · ${Math.round(state.traffic.skilledOpen ?? 0)} of ${Math.round(state.traffic.skilledJobs ?? 0)} skilled jobs open · high-tech factories ${s.hightech}`);
+for (const d of state.districts ?? []) {
+  const ds = s.districts[d.id] ?? {}, P = d.policies;
+  console.log(`District ${d.name}: ${ds.population ?? 0} residents, ${ds.jobs ?? 0} jobs${P.height < 3 ? `, height ≤ ${['', 'low', 'medium'][P.height]}` : ''}${P.noHeavyIndustry ? ', no heavy industry' : ''}${P.taxBreak ? ', tax break' : ''}`);
+}
 console.log(`Traffic: avg commute ${Math.round(state.traffic.avgCommute)} min, ${Math.round(state.traffic.workers - state.traffic.employed)} can't reach jobs, ${state.traffic.congested} jammed road tiles`);
 
 // Zones by density and why they aren't growing

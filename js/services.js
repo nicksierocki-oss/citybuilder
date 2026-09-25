@@ -2,13 +2,20 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, SUPPLY, TERRAIN } from './map.js';
+import { TILE, FLAG, KINDS, SUPPLY, TERRAIN, footprintSize } from './map.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ZONE_KEY = { [TILE.RES]: 'residential', [TILE.COM]: 'commercial', [TILE.IND]: 'industrial' };
+// Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
+export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium'];
 
 export function kindOf(map, i) {
   return map.type[i] === TILE.SERVICE ? KINDS[map.kind[i]] : null;
+}
+
+// Park tiles, including the tiles of park landmarks: they absorb pollution and don't burn.
+export function isParkTile(map, i) {
+  return map.type[i] === TILE.PARK || (map.type[i] === TILE.SERVICE && !!CONFIG.buildings[KINDS[map.kind[i]]]?.park);
 }
 
 // How much a source tile produces of a resource ('power' | 'water').
@@ -26,8 +33,8 @@ export function useOf(map, i, res) {
   const U = CONFIG.utilities, t = map.type[i];
   if (t === TILE.SERVICE) {
     const k = kindOf(map, i);
-    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus') return 0;
-    return U.serviceUse;
+    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus' || CONFIG.buildings[k]?.park || map.part[i]) return 0;
+    return U.serviceUse * (CONFIG.buildings[k]?.size ? 3 : 1); // landmarks use more, counted on their anchor
   }
   const key = ZONE_KEY[t];
   if (!key || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED)) return 0;
@@ -107,23 +114,81 @@ export function utilitySystem(state) {
   state.utilities = summary;
 }
 
-// Coverage of schools, clinics, plazas and recycling centres (linear falloff over their radius).
+// Coverage of public buildings (linear falloff over their radius, measured from the footprint's edge).
 export function coverageSystem(state) {
   const map = state.map, { width: w, height: h } = map;
   for (const k of Object.keys(map.coverage)) map.coverage[k].fill(0);
   for (let i = 0; i < map.size; i++) {
     const k = kindOf(map, i);
-    if (!k || !map.coverage[k]) continue;
+    if (!k || !map.coverage[k] || map.part[i]) continue;
     const r = CONFIG.buildings[k].radius, layer = map.coverage[k];
+    const [fw, fh] = footprintSize(k);
     const x0 = i % w, y0 = (i / w) | 0;
-    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      const x = x0 + dx, y = y0 + dy;
-      if (x < 0 || y < 0 || x >= w || y >= h) continue;
-      const d = Math.hypot(dx, dy);
-      if (d > r) continue;
-      const v = 1 - d / (r + 1), j = y * w + x;
-      if (v > layer[j]) layer[j] = v;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(h - 1, y0 + fh - 1 + r); y++) {
+      const dy = y < y0 ? y0 - y : y > y0 + fh - 1 ? y - (y0 + fh - 1) : 0;
+      for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + fw - 1 + r); x++) {
+        const dx = x < x0 ? x0 - x : x > x0 + fw - 1 ? x - (x0 + fw - 1) : 0;
+        const d = Math.hypot(dx, dy);
+        if (d > r) continue;
+        const v = 1 - d / (r + 1), j = y * w + x;
+        if (v > layer[j]) layer[j] = v;
+      }
     }
+  }
+}
+
+// ---------------------------------------------------------------- education
+
+// Skilled share a neighbourhood's residents are heading toward.
+export function educationTarget(map, i) {
+  const E = CONFIG.education, c = map.coverage;
+  return Math.min(E.max, E.base + c.school[i] * E.school + c.university[i] * E.university);
+}
+
+// Monthly: each home's education drifts toward its target. Vacant lots take the target at once
+// (new arrivals are as educated as the area).
+export function educationMonthlySystem(state) {
+  if (state.tick % CONFIG.time.ticksPerMonth !== 0) return;
+  const map = state.map, rate = CONFIG.education.ratePerMonth;
+  for (let i = 0; i < map.size; i++) {
+    if (map.type[i] !== TILE.RES) continue;
+    const target = educationTarget(map, i) * 255, cur = map.education[i];
+    if (map.level[i] === 0) { map.education[i] = Math.round(target); continue; }
+    const diff = target - cur;
+    if (Math.abs(diff) < 0.5) continue;
+    const step = Math.sign(diff) * Math.max(1, Math.abs(diff) * rate);
+    map.education[i] = Math.max(0, Math.min(255, Math.round(cur + (Math.abs(step) > Math.abs(diff) ? diff : step))));
+  }
+}
+
+// Skilled residents (and their share) within the high-tech radius of every tile (summed-area table).
+// Also seeds education on maps that don't have it yet (new cities, older saves).
+export function educationFieldSystem(state) {
+  const map = state.map, { width: w, height: h } = map, cap = CONFIG.capacity.residential;
+  if (!map.educationReady) {
+    for (let i = 0; i < map.size; i++) if (map.type[i] === TILE.RES) map.education[i] = Math.round(educationTarget(map, i) * 255);
+    map.educationReady = true;
+  }
+  const r = CONFIG.education.hightech.radius, W = w + 1;
+  const pop = new Float64Array(W * (h + 1)), sk = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rp = 0, rs = 0;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (map.type[i] === TILE.RES && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+        const p = cap[map.level[i]];
+        rp += p; rs += p * map.education[i] / 255;
+      }
+      pop[(y + 1) * W + x + 1] = pop[y * W + x + 1] + rp;
+      sk[(y + 1) * W + x + 1] = sk[y * W + x + 1] + rs;
+    }
+  }
+  const box = (a, x0, y0, x1, y1) => a[y1 * W + x1] - a[y0 * W + x1] - a[y1 * W + x0] + a[y0 * W + x0];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const x0 = Math.max(0, x - r), y0 = Math.max(0, y - r), x1 = Math.min(w, x + r + 1), y1 = Math.min(h, y + r + 1);
+    const p = box(pop, x0, y0, x1, y1), s = box(sk, x0, y0, x1, y1), i = y * w + x;
+    map.skilledNearby[i] = s;
+    map.eduNearby[i] = p > 0 ? s / p : 0;
   }
 }
 
@@ -140,10 +205,10 @@ export function happinessSystem(state) {
     if (map.terrain[i] === TERRAIN.WATER) { map.happiness[i] = 0; continue; }
     const c = map.coverage;
     let v = H.base
-      + c.school[i] * B.school.happiness + c.clinic[i] * B.clinic.happiness + c.plaza[i] * B.plaza.happiness
       + Math.max(c.bus[i] * B.bus.happiness, c.metro[i] * B.metro.happiness)
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
+    for (const k of AMENITY_KINDS) v += c[k][i] * B[k].happiness;
     v -= map.crime[i] * CONFIG.crime.happinessWeight;
     if (map.hasFlag(i, FLAG.FIRE)) v -= 30;
     if (map.type[i] === TILE.RES) {
@@ -183,7 +248,7 @@ export function happinessReasons(state, i) {
 
 function isBuilding(map, i) {
   const t = map.type[i];
-  return ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) || t === TILE.SERVICE;
+  return ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) || (t === TILE.SERVICE && !isParkTile(map, i));
 }
 
 // Crime and fire risk for every building (0..100).
@@ -248,8 +313,13 @@ export function fireSystem(state) {
       // Burned down: the zone stays, the building is gone.
       map.setFlag(i, FLAG.FIRE, false);
       map.burn[i] = 0;
-      if (map.type[i] === TILE.SERVICE) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; }
-      else { map.level[i] = 0; map.setFlag(i, FLAG.ABANDONED, false); }
+      if (map.type[i] === TILE.SERVICE) {
+        // A landmark burns down as a whole.
+        for (const j of map.footprintTiles(i)) {
+          map.type[j] = TILE.EMPTY; map.kind[j] = 0; map.part[j] = 0;
+          map.setFlag(j, FLAG.FIRE, false); map.burn[j] = 0;
+        }
+      } else { map.level[i] = 0; map.setFlag(i, FLAG.ABANDONED, false); }
       map.version++;
       state.events.push({ text: `A building burned down at ${x0}, ${y0}. A fire station would have saved it.`, kind: 'bad', x: x0, y: y0 });
     }

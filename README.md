@@ -77,7 +77,34 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **Unattended fires:** a fire outside station cover can spread next door. After
      two months it burns the building down, leaving the zoned lot vacant.
    - **Alerts:** fire alerts are clickable. They jump the camera to the fire.
-10. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+10. **Educate.** Each home has a share of *skilled* residents. Without schooling it's 20%;
+   a school adds up to 40 points nearby and a university up to 35 more, and the share
+   moves toward its target over a couple of years. Denser shops (25–50% of jobs),
+   factories (10–20%) and high-tech industry (60%) need skilled workers: a business
+   whose skilled posts stay empty can't grow denser and eventually shrinks. Skilled
+   residents also pay up to 50% more tax. Industry in a well-educated area (45%+ skilled
+   within 10 tiles) can turn **high-tech**: a quarter of the pollution, half the trucks and
+   1.8× the tax. The **Education** overlay (`N`) shows it.
+11. **Landmarks** unlock with population and cover several tiles:
+   - **Town park** (2×2, $400) and **Central park** (3×3 with a pond, 1,000 residents):
+     big land-value and happiness boosts, and they clean the air.
+   - **University** (3×2, 1,500 residents): educates residents within 14 tiles.
+   - **Stadium** (3×3, 2,500 residents): happier residents and busier shops across 16 tiles,
+     plus ticket income that grows with the city (up to $180/month).
+   Hover to see the footprint before you click; bulldozing any tile removes (and refunds) the whole landmark.
+12. **Districts.** In the sidebar, **+ New** creates a district; drag on the map to paint it
+   (Erase removes tiles). Rename it and set its policies:
+   - **Height limit:** medium at most, or low-rise only.
+   - **No heavy industry:** factories stay small unless they're high-tech.
+   - **Tax break:** 50% less tax there, and faster growth.
+   Names float over the map, and the **Districts** overlay colours them in.
+13. **Watch the seasons and the clock.** Grass, trees and parks follow the seasons
+   (blossom in spring, gold in autumn, snow on roofs in winter). Evenings bring street
+   lamps, lit windows and headlights; turn the cycle off under **City → Day & night**.
+14. **Look back.** Click **Population** (or press `G`) for the city history graphs:
+   population and jobs, funds, income and upkeep, commute and jams, happiness, crime and
+   education, over 2 years, 10 years or the whole game.
+15. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
    drains. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
@@ -103,16 +130,20 @@ There's an optional **3D view**, built with Three.js. The library is included in
 | Action | Input |
 | --- | --- |
 | Tools | Grouped in the sidebar. Hover a tool for its cost and what it does. `1` Street · `7` Avenue · `8` Highway · `9` Upgrade road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
-| Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles |
+| Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles, or a one-tile line or a circle with the **Brush** buttons (`B` cycles) |
+| Undo | `Ctrl`+`Z` or **↶** in the top bar undoes the last build and returns the money |
+| City name | Click the name in the top-left corner |
+| Mini-map | Top-right. Click or drag to move the camera; hide it from the **City** menu |
 | Pan | `WASD` / arrow keys, **`Shift` + drag** (any button) or **`Shift` + scroll**, middle-drag, right-drag (2D), or left-drag with the Inspect tool |
 | 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits and `Q`/`E` rotate |
 | Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution · `H` happiness · `M` transit · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
+| Overlays | `L` land value · `P` pollution · `H` happiness · `N` education · `M` transit · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
 | Start over | **Reset** (top bar) restarts on a fresh map of the same size. The **City** menu has New city (pick a size), Expand map, Save and Load |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
+| Graphs | Click **Population** in the top bar, or press `G` |
 | Taxes | `−` / `+` in the top bar (higher tax = more income, less demand) |
 
 **Save / Load** download the city as a JSON file and load it back. The game also
@@ -176,6 +207,9 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
    Abandoned buildings recover when conditions improve. Tiles cut off from the road
    network decline.
 9. **Economy.** At each month boundary, taxes minus upkeep go into funds. Debt counts down to bankruptcy.
+   Taxes use a *tax base*: residents weighted by education, high-tech jobs by 1.8, and tax-break districts halved.
+10. **Education and history.** Once a month each home's skilled share drifts toward what its schools
+    support, and a sample of the city's numbers is stored for the graphs.
 
 The **tile info panel** explains why a tile isn't growing, for example "Needs a road next
 to it", "Land value 34 caps density at low (needs 40)", or "Only 45 residents
@@ -201,8 +235,10 @@ node tools/analyze.js save.json  # report on one of your saved cities (City → 
 Current results (seed 12345):
 
 - **Sensible layout** (streets only; builds wind, a pump, then coal, a school and a clinic as demand appears):
-  1,000 people by month 24 (about 77 s at 1×) and about 2,000 by year 6, earning about +$610/month.
-- **Same layout with avenues:** 1,000 by month 21 and about 2,300 by year 6.
+  1,000 people by month 27 (about 86 s at 1×) and about 1,600 by year 6, earning about +$480/month.
+- **Same layout with avenues:** 1,000 by month 22 and about 2,000 by year 6.
+- **Planner** (the sensible layout plus a low-rise tax-break district, an early school, a town park and
+  a university): 1,000 by month 32, solvent, with the university from month 48.
 - **Sprawl** (road grid, industry mixed into housing, no utilities): stalls around 440 people with a small deficit.
 - **Eager builder** (every public building in the first year): used to run out of money and stall.
   With the current costs it stays solvent (about $9,000 in hand after 6 years) and the advisor
@@ -221,7 +257,10 @@ js/map.js           GameMap: grid of typed-array layers + map generator (river, 
 js/simulation.js    systems pipeline: roads, traffic, pollution, land value, demand, growth, stats
 js/traffic.js       commuting, freight, congestion (Dijkstra over the road graph)
 js/services.js      power & water networks, service coverage, happiness
-js/overlays.js      overlay registry (values, colours, legends) shared by both views
+js/overlays.js      overlay registry (values, colours, legends) shared by both views; district borders
+js/seasons.js       season palettes and the day/night clock (pure functions)
+js/graphs.js        city history graphs panel
+js/minimap.js       mini-map
 js/economy.js       tools, build costs, monthly budget, bankruptcy
 js/renderer.js      2D canvas drawing, camera (pan/zoom), overlays
 js/renderer3d.js    3D view (Three.js): instanced buildings (two designs per zone & density,
@@ -235,7 +274,8 @@ tools/playtest.js   headless balance test (Node)
 ```
 
 **Data model.** `GameMap` stores one flat typed array per layer.
-- Persistent layers: `terrain`, `type` (empty/road/R/C/I/park), `level` (0 = vacant lot, 1–3 = density), `flags` (trees, abandoned), `variant` (cosmetic).
+- Persistent layers: `terrain`, `type` (empty/road/R/C/I/park/public), `level` (0 = vacant lot, 1–3 = density), `flags` (trees, abandoned, fire, lights, interchange, high-tech), `variant` (cosmetic), `roadClass`, `kind` (public building), `part` (which tile of a multi-tile landmark: 0 = the top-left anchor), `district`, `education`.
+- Districts, history samples and the city name are saved alongside the map.
 - Derived layers, recomputed by systems: `pollution`, `landValue`, `roadDist`, `shoppers`.
 
 **Views.** Both renderers expose the same small interface: `render`, `screenToTile`,
