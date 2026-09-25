@@ -181,6 +181,45 @@ export const CONFIG = {
     university:  { label: 'University',   cost: 6000, upkeep: 90, size: [3, 2], radius: 14, landValue: 10, happiness: 6,  unlock: 1500 },
     stadium:     { label: 'Stadium',      cost: 8000, upkeep: 60, size: [3, 3], radius: 16, landValue: 6,  happiness: 10, shopBonus: 0.2, unlock: 2500,
       income: 180, visitorsAt: 8000 }, // ticket income reaches `income` at `visitorsAt` residents
+    // Unlocked by a high mayor rating (see `mayor.statueRating`), not population.
+    statue:      { label: "Mayor's statue", cost: 500, upkeep: 5, radius: 6, landValue: 8, happiness: 6, unlockRating: 80 },
+  },
+
+  // City-wide ordinances: monthly cost = base + perResident × population.
+  ordinances: {
+    recycling:   { label: 'Recycling programme', base: 20, perResident: 0.02, pollutionCut: 0.15,
+      text: 'Kerbside recycling: 15% less pollution everywhere.' },
+    freeTransit: { label: 'Free public transit', base: 30, perResident: 0.02, shareMult: 1.35,
+      text: 'No fares: 35% more people ride buses and metro (needs stops to matter).' },
+    watch:       { label: 'Neighbourhood watch', base: 10, perResident: 0.015, crimeCut: 0.15,
+      text: 'Residents look out for each other: 15% less crime.' },
+    smoke:       { label: 'Smoke detectors', base: 10, perResident: 0.01, fireCut: 0.25,
+      text: 'Required in every building: 25% less fire risk.' },
+    tourism:     { label: 'Tourism campaign', base: 60, perResident: 0, visitorMult: 1.5,
+      text: 'Advertise your landmarks: 50% more ticket income from visitors.' },
+    carFree:     { label: 'Car-free Sundays', base: 5, perResident: 0, trafficCut: 0.07, happiness: 4, shopPenalty: 0.03,
+      text: '7% less traffic and happier residents, but shops sell a little less.' },
+  },
+
+  // Mayor rating (0..100), updated monthly from how the city is doing.
+  mayor: {
+    start: 50,
+    smoothing: 0.15,         // share of the gap to the target closed each month
+    weights: { happiness: 0.35, budget: 0.2, safety: 0.15, commute: 0.15, jobs: 0.15 },
+    grantRating: 70,         // at or above this in January: a council grant...
+    grantPerResident: 2,     // ...of this much per resident
+    grantMax: 20000,
+    statueRating: 80,        // unlocks the Mayor's statue
+    protestRating: 30,       // below this, residents protest (news)
+  },
+
+  // Goal rewards and news cadence (the goals themselves are in js/goals.js).
+  goals: {
+    rewardScale: 1,          // multiply every goal's cash reward
+  },
+  news: {
+    chirpsPerMonth: 2,
+    keep: 30,                // news items kept
   },
 
   utilities: {

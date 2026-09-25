@@ -3,6 +3,8 @@
 import { GameMap, TILE, highwayEntry, PERSISTENT_LAYERS } from './map.js';
 import { CONFIG } from './config.js';
 import { refreshFields, emptyHistory, DEFAULT_CITY_NAME } from './simulation.js';
+import { CHAINS, SCENARIOS, emptyGoals, startChain } from './goals.js';
+import { ORDINANCE_ORDER } from './cityhall.js';
 
 const VERSION = 4;
 const LAYERS = PERSISTENT_LAYERS;
@@ -40,6 +42,14 @@ export function serialize(state) {
     cityName: state.cityName,
     districts: state.districts ?? [],
     history: state.history,
+    ordinances: state.ordinances ?? {},
+    rating: state.rating,
+    goals: state.goals,
+    scenario: state.scenario,
+    achievements: state.achievements ?? [],
+    news: (state.news ?? []).slice(-CONFIG.news.keep),
+    loansPaid: state.loansPaid ?? 0,
+    positiveMonths: state.positiveMonths ?? 0,
   };
 }
 
@@ -96,6 +106,15 @@ export function deserialize(data) {
     cityName: typeof data.cityName === 'string' && data.cityName.trim() ? data.cityName.slice(0, 40) : DEFAULT_CITY_NAME,
     districts: readDistricts(data.districts),
     history: readHistory(data.history),
+    ordinances: Object.fromEntries(ORDINANCE_ORDER.filter((k) => data.ordinances?.[k]).map((k) => [k, true])),
+    rating: Number.isFinite(data.rating) ? data.rating : CONFIG.mayor.start,
+    goals: data.goals && (data.goals.chain == null || CHAINS[data.goals.chain])
+      ? { ...emptyGoals(), ...data.goals, done: Array.isArray(data.goals.done) ? data.goals.done : [] } : null,
+    scenario: data.scenario && SCENARIOS[data.scenario.id] ? { banned: [], ...data.scenario } : null,
+    achievements: Array.isArray(data.achievements) ? data.achievements : [],
+    news: Array.isArray(data.news) ? data.news : [],
+    loansPaid: data.loansPaid | 0,
+    positiveMonths: data.positiveMonths | 0,
   };
   // Tiles pointing at a district that no longer exists lose it.
   const ids = new Set(state.districts.map((d) => d.id));
@@ -110,6 +129,8 @@ export function deserialize(data) {
     }
   }
   refreshFields(state);
+  // Cities saved before goals existed start on the career goals, skipping what they've already done.
+  if (!state.goals) startChain(state, 'career');
   return state;
 }
 

@@ -7,7 +7,8 @@ import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
 import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave } from './save.js';
-import { undoAction } from './economy.js';
+import { undoAction, applyTool } from './economy.js';
+import { createScenario, SCENARIOS } from './goals.js';
 import { environment } from './seasons.js';
 import { startUpdater } from './updater.js';
 
@@ -151,6 +152,15 @@ const game = {
     for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(map, view.x + dx, view.y + dy);
     this.ui.toast(`The city now spans ${size}×${size}. New land on every side!`, 'good', 4500);
     autosave(s);
+  },
+  newScenario(id) {
+    clearAutosave();
+    this.ui.toast('Setting up the scenario…', 'info', 1200);
+    const state = createScenario(id, { createGame, applyTool, tick, refreshFields, highwayEntry });
+    this.setState(state);
+    this.setSpeed(0);
+    this.ui.cityhall.toggle(true);
+    this.ui.toast(`${SCENARIOS[id].name}: ${SCENARIOS[id].blurb} Press Space to start.`, 'good', 7000);
   },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {

@@ -2,6 +2,7 @@
 
 import { CONFIG } from './config.js';
 import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, PERSISTENT_LAYERS, isZone, footprintSize } from './map.js';
+import { ordinance, ordinancesCost } from './cityhall.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -34,13 +35,17 @@ export const TOOLS = {
   centralpark: { label: 'Central park', shape: 'footprint', building: 'centralpark', footprint: true },
   university:  { label: 'University',   shape: 'footprint', building: 'university', footprint: true },
   stadium:     { label: 'Stadium',      shape: 'footprint', building: 'stadium', footprint: true },
+  statue:      { label: "Mayor's statue", shape: 'single', building: 'statue' },
   // Paints the selected district (arg = district id, 0 erases)
   district:    { label: 'Paint district', shape: 'rect' },
 };
 
 // Is a building available yet? Landmarks unlock at a population and stay unlocked.
+// Scenarios can ban tools (state.scenario.banned).
 export function isUnlocked(state, kind) {
   const B = CONFIG.buildings[kind];
+  if (state.scenario?.banned?.includes(kind)) return false;
+  if (B?.unlockRating) return state.milestones.includes(`unlock:${kind}`);
   return !B?.unlock || state.milestones.includes(`unlock:${kind}`) || state.stats.population >= B.unlock;
 }
 
@@ -75,6 +80,7 @@ export function toolCost(state, tool, i, arg = 0) {
   const trees = map.hasFlag(i, FLAG.TREES) ? C.clearTrees : 0;
   const def = TOOLS[tool];
   if (def?.building) {
+    if (!def.footprint && !isUnlocked(state, def.building)) return null;
     if (water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
     if (isZone(t) && map.level[i] > 0) return null;
     return def.footprint ? trees : CONFIG.buildings[def.building].cost + trees;
@@ -272,7 +278,7 @@ export function visitorIncome(state) {
     const B = CONFIG.buildings[k];
     if (B?.income) total += n * B.income * Math.min(1, state.stats.population / B.visitorsAt);
   }
-  return total;
+  return total * (ordinance(state, 'tourism') ? CONFIG.ordinances.tourism.visitorMult : 1);
 }
 
 // What this month's budget looks like with the current city.
@@ -295,6 +301,7 @@ export function monthlyBudget(state) {
     utilities: 0,
     services: 0,
     loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
+    ordinances: ordinancesCost(state),
   };
   for (const [k, n] of Object.entries(s.services || {})) {
     const upkeep = n * CONFIG.buildings[k].upkeep;
@@ -319,8 +326,10 @@ export function economySystem(state) {
     for (const l of state.loans) l.monthsLeft--;
     const done = state.loans.filter((l) => l.monthsLeft <= 0).length;
     state.loans = state.loans.filter((l) => l.monthsLeft > 0);
-    if (done) push(state, 'A loan has been paid off!', 'good');
+    if (done) { state.loansPaid = (state.loansPaid ?? 0) + done; push(state, 'A loan has been paid off!', 'good'); }
   }
+
+  state.positiveMonths = net >= 0 ? (state.positiveMonths ?? 0) + 1 : 0;
 
   // Early warning while there is still time to act.
   const E = CONFIG.economy;
@@ -368,6 +377,26 @@ export function takeLoan(state) {
   state.funds += E.loanAmount;
   if (state.funds >= 0) state.negativeMonths = 0;
   push(state, `Borrowed $${E.loanAmount.toLocaleString()}: $${E.loanPayment}/month for ${E.loanMonths / 12} years.`, 'good');
+  return true;
+}
+
+// Paying a loan off early costs what's left of it, minus the interest not yet charged.
+export function loanPayoff(loan) {
+  const E = CONFIG.economy;
+  return Math.round(loan.monthsLeft * loan.payment * (E.loanAmount / (E.loanMonths * E.loanPayment)));
+}
+
+// Repay the loan that's cheapest to clear. Returns false if there's none or not enough money.
+export function repayLoan(state) {
+  const loans = state.loans ?? [];
+  if (!loans.length) return false;
+  const k = loans.reduce((best, l, n) => (loanPayoff(l) < loanPayoff(loans[best]) ? n : best), 0);
+  const cost = loanPayoff(loans[k]);
+  if (cost > state.funds) return false;
+  state.funds -= cost;
+  state.loans = loans.filter((_, n) => n !== k);
+  state.loansPaid = (state.loansPaid ?? 0) + 1;
+  push(state, `Loan repaid early for $${cost.toLocaleString()}.`, 'good');
   return true;
 }
 

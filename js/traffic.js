@@ -4,6 +4,7 @@
 
 import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, JUNCTION, skilledShare } from './map.js';
+import { ordinance } from './cityhall.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -174,6 +175,7 @@ export function trafficSystem(state) {
     return stations.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B[s.k].radius && s.left > 0);
   };
   let transitRiders = 0;
+  const shareMult = ordinance(state, 'freeTransit') ? CONFIG.ordinances.freeTransit.shareMult : 1;
 
   let totalWorkers = 0, totalEmployed = 0, totalMinutes = 0;
   let leftS = 0, leftU = 0; // this home's skilled / unskilled workers still looking
@@ -198,7 +200,7 @@ export function trafficSystem(state) {
     // (buses and metro form separate networks). Riders never touch the roads.
     if (stations.length) {
       for (const from of nearStations(home).sort((a, b) => B[b.k].share - B[a.k].share)) {
-        let want = Math.min(left, workers * B[from.k].share, from.left);
+        let want = Math.min(left, workers * Math.min(0.95, B[from.k].share * shareMult), from.left);
         if (want <= 0) continue;
         const dests = stations.filter((s) => s.k === from.k && s.left > 0)
           .sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
@@ -293,6 +295,8 @@ export function trafficSystem(state) {
 
   // --- smooth volumes (keeps routes from flip-flopping), then passing traffic per tile
   let congested = 0;
+  const carFree = ordinance(state, 'carFree') ? 1 - CONFIG.ordinances.carFree.trafficCut : 1;
+  if (carFree < 1) for (let i = 0; i < size; i++) volume[i] *= carFree;
   for (let i = 0; i < size; i++) {
     map.traffic[i] = isNode[i] ? map.traffic[i] * T.smoothing + volume[i] * (1 - T.smoothing) : 0;
     if (isNode[i] && roadLoad(map, i) > 1) congested++;

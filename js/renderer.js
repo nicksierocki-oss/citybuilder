@@ -903,6 +903,15 @@ export class Renderer {
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(px + 13, py + 11.5, 3.5, 0.3, Math.PI * 1.7); ctx.stroke();
         break;
+      case 'statue':
+        // Bronze mayor on a stone plinth, with a ring of flowers
+        ctx.fillStyle = this.env.snow > 0.5 ? '#eef2f5' : '#e9b8b0';
+        for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; ctx.beginPath(); ctx.arc(px + 16 + Math.cos(a) * 11, py + 16 + Math.sin(a) * 11, 2, 0, Math.PI * 2); ctx.fill(); }
+        this.box(px + 10, py + 10, 12, 12, 3, '#e4ddd0', false, 2.5);
+        this.round(px + 16, py + 16, 3.6, '#b08a4e', 7);
+        ctx.fillStyle = '#d6b273';
+        ctx.beginPath(); ctx.arc(px + 15, py + 15, 1.4, 0, Math.PI * 2); ctx.fill();
+        break;
       default:
         break;
     }

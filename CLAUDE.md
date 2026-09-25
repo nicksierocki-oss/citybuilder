@@ -11,17 +11,36 @@ The owner plans features from the **Roadmap** below. At the start of a session, 
 roadmap and ask which items to build (or take the one they name). When an item ships,
 move it to **Done** with a one-line note.
 
-## Roadmap (next features, most impactful first)
+## Roadmap (build in phase order)
 
-The last roadmap was built in full (see Done). Ideas for the next one:
+We're in app-development mode (gameplay first, not distribution).
 
-1. **Disasters and weather events.** Storms and floods by season; the fire service already exists.
-2. **Neighbouring cities and trade.** Sell power or water, import workers, export goods.
-3. **Richer district policies.** Neighbourhood watch, green district, parking limits.
-4. **More landmarks.** Airport, harbour, hospital; tourism as its own demand.
-5. **Achievements and scenarios.** Start from a challenge map with goals.
+**Phase A (the game loop) is done** (see Done). Next up: Phase B.
+
+**Phase B: economic depth**
+4. **Service budgets, hospital, garbage.** Funding sliders per service (scale coverage and upkeep);
+   hospital landmark and a `health` layer; trash, landfill and a Garbage overlay.
+5. **Specialised zones.** Offices (skilled, clean, high tax), farms, tourism/hotels, mixed-use.
+6. **Neighbouring cities and trade.** Sell or buy power and water at edge connections; exports
+   grow with highway exits; a Region panel.
+
+**Phase C: living systems**
+7. **Weather and disasters.** Floods (levee tool), heatwaves, winter storms, rare tornadoes;
+   rain and snow particles; Disasters off / mild / full.
+8. **Transit 2.0.** Drawn bus lines with frequency and cost, buses on the roads, a lines panel;
+   then tram and rail tracks and a regional train station.
+
+**Phase D: engine-level (own branch each, extra save-compatibility testing)**
+9. **Road tools 2.0.** One-way streets, roundabouts, parking; diagonal roads last.
+10. **Terrain.** Height layer, hills and coastline maps, slope costs, terraforming.
 
 ## Done (recent)
+
+- Phase A: goals (tutorial then career chain, cash rewards), four scenarios with deadlines and
+  banned tools (`js/goals.js`, seeded setup), achievements (per browser), city news (`js/news.js`,
+  own RNG so it never changes the sim), ordinances and mayor rating (`js/cityhall.js`), Mayor's
+  statue, early loan repayment. UI in `js/cityhall-ui.js`. Scenario playtests in `tools/playtest.js`
+  (`QUICK=1` skips them); the scripted players are modest, so not every scenario is won by script.
 
 - Seasons (palette blends by month; snow on roofs) and a day/night cycle (lamps, lit windows,
   headlights, floodlights; toggle under City menu) in 2D and 3D. `js/seasons.js`.

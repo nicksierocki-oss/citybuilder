@@ -105,10 +105,22 @@ There's an optional **3D view**, built with Three.js. The library is included in
 14. **Look back.** Click **Population** (or press `G`) for the city history graphs:
    population and jobs, funds, income and upkeep, commute and jams, happiness, crime and
    education, over 2 years, 10 years or the whole game.
-15. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+15. **City hall.** The card at the bottom left shows your **mayor rating** and the current goal;
+   click it for the City hall panel.
+   - **Goals:** a guided first city, then career goals, each paying a cash reward.
+   - **Ordinances:** city-wide rules with a monthly fee: recycling, free transit,
+     neighbourhood watch, smoke detectors, a tourism campaign and car-free Sundays.
+   - **Rating:** drifts toward how the city is doing (happiness, budget, safety, commutes, jobs).
+     At 70+ the council pays a grant each January; at 80+ you unlock the Mayor's statue; under 30, protests.
+   - **Achievements** are remembered in your browser across cities.
+16. **Scenarios.** City → *New city or scenario* offers challenge maps with goals and a deadline:
+   Boomtown, River Town (no coal), Green City and Rust Belt (fix a polluted, indebted town).
+17. **City news** (top right) has residents and business owners saying what bothers them at
+   their address (click one to fly there), plus a monthly headline.
+18. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
-   drains. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
+   drains. Loans can be repaid early from the same panel. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
    and the council takes over.
 
 ### Strategy: staying solvent
@@ -262,6 +274,10 @@ js/overlays.js      overlay registry (values, colours, legends) shared by both v
 js/seasons.js       season palettes and the day/night clock (pure functions)
 js/graphs.js        city history graphs panel
 js/minimap.js       mini-map
+js/goals.js         goal chains, scenarios, achievements (pure)
+js/news.js          citizen posts and headlines (pure)
+js/cityhall.js      ordinances and mayor rating (pure)
+js/cityhall-ui.js   goal card, City hall panel, news feed
 js/economy.js       tools, build costs, monthly budget, bankruptcy
 js/renderer.js      2D canvas drawing, camera (pan/zoom), overlays
 js/renderer3d.js    3D view (Three.js): instanced buildings (two designs per zone & density,

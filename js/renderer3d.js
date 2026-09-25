@@ -735,6 +735,13 @@ export class Renderer3D {
         P(this.rboxes, 0.36, -0.28, 0.18, 0.18, 0, 1.0, S.fireTrim); // hose-drying tower
         P(this.rboxes, 0.36, 0.3, 0.14, 0.3, 0, 0.13, S.fireTrim);   // engine
         break;
+      case 'statue':
+        P(this.rboxes, 0, 0, 0.36, 0.36, 0, 0.3, '#e4ddd0');
+        P(this.cylinders, 0, 0, 0.12, 0.12, 0.3, 0.32, '#a8834a');
+        P(this.blobs, 0, 0, 0.12, 0.12, 0.6, 0.12, '#a8834a');
+        P(this.boxes, 0.08, 0, 0.18, 0.04, 0.46, 0.04, '#a8834a'); // raised arm
+        for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; P(this.blobs, Math.cos(a) * 0.34, Math.sin(a) * 0.34, 0.1, 0.1, 0, 0.08, this.snowy(COL.leaves[k % 3])); }
+        break;
       case 'recycling':
         P(this.rboxes, -0.08, -0.12, 0.66, 0.5, 0, 0.42, S.recycling);
         P(this.roofs, -0.08, -0.12, 0.7, 0.54, 0.42, 0.12, '#b3d6aa');

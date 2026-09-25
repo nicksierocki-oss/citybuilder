@@ -1,7 +1,8 @@
 // Headless balance playtest: runs the real simulation with scripted players.
 // Usage: node tools/playtest.js
 import { createGame, tick, refreshFields, evaluateTile } from '../js/simulation.js';
-import { applyTool, budgetAdvice } from '../js/economy.js';
+import { applyTool, budgetAdvice, takeLoan, repayLoan, loanPayoff } from '../js/economy.js';
+import { createScenario, SCENARIOS, homePollution } from '../js/goals.js';
 import { CONFIG } from '../js/config.js';
 import { TILE, TERRAIN, highwayEntry } from '../js/map.js';
 const SIZE = 40; // the scripted layouts below were designed for the small map
@@ -28,7 +29,7 @@ function riverX(state, y) {
 
 // A sensible player: a small street grid, mixed zoning, a park, grows as demand appears.
 function sensible(state, avenues = false) {
-  const H = H0;
+  const H = highwayEntry(state.map.width, state.map.height).row;
   const rx = Math.min(riverX(state, H - 6), riverX(state, H + 6), riverX(state, H)) - 2;
   const plan = [
     () => {
@@ -163,6 +164,68 @@ function planner(state) {
   };
 }
 
+// Green City: the sensible layout minus coal (banned), plus parks, trees and a recycling centre.
+function greenPlayer(state) {
+  const H = highwayEntry(state.map.width, state.map.height).row, base = sensible(state);
+  state.ordinances.recycling = true;
+  return (month) => {
+    base(month);
+    const u = state.utilities, at = (k, x, y) => applyTool(state, k, [state.map.idx(x, y)]).applied;
+    if (month > 6 && u.power.demand > 0.8 * u.power.supply && state.funds > 1500) for (const [x, y] of [[11, H + 1], [10, H + 1], [11, H - 1], [10, H - 1], [11, H + 2], [10, H + 2], [9, H + 4]]) if (at('wind', x, y)) break;
+    if (month === 10) applyTool(state, 'trees', rect(state, 2, H - 6, 9, H - 4));
+    if (month === 20) at('recycling', 12, H - 8);
+    if (month === 26) applyTool(state, 'trees', rect(state, 2, H + 8, 12, H + 9));
+  };
+}
+
+// Rust Belt rescue: borrow to rebuild, swap coal for wind, move the factories away from homes,
+// add schools and a clinic early, then repay the loans before the deadline.
+function rescue(state) {
+  const m = state.map, H = highwayEntry(m.width, m.height).row;
+  applyTool(state, 'bulldoze', [...rect(state, 20, H - 8, 21, H - 1), m.idx(12, H + 1)]);
+  for (const [x, y] of [[12, H + 1], [11, H + 1]]) applyTool(state, 'wind', [m.idx(x, y)]);
+  applyTool(state, 'residential', rect(state, 20, H - 8, 21, H - 1));
+  applyTool(state, 'school', [m.idx(12, H - 5)]);
+  state.taxRate = 9;
+  return (month) => {
+    const at = (k, x, y) => applyTool(state, k, [m.idx(x, y)]).applied;
+    const u = state.utilities;
+    if (u.power.demand > 0.85 * u.power.supply && state.funds > 1200) for (const [x, y] of [[11, H - 1], [10, H + 1], [10, H - 1], [11, H + 2]]) if (at('wind', x, y)) break;
+    if (u.water.demand > u.water.supply && state.funds > 1000) for (const [x, y] of [[12, H + 3], [11, H + 3], [12, H + 7]]) if (at('pump', x, y)) break;
+    if (month === 12 && state.funds > 2000) applyTool(state, 'park', rect(state, 11, H - 4, 11, H - 2));
+    if (month >= 15 && !state.stats.services.clinic && state.funds > 2000) at('clinic', 12, H + 5);
+    if (month >= 24 && !state.stats.services.police && state.funds > 2000) at('police', 12, H - 7);
+    if (month === 20) applyTool(state, 'commercial', rect(state, 23, H - 8, 23, H + 8).filter((i) => state.map.terrain[i] === TERRAIN.GRASS));
+    if (month === 30 && state.funds > 800) { applyTool(state, 'bulldoze', rect(state, 20, H + 1, 21, H + 8)); applyTool(state, 'residential', rect(state, 20, H + 1, 21, H + 8)); }
+    if (month === 44) applyTool(state, 'industrial', rect(state, 2, H + 1, 9, H + 2));
+    for (const l of [...state.loans]) if (state.funds > loanPayoff(l) + 3000) repayLoan(state);
+  };
+}
+
+function runScenario(id, strategy) {
+  const def = SCENARIOS[id];
+  const state = createScenario(id, { createGame, applyTool, tick, refreshFields, highwayEntry });
+  state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
+  const step = strategy(state);
+  refreshFields(state);
+  const months = def.years * 12;
+  for (let mo = 1; mo <= months && !state.bankrupt && state.scenario.status === 'active'; mo++) {
+    for (let t = 0; t < TPM; t++) tick(state);
+    state.events.length = 0;
+    step(mo);
+    refreshFields(state);
+    if (process.env.TRACE === id && mo % 3 === 0) { const b = state.lastMonth?.breakdown; console.log(`  m${mo} pop ${state.stats.population} ind ${state.stats.indJobs} com ${state.stats.comJobs} funds ${Math.round(state.funds)} net ${state.lastMonth?.net} exp ${b ? JSON.stringify(Object.fromEntries(Object.entries(b.expenses).filter(([, v]) => v > 1).map(([k, v]) => [k, Math.round(v)]))) : ''} RCI ${state.demand.r.toFixed(2)} ${state.demand.c.toFixed(2)} ${state.demand.i.toFixed(2)} water ${JSON.stringify(state.utilities.water)}`); }
+  }
+  if (process.env.TRACE === id) {
+    const reasons = {};
+    for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.RES) for (const r of evaluateTile(state, i).reasons) { const k = r.replace(/\d+/g, '#'); reasons[k] = (reasons[k] || 0) + 1; }
+    console.log(reasons, 'demand', JSON.stringify(state.demand), 'traffic', JSON.stringify(state.traffic));
+  }
+  const s = state.stats;
+  console.log(`\n=== scenario ${def.name} === ${state.scenario.status.toUpperCase()} in ${state.year - (state.scenario.deadlineYear - def.years)} yr: pop ${s.population}, funds ${Math.round(state.funds)}, loans ${state.loans.length}, happiness ${Math.round(state.happiness)}, home pollution ${homePollution(state).toFixed(1)}, rating ${Math.round(state.rating)}${state.bankrupt ? ', BANKRUPT' : ''}`);
+  console.log('   goals:', def.goals.map((g) => `${g.id} ${g.check(state) ? 'ok' : 'no'}`).join(', '));
+}
+
 function run(name, strategy, months = 72, seed = 12345) {
   const state = createGame(seed, SIZE);
   state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
@@ -210,5 +273,11 @@ run('sensible', sensible);
 run('sensible + avenues', (st) => sensible(st, true));
 run('planner (districts, education)', planner);
 run('eager builder', eager);
+if (!process.env.QUICK) {
+  runScenario('boomtown', sensible);
+  runScenario('river', (st) => sensible(st, true));
+  runScenario('green', greenPlayer);
+  runScenario('rustbelt', rescue);
+}
 run('sprawl', sprawl);
 run('careless', careless);

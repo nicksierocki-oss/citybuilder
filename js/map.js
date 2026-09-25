@@ -9,7 +9,7 @@ export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Indust
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
 // New kinds go at the END (saves store the index).
 export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro',
-  'townpark', 'centralpark', 'university', 'stadium'];
+  'townpark', 'centralpark', 'university', 'stadium', 'statue'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
@@ -92,7 +92,7 @@ export class GameMap {
       police: new Float32Array(n), fire: new Float32Array(n),
       bus: new Float32Array(n), metro: new Float32Array(n),
       townpark: new Float32Array(n), centralpark: new Float32Array(n),
-      university: new Float32Array(n), stadium: new Float32Array(n),
+      university: new Float32Array(n), stadium: new Float32Array(n), statue: new Float32Array(n),
     };
     this.riders = new Float32Array(n);    // transit boardings + alightings per station tile
     this.crime = new Float32Array(n);     // 0..100 per building

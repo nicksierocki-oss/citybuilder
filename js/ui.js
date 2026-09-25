@@ -1,7 +1,7 @@
 // UI: top bar, toolbar, demand panel, overlays + legend, tile info, toasts and dialogs (DOM only).
 
 import { CONFIG } from './config.js';
-import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome } from './economy.js';
+import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome, repayLoan, loanPayoff } from './economy.js';
 import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone, skilledShare, footprintSize } from './map.js';
 import { evaluateTile, levelName, districtAt } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
@@ -10,6 +10,8 @@ import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
 import { SEASON_NAMES, seasonOf, clockText } from './seasons.js';
 import { Graphs } from './graphs.js';
 import { Minimap } from './minimap.js';
+import { CityHallUI } from './cityhall-ui.js';
+import { SCENARIOS, SCENARIO_ORDER } from './goals.js';
 
 const DISTRICT_NAMES = ['Old Town', 'Riverside', 'Hillcrest', 'Northside', 'Westgate', 'Eastbrook', 'Southfield', 'Uptown',
   'Harborview', 'Parkside', 'Midtown', 'Greenwood', 'Lakeside', 'Brookfield'];
@@ -25,7 +27,7 @@ const GROUPS = [
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
   ['Transit', ['bus', 'metro']],
   ['Safety', ['police', 'fire']],
-  ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium']],
+  ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'statue']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
 
@@ -36,7 +38,7 @@ const TOOL_COLOR = {
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
-  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0',
+  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a',
 };
 
 const TOOL_HELP = {
@@ -66,6 +68,7 @@ const TOOL_HELP = {
   centralpark: '3×3 park with a pond: big land value boost, cleans the air.',
   university: '3×2 campus: educates residents within 14 tiles, making room for offices and high-tech industry.',
   stadium: '3×3 stadium: visitors bring ticket income, busier shops and happier residents across 16 tiles.',
+  statue: 'A bronze mayor: raises land value and happiness nearby. Unlocked by a mayor rating of 80.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
 };
@@ -101,6 +104,7 @@ const ICONS = {
   centralpark: I('<rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="15" cy="9" rx="3.5" ry="2.2"/><circle cx="8" cy="15" r="2.6"/><path d="M8 17.6V20"/>'),
   university: I('<path d="M3 20h18M5 20V10M19 20V10M9 20v-6h6v6"/><path d="M3 10 12 4l9 6z"/>'),
   stadium: I('<ellipse cx="12" cy="12" rx="9" ry="7"/><rect x="8" y="9.5" width="8" height="5" rx="1"/><path d="M12 9.5v5"/>'),
+  statue: I('<circle cx="12" cy="5" r="2"/><path d="M10 8h4l1 7h-6zM7 21h10M8 21v-3h8v3"/>'),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -119,12 +123,14 @@ export class UI {
     this.bindBrushes();
     this.graphs = new Graphs($('graphs'), () => this.game.state);
     this.minimap = new Minimap($('minimap'), game);
+    this.cityhall = new CityHallUI(game, this);
     $('graphs').addEventListener('click', (e) => { if (e.target.closest('#btnGraphsClose')) this.toggleGraphs(false); });
   }
 
   // A different city was loaded or started.
   onNewState() {
     this.selectedDistrict = null;
+    if (this.cityhall) { this.cityhall.newsKey = null; this.cityhall.panelHtml = null; this.cityhall.renderPanel(true); }
     this.renderDistricts();
     this.labelKey = null;
     if (this.overlay) this.setOverlay(this.overlay);
@@ -143,15 +149,16 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
         b.title = `${def.label}${def.key ? ` (${def.key})` : ''}${price ? ` · $${price.toLocaleString()}` : ''}\n${TOOL_HELP[name] ?? ''}`;
         b.addEventListener('click', () => {
-          const B = CONFIG.buildings[def.building];
-          if (B?.unlock && !isUnlocked(this.game.state, def.building)) {
-            this.toast(`${B.label} unlocks at ${B.unlock.toLocaleString()} residents.`, 'info', 2200);
+          const B = CONFIG.buildings[def.building], st = this.game.state;
+          if (B && !isUnlocked(st, def.building)) {
+            this.toast(st.scenario?.banned?.includes(def.building) ? `${B.label}s are not allowed in this scenario.`
+              : B.unlockRating ? `${B.label} unlocks at a mayor rating of ${B.unlockRating}.` : `${B.label} unlocks at ${B.unlock.toLocaleString()} residents.`, 'info', 2400);
             return;
           }
           this.game.setTool(name);
@@ -199,7 +206,8 @@ export class UI {
       if (f) this.game.load(f);
       e.target.value = '';
     });
-    $('btnNew').addEventListener('click', () => { closeMenu(); this.newCityDialog((size) => this.game.newCity(size)); });
+    $('btnNew').addEventListener('click', () => { closeMenu(); this.newCityDialog((size) => this.game.newCity(size), (id) => this.game.newScenario(id)); });
+    $('btnCityHall').addEventListener('click', () => { closeMenu(); this.cityhall.toggle(true); });
     $('btnReset').addEventListener('click', () => {
       const n = this.game.state.map.width;
       this.confirm('Reset the city?', `Start over from scratch on a fresh ${n}×${n} map with $${CONFIG.economy.startingFunds.toLocaleString()}. Your current city will be lost unless you save it first.`,
@@ -220,6 +228,7 @@ export class UI {
     $('budget').addEventListener('click', (e) => {
       const id = e.target.closest('button')?.id;
       if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
+      if (id === 'btnRepay') { if (!repayLoan(this.game.state)) this.toast('Not enough money to repay a loan yet.', 'info'); this.lastBudgetHtml = null; this.updateBudget(); }
       if (id === 'btnBudgetClose') this.toggleBudget(false);
     });
     $('btnDayNight').addEventListener('click', () => { closeMenu(); this.game.setDayNight(!this.game.dayNight); });
@@ -458,16 +467,17 @@ export class UI {
     if ($('cityName').textContent !== s.cityName) $('cityName').textContent = s.cityName;
     $('jobs').textContent = `${st.jobs.toLocaleString()} jobs · ${Math.round((s.education ?? 0) * 100)}% skilled`;
     for (const b of document.querySelectorAll('.tool')) {
-      const B = CONFIG.buildings[TOOLS[b.dataset.tool]?.building];
-      if (!B?.unlock) continue;
-      const locked = !isUnlocked(s, TOOLS[b.dataset.tool].building);
+      const k = TOOLS[b.dataset.tool]?.building, B = CONFIG.buildings[k];
+      if (!B || !(B.unlock || B.unlockRating || s.scenario?.banned?.includes(k))) { b.classList.remove('locked'); continue; }
+      const locked = !isUnlocked(s, k);
       b.classList.toggle('locked', locked);
       const tc = b.querySelector('.tc');
-      if (tc) tc.textContent = locked ? `🔒 ${B.unlock.toLocaleString()}` : `$${B.cost.toLocaleString()}`;
+      if (tc) tc.textContent = !locked ? `$${B.cost.toLocaleString()}` : s.scenario?.banned?.includes(k) ? '🚫 banned' : B.unlockRating ? `🔒 rating ${B.unlockRating}` : `🔒 ${B.unlock.toLocaleString()}`;
     }
     $('btnUndo').disabled = !this.game.lastUndo;
     this.updateDistrictStats();
     this.graphs.render();
+    this.cityhall.render();
     this.minimap.draw();
     const hp = s.happiness;
     $('happy').textContent = st.population > 0 ? `${Math.round(hp)}%` : '—';
@@ -575,13 +585,14 @@ export class UI {
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
-      ${nz('Loan repayments', b.expenses.loans)}
+      ${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}
       ${row('Net', net, 'total')}
     </table>
     ${runway != null ? `<p class="warnline">At this rate the money runs out in about ${runway} month${runway === 1 ? '' : 's'}.</p>` : ''}
     <div class="loans">
       <div><b>Loans</b> <span class="muted">${loans.length}/${E.maxLoans}${loans.length ? ` · ${loans.map((l) => `${Math.ceil(l.monthsLeft / 12)} yr left`).join(', ')}` : ''}</span></div>
-      <button id="btnLoan" ${canTakeLoan(s) ? '' : 'disabled'} title="Repay $${E.loanPayment}/month for ${E.loanMonths / 12} years">Borrow $${E.loanAmount.toLocaleString()}</button>
+      <span class="loanbtns">${loans.length ? (() => { const c = Math.min(...loans.map(loanPayoff)); return `<button id="btnRepay" ${c > s.funds ? 'disabled' : ''} title="Pay off a loan early">Repay $${c.toLocaleString()}</button>`; })() : ''}
+      <button id="btnLoan" ${canTakeLoan(s) ? '' : 'disabled'} title="Repay $${E.loanPayment}/month for ${E.loanMonths / 12} years">Borrow $${E.loanAmount.toLocaleString()}</button></span>
     </div>
     ${advice.length ? `<h4>Advisor</h4><ul class="advice">${advice.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="muted">Advisor: the budget looks healthy.</p>'}`;
     if (html !== this.lastBudgetHtml) { el.innerHTML = html; this.lastBudgetHtml = html; }
@@ -734,7 +745,10 @@ export class UI {
     const ev = this.game.state.events;
     while (ev.length) {
       const e = ev.shift();
-      const t = this.toast(e.text, e.kind, e.kind === 'bad' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
+      if (e.achievement && !this.cityhall.onAchievement(e.achievement)) continue; // already earned in this browser
+      if (e.scenario) this.showScenarioEnd(e.scenario);
+      const t = this.toast(e.text, e.kind, e.kind === 'bad' || e.kind === 'achievement' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
+      if (e.goal || e.achievement) { t.classList.add('link'); t.addEventListener('click', () => this.cityhall.toggle(true)); }
       if (/^Budget:|In debt/.test(e.text)) { t.classList.add('link'); t.addEventListener('click', () => this.toggleBudget(true)); }
       if (this.game.state.bankrupt) this.showBankrupt();
     }
@@ -762,27 +776,47 @@ export class UI {
   }
 
   // New-city dialog with a map-size choice.
-  newCityDialog(onPick) {
+  // New-city dialog: free play on a map size, or a scenario. onPick(size) or onScenario(id).
+  newCityDialog(onPick, onScenario) {
     const m = $('modal');
     m.querySelector('h2').textContent = 'Start a new city?';
     const sizes = Object.entries(CONFIG.map.sizes);
-    m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first. Pick a map size:'
-      + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`;
-    let size = CONFIG.map.defaultSize;
-    for (const b of m.querySelectorAll('[data-size]')) {
-      b.onclick = () => {
-        size = Number(b.dataset.size);
-        for (const o of m.querySelectorAll('[data-size]')) o.classList.toggle('sel', o === b);
-      };
-    }
+    m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first.'
+      + '<b class="dlg-h">Free play</b>'
+      + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`
+      + '<b class="dlg-h">Scenarios</b>'
+      + `<span class="scenarios">${SCENARIO_ORDER.map((k) => { const S = SCENARIOS[k], won = this.cityhall.earned.has(`scenario:${k}`);
+        return `<button data-scenario="${k}"><b>${S.name}${won ? ' 🏆' : ''}</b><small>${S.blurb} ${S.years} years.</small></button>`; }).join('')}</span>`;
+    let pick = { size: CONFIG.map.defaultSize };
+    const sel = (b) => { for (const o of m.querySelectorAll('[data-size],[data-scenario]')) o.classList.toggle('sel', o === b); };
+    for (const b of m.querySelectorAll('[data-size]')) b.onclick = () => { pick = { size: Number(b.dataset.size) }; sel(b); };
+    for (const b of m.querySelectorAll('[data-scenario]')) b.onclick = () => { pick = { scenario: b.dataset.scenario }; sel(b); };
     const ok = $('modalOk'), cancel = $('modalCancel');
-    ok.textContent = 'New city';
+    ok.textContent = 'Start';
     cancel.textContent = 'Cancel';
     cancel.hidden = false;
     m.hidden = false;
     const close = () => { m.hidden = true; ok.onclick = cancel.onclick = null; };
-    ok.onclick = () => { close(); onPick(size); };
+    ok.onclick = () => { close(); if (pick.scenario) onScenario(pick.scenario); else onPick(pick.size); };
     cancel.onclick = close;
+  }
+
+  showScenarioEnd(result) {
+    const s = this.game.state, def = SCENARIOS[s.scenario?.id];
+    if (!def) return;
+    const m = $('modal');
+    m.querySelector('h2').textContent = result === 'won' ? `🏆 ${def.name}: you did it!` : `${def.name}: time's up`;
+    m.querySelector('p').textContent = result === 'won'
+      ? `All goals met in ${s.year - (s.scenario.deadlineYear - def.years)} years. Keep building here in free play, or try another scenario.`
+      : 'The deadline passed before every goal was met. You can keep playing this city in free play, or try again.';
+    const ok = $('modalOk'), cancel = $('modalCancel');
+    ok.textContent = 'Keep playing';
+    cancel.textContent = 'New city…';
+    cancel.hidden = false;
+    m.hidden = false;
+    this.game.setSpeed(0);
+    ok.onclick = () => { m.hidden = true; ok.onclick = cancel.onclick = null; this.game.setSpeed(1); };
+    cancel.onclick = () => { m.hidden = true; ok.onclick = cancel.onclick = null; this.newCityDialog((size) => this.game.newCity(size), (id) => this.game.newScenario(id)); };
   }
 
   updateExpandButton() {

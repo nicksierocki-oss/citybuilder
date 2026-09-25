@@ -8,6 +8,9 @@ import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
 import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem,
   educationFieldSystem, educationMonthlySystem, isParkTile, AMENITY_KINDS } from './services.js';
+import { ordinance, mayorSystem } from './cityhall.js';
+import { goalsSystem, emptyGoals } from './goals.js';
+import { newsSystem } from './news.js';
 
 export const DEFAULT_CITY_NAME = 'My City';
 const CITY_NAMES = ['Willowbrook', 'Riverton', 'Maple Bay', 'Fairhaven', 'Linden Park', 'Ashford', 'Brightwater',
@@ -45,6 +48,12 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     districts: [],            // [{ id, name, color, policies: { height, noHeavyIndustry, taxBreak } }]
     history: emptyHistory(),  // monthly samples for the graphs panel
     education: 0,             // population-weighted skilled share of residents
+    ordinances: {},           // city-wide policies in force (see cityhall.js)
+    rating: CONFIG.mayor.start, // mayor rating 0..100
+    goals: emptyGoals('tutorial'),
+    scenario: null,           // { id, status: 'active'|'won'|'lost', banned, deadlineYear }
+    achievements: [],         // achievement ids earned in this city
+    news: [],                 // citizen posts and headlines (news.js)
   };
   runFieldSystems(state);
   computeStats(state);
@@ -142,6 +151,7 @@ export function pollutionSystem(state) {
   // Recycling centres cut pollution across their catchment.
   const cut = CONFIG.buildings.recycling.pollutionCut, rec = map.coverage.recycling;
   for (let i = 0; i < map.size; i++) if (rec[i] > 0) pol[i] *= 1 - cut * Math.min(1, rec[i] * 1.5);
+  if (ordinance(state, 'recycling')) { const k = 1 - CONFIG.ordinances.recycling.pollutionCut; for (let i = 0; i < map.size; i++) pol[i] *= k; }
   for (let i = 0; i < map.size; i++) {
     if (pol[i] <= 0) continue;
     let absorb = 0;
@@ -352,7 +362,8 @@ export function evaluateTile(state, i) {
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
       + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus + map.coverage.stadium[i] * CONFIG.buildings.stadium.shopBonus
       - map.crime[i] / 100 * CONFIG.crime.businessWeight
-      + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1);
+      + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1)
+      - (ordinance(state, 'carFree') ? CONFIG.ordinances.carFree.shopPenalty : 0);
     while (maxLevel > 1 && (lv < G.commercialLevelLV[maxLevel] || shoppers < G.commercialLevelShoppers[maxLevel])) maxLevel--;
     if (state.demand.c <= 0) reasons.push('No commercial demand — needs more residents (or workers)');
     if (maxLevel < 3) {
@@ -559,6 +570,9 @@ export const SYSTEMS = [
   { name: 'stats2', run: computeStats },
   { name: 'milestones', run: milestoneSystem },
   { name: 'economy', run: economySystem },
+  { name: 'mayor', run: mayorSystem },
+  { name: 'goals', run: goalsSystem },
+  { name: 'news', run: newsSystem },
   { name: 'history', run: historySystem },
 ];
 

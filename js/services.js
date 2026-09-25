@@ -3,11 +3,12 @@
 
 import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, SUPPLY, TERRAIN, footprintSize } from './map.js';
+import { ordinance } from './cityhall.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ZONE_KEY = { [TILE.RES]: 'residential', [TILE.COM]: 'commercial', [TILE.IND]: 'industrial' };
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
-export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium'];
+export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue'];
 
 export function kindOf(map, i) {
   return map.type[i] === TILE.SERVICE ? KINDS[map.kind[i]] : null;
@@ -200,6 +201,7 @@ export function utilitiesEnforced(state) {
 export function happinessSystem(state) {
   const map = state.map, H = CONFIG.happiness, B = CONFIG.buildings, T = CONFIG.traffic;
   const enforce = utilitiesEnforced(state);
+  const carFree = ordinance(state, 'carFree') ? CONFIG.ordinances.carFree.happiness : 0;
   let sum = 0, weight = 0;
   for (let i = 0; i < map.size; i++) {
     if (map.terrain[i] === TERRAIN.WATER) { map.happiness[i] = 0; continue; }
@@ -209,6 +211,7 @@ export function happinessSystem(state) {
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
     for (const k of AMENITY_KINDS) v += c[k][i] * B[k].happiness;
+    v += carFree;
     v -= map.crime[i] * CONFIG.crime.happinessWeight;
     if (map.hasFlag(i, FLAG.FIRE)) v -= 30;
     if (map.type[i] === TILE.RES) {
@@ -255,6 +258,8 @@ function isBuilding(map, i) {
 export function safetySystem(state) {
   const map = state.map, C = CONFIG.crime, F = CONFIG.fire, { width: w, height: h } = map;
   let crimeSum = 0, crimeW = 0;
+  const watch = ordinance(state, 'watch') ? 1 - CONFIG.ordinances.watch.crimeCut : 1;
+  const smoke = ordinance(state, 'smoke') ? 1 - CONFIG.ordinances.smoke.fireCut : 1;
   for (let i = 0; i < map.size; i++) {
     map.crime[i] = 0;
     map.fireRisk[i] = 0;
@@ -270,13 +275,13 @@ export function safetySystem(state) {
         const x = x0 + dx, y = y0 + dy;
         if (x >= 0 && y >= 0 && x < w && y < h && map.hasFlag(y * w + x, FLAG.ABANDONED)) c += C.abandonedNearby;
       }
-      c *= 1 - C.policeCut * map.coverage.police[i];
+      c *= (1 - C.policeCut * map.coverage.police[i]) * watch;
       map.crime[i] = Math.max(0, Math.min(100, c));
       if (t === TILE.RES) { const pop = CONFIG.capacity.residential[lv]; crimeSum += map.crime[i] * pop; crimeW += pop; }
     }
     // Fire risk: every building; industry and coal plants most.
     let r = k === 'coal' ? F.coalPlantRisk : t === TILE.SERVICE ? F.riskPerLevel : lv * F.riskPerLevel + (t === TILE.IND ? F.industryExtra : 0);
-    r *= 1 - F.stationCut * map.coverage.fire[i];
+    r *= (1 - F.stationCut * map.coverage.fire[i]) * smoke;
     map.fireRisk[i] = Math.max(0, Math.min(100, r));
   }
   state.crime = crimeW > 0 ? crimeSum / crimeW : 0;
@@ -321,6 +326,7 @@ export function fireSystem(state) {
         }
       } else { map.level[i] = 0; map.setFlag(i, FLAG.ABANDONED, false); }
       map.version++;
+      state.burnedDown = (state.burnedDown ?? 0) + 1;
       state.events.push({ text: `A building burned down at ${x0}, ${y0}. A fire station would have saved it.`, kind: 'bad', x: x0, y: y0 });
     }
   }
