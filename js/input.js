@@ -61,23 +61,33 @@ export class Input {
       c.addEventListener('pointerleave', () => { if (!this.drag) this.game.hover = null; });
       c.addEventListener('wheel', (e) => {
         e.preventDefault();
+        if (e.shiftKey) {
+          // Shift + wheel/trackpad scroll pans (browsers may report it as horizontal scroll).
+          const dx = e.deltaX || 0, dy = e.deltaX && !e.deltaY ? 0 : e.deltaY;
+          this.renderer.panBy(this.game.state.map, -dx, -dy);
+          return;
+        }
         const p = this.localPos(e);
         this.renderer.zoomAt(this.game.state.map, p.x, p.y, Math.exp(-e.deltaY * 0.0015));
       }, { passive: false });
     }
     window.addEventListener('pointerup', (e) => this.onUp(e));
     window.addEventListener('keydown', (e) => this.onKey(e));
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+      if (e.key === 'Shift') document.body.classList.remove('shift-pan');
+    });
+    window.addEventListener('blur', () => { this.keys.clear(); document.body.classList.remove('shift-pan'); });
   }
 
   onDown(e) {
     const p = this.localPos(e);
     const tool = this.game.tool;
     this.canvas.setPointerCapture?.(e.pointerId);
-    if (e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'inspect')) {
-      // In 3D, right-drag orbits the camera; everything else pans.
-      const orbit = e.button === 2 && this.renderer.rotateBy && !e.shiftKey;
+    const shiftPan = e.shiftKey && (e.button === 0 || e.button === 2);
+    if (shiftPan || e.button === 1 || e.button === 2 || (e.button === 0 && tool === 'inspect')) {
+      // Shift + drag always pans. Otherwise right-drag orbits in 3D; everything else pans.
+      const orbit = !shiftPan && e.button === 2 && !!this.renderer.rotateBy;
       this.pan = { sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: false, orbit };
       return;
     }
@@ -138,6 +148,7 @@ export class Input {
   onKey(e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Shift') { document.body.classList.add('shift-pan'); return; }
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     if (PAN_KEYS[k]) { this.keys.add(k); e.preventDefault(); return; }
     const g = this.game;

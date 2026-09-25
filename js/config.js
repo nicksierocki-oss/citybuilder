@@ -3,12 +3,14 @@
 
 export const CONFIG = {
   map: {
-    width: 40,
-    height: 40,
+    sizes: { Small: 40, Medium: 64, Large: 96 }, // square maps offered for a new city
+    defaultSize: 64,
+    expandSteps: [40, 64, 96],     // "Expand map" grows a city to the next step
+    expansionCost: { 64: 0, 96: 0 }, // $ to buy the extra land (0 = free)
     treeChance: 0.14,        // chance a grass tile starts with trees (clustered)
-    riverWidth: 2,
-    highwayRow: 18,          // pre-built road entering from the west edge
-    highwayLength: 11,
+    // Pre-built regional highway entering from the west edge, as a share of map size
+    highwayRowShare: 0.45,
+    highwayLengthShare: 0.27,
   },
 
   time: {
@@ -30,6 +32,7 @@ export const CONFIG = {
     roadMaintenance: 1.5,
     bridgeMaintenance: 5,
     avenueMaintenance: 3,
+    highwayMaintenance: 8,
     parkMaintenance: 4,
     // consecutive months with negative funds before the council fires you
     bankruptcyMonths: 6,
@@ -40,6 +43,9 @@ export const CONFIG = {
     bridge: 60,              // road placed on water
     avenue: 30,              // new avenue tile (upgrading a street costs the difference)
     avenueBridge: 120,
+    highway: 80,             // limited access: buildings can't use it as their frontage road
+    highwayBridge: 240,
+    // The Upgrade tool (and painting a bigger road over a smaller one) charges the difference.
     residential: 10,
     commercial: 10,
     industrial: 10,
@@ -113,8 +119,8 @@ export const CONFIG = {
 
   traffic: {
     everyTicks: 4,              // recompute commuting every N ticks
-    minutesPerTile: [0.8, 0.5], // free-flow travel time per tile: [street, avenue]
-    capacity: [160, 480],       // trips/month before a tile is "full": [street, avenue]
+    minutesPerTile: [0.8, 0.5, 0.3], // free-flow travel time per tile: [street, avenue, highway]
+    capacity: [160, 480, 1200],      // trips/month before a tile is "full": [street, avenue, highway]
     congestionK: 1.6,           // travel time x (1 + K * load^2) where load = volume / capacity
     maxCongestion: 5,           // cap on that multiplier
     smoothing: 0.5,             // how quickly route costs react to new volumes

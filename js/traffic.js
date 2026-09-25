@@ -75,7 +75,8 @@ export function trafficSystem(state) {
     return out;
   };
   const tmp = [];
-  const accessRoads = (i) => nbrs(i, []).filter((j) => isNode[j]);
+  // Roads a building can drive onto (highways are limited-access).
+  const accessRoads = (i) => nbrs(i, []).filter((j) => isNode[j] && map.roadClass[j] !== 2);
 
   // --- job sinks: remaining positions per job tile, listed on each adjacent road
   const remaining = new Float32Array(size);
@@ -94,6 +95,8 @@ export function trafficSystem(state) {
 
   const volume = new Float32Array(size);
   const dist = new Float64Array(size);
+  const stamp = new Int32Array(size); // dist[i] is valid only when stamp[i] === run (avoids clearing per home)
+  let run = 0;
   const parent = new Int32Array(size);
   const heap = new Heap();
 
@@ -137,9 +140,9 @@ export function trafficSystem(state) {
   for (const home of homes) {
     const workers = CAP.residential[map.level[home]] * D.workforceRatio;
     let left = workers, minutes = 0;
-    dist.fill(Infinity);
+    run++;
     heap.clear();
-    for (const r of accessRoads(home)) { dist[r] = time[r]; parent[r] = -1; heap.push(r, time[r]); }
+    for (const r of accessRoads(home)) { dist[r] = time[r]; stamp[r] = run; parent[r] = -1; heap.push(r, time[r]); }
     while (heap.size && left > 0) {
       const u = heap.pop();
       const d = heap.lastPri;
@@ -166,7 +169,8 @@ export function trafficSystem(state) {
       for (const v of nbrs(u, tmp)) {
         if (!isNode[v]) continue;
         const nd = d + time[v];
-        if (nd < dist[v]) { dist[v] = nd; parent[v] = u; heap.push(v, nd); }
+        if (nd > T.maxCommute) continue;
+        if (stamp[v] !== run || nd < dist[v]) { dist[v] = nd; stamp[v] = run; parent[v] = u; heap.push(v, nd); }
       }
     }
     const employed = workers - left;

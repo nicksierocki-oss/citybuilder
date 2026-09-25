@@ -7,8 +7,8 @@ import { GameMap, generateMap, TILE, TERRAIN, FLAG, isZone } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
 
-export function createGame(seed) {
-  const map = generateMap(seed);
+export function createGame(seed, size = CONFIG.map.defaultSize) {
+  const map = generateMap(seed, size);
   const state = {
     map,
     tick: 0,
@@ -34,7 +34,7 @@ export function createGame(seed) {
 function emptyStats() {
   return {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
-    roads: 0, avenues: 0, bridges: 0, parks: 0,
+    roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0,
     zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
   };
 }
@@ -194,6 +194,7 @@ export function computeStats(state) {
     else if (t === TILE.ROAD) {
       if (map.terrain[i] === TERRAIN.WATER) s.bridges++;
       else if (map.roadClass[i] === 1) s.avenues++;
+      else if (map.roadClass[i] === 2) s.highways++;
       else s.roads++;
     }
     else if (t === TILE.PARK) s.parks++;
@@ -243,8 +244,10 @@ export function evaluateTile(state, i) {
   const reasons = [];
   if (!isZone(t)) return null;
   if (!map.hasRoadAccess(i)) {
-    const nearRoad = hasAnyAdjacentRoad(map, i);
-    reasons.push(nearRoad ? 'Road is not connected to the regional highway' : 'Needs a road next to it');
+    const near = adjacentRoadKinds(map, i);
+    reasons.push(near.local ? 'Road is not connected to the regional network'
+      : near.highway ? 'Highways have no driveways: needs a street or avenue next to it'
+      : 'Needs a road next to it');
     return { score: -1, maxLevel: 0, reasons, connected: false };
   }
   const lv = map.landValue[i];
@@ -290,12 +293,15 @@ export function evaluateTile(state, i) {
   return { score, maxLevel, reasons, connected: true };
 }
 
-function hasAnyAdjacentRoad(map, i) {
-  const x = i % map.width, y = (i / map.width) | 0;
+function adjacentRoadKinds(map, i) {
+  const x = i % map.width, y = (i / map.width) | 0, out = { local: false, highway: false };
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    if (map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD) return true;
+    if (!map.inBounds(x + dx, y + dy)) continue;
+    const j = map.idx(x + dx, y + dy);
+    if (map.isLocalRoad(j)) out.local = true;
+    else if (map.type[j] === TILE.ROAD) out.highway = true;
   }
-  return false;
+  return out;
 }
 
 export function levelName(l) { return ['vacant', 'low', 'medium', 'high'][l]; }

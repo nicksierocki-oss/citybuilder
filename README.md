@@ -12,7 +12,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
 
 ## How to play
 
-1. **Extend the highway.** A grey road enters from the west edge. It is your
+1. **Extend the regional road.** An avenue enters from the west edge. It is your
    city's link to the region. Only roads connected to a map edge count.
 2. **Zone beside roads.** Paint Residential (R), Commercial (C) and Industrial (I)
    zones by dragging. A zoned lot only develops if it touches (4-neighbour) a
@@ -27,7 +27,15 @@ There's an optional **3D view**, built with Three.js. The library is included in
    Industrial pollution lowers it.
 5. **Keep traffic moving.** Workers drive to the nearest jobs with open positions.
    Long or jammed commutes make homes decline, and homes with no job in reach empty out.
-   Upgrade busy streets to **Avenues**, which carry 3× the traffic. Busy roads
+   Roads come in three tiers. Build them directly, or drag the **Upgrade** tool (`9`)
+   along a road to step it up one tier for the price difference:
+
+   | Tier | Capacity | Speed | Notes |
+   | --- | --- | --- | --- |
+   | Street | 160 trips | 0.8 min/tile | cheap, quiet |
+   | Avenue | 480 trips | 0.5 min/tile | the workhorse |
+   | Highway | 1,200 trips | 0.3 min/tile | **limited access**: buildings can't front onto it, so pair it with streets |
+ Busy roads
    are noisy and polluting, so they lower land value next to them. Shops like passing traffic.
 6. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
    upkeep. If funds stay negative for 6 months, the council removes you.
@@ -40,10 +48,11 @@ among the homes.
 
 | Action | Input |
 | --- | --- |
-| Tools | `1` Road · `7` Avenue (paint over a street to upgrade) · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
+| Tools | `1` Street · `7` Avenue · `8` Highway · `9` Upgrade road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
 | Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles |
-| Pan | `WASD` / arrow keys, right- or middle-drag, or left-drag with the Inspect tool |
-| 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits, `Q`/`E` rotate, middle-drag or `Shift`+right-drag pans |
+| Pan | `WASD` / arrow keys, **`Shift` + drag** (any button) or **`Shift` + scroll**, middle-drag, right-drag (2D), or left-drag with the Inspect tool |
+| 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits and `Q`/`E` rotate |
+| Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
 | Overlays | `L` land value · `P` pollution · `T` traffic (buildings turn see-through in 3D) |
@@ -111,6 +120,9 @@ nearby".
 **Every balance number lives in [`js/config.js`](js/config.js)**, including costs,
 upkeep, tax bases, capacities, demand ratios, growth chances, density thresholds,
 pollution and land-value weights, and tick speed.
+
+The scripted playtest uses the Small map. On a fully built 96×96 city (about 60,000 people)
+a simulation tick takes about 12 ms, well under the 90 ms tick at 3× speed.
 
 `tools/playtest.js` runs the real simulation headless with four scripted
 players and prints population, funds and RCI over six years:

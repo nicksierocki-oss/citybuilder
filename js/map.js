@@ -8,7 +8,8 @@ export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5 };
 export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park'];
 export const FLAG = { TREES: 1, ABANDONED: 2 };
 
-export const ROAD_CLASS = { STREET: 0, AVENUE: 1 };
+export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
+export const ROAD_NAMES = ['Street', 'Avenue', 'Highway'];
 
 export function isZone(type) {
   return type === TILE.RES || type === TILE.COM || type === TILE.IND;
@@ -70,9 +71,14 @@ export class GameMap {
       const nx = x + dx, ny = y + dy;
       if (!this.inBounds(nx, ny)) continue;
       const j = this.idx(nx, ny);
-      if (this.type[j] === TILE.ROAD && this.roadDist[j] >= 0) return true;
+      if (this.isLocalRoad(j) && this.roadDist[j] >= 0) return true;
     }
     return false;
+  }
+
+  // Roads a building can front onto. Highways are limited-access: no driveways.
+  isLocalRoad(j) {
+    return this.type[j] === TILE.ROAD && this.roadClass[j] !== ROAD_CLASS.HIGHWAY;
   }
 
   // Shortest road distance to the edge among adjacent roads (for freight), -1 if none.
@@ -83,7 +89,7 @@ export class GameMap {
       const nx = x + dx, ny = y + dy;
       if (!this.inBounds(nx, ny)) continue;
       const j = this.idx(nx, ny);
-      if (this.type[j] === TILE.ROAD && this.roadDist[j] >= 0) {
+      if (this.isLocalRoad(j) && this.roadDist[j] >= 0) {
         if (best < 0 || this.roadDist[j] < best) best = this.roadDist[j];
       }
     }
@@ -110,8 +116,37 @@ export class GameMap {
   }
 }
 
-export function generateMap(seed = (Math.random() * 1e9) | 0) {
-  const { width, height, treeChance, riverWidth, highwayRow, highwayLength } = CONFIG.map;
+export function highwayEntry(width, height) {
+  return {
+    row: Math.round(height * CONFIG.map.highwayRowShare),
+    length: Math.round(width * CONFIG.map.highwayLengthShare),
+  };
+}
+
+// Tree clumps: seed some, then let them spread. `mask(i)` limits where trees may appear.
+function growTrees(map, rng, mask = () => true) {
+  const { width, height } = map, treeChance = CONFIG.map.treeChance;
+  for (let i = 0; i < map.size; i++) {
+    if (mask(i) && map.terrain[i] === TERRAIN.GRASS && rng() < treeChance * 0.35) map.setFlag(i, FLAG.TREES, true);
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    const snapshot = map.flags.slice();
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = map.idx(x, y);
+      if (!mask(i) || map.terrain[i] !== TERRAIN.GRASS || map.type[i] !== TILE.EMPTY) continue;
+      let n = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (map.inBounds(x + dx, y + dy) && (snapshot[map.idx(x + dx, y + dy)] & FLAG.TREES)) n++;
+      }
+      if (n > 0 && rng() < treeChance * n * 0.9) map.setFlag(i, FLAG.TREES, true);
+    }
+  }
+}
+
+export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.defaultSize) {
+  const width = size, height = size;
+  const riverWidth = Math.max(2, Math.round(size / 32));
+  const { row: highwayRow, length: highwayLength } = highwayEntry(width, height);
   const map = new GameMap(width, height);
   map.seed = seed;
   const rng = makeRng(seed);
@@ -128,31 +163,16 @@ export function generateMap(seed = (Math.random() * 1e9) | 0) {
     if (rng() < 0.2) map.terrain[map.idx(cx + riverWidth, y)] = TERRAIN.WATER;
   }
 
-  // Trees: seed clumps, then grow them a little.
-  for (let i = 0; i < map.size; i++) {
-    if (map.terrain[i] === TERRAIN.GRASS && rng() < treeChance * 0.35) map.setFlag(i, FLAG.TREES, true);
-  }
-  for (let pass = 0; pass < 2; pass++) {
-    const snapshot = map.flags.slice();
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-      const i = map.idx(x, y);
-      if (map.terrain[i] !== TERRAIN.GRASS) continue;
-      let n = 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        if (map.inBounds(x + dx, y + dy) && (snapshot[map.idx(x + dx, y + dy)] & FLAG.TREES)) n++;
-      }
-      if (n > 0 && rng() < treeChance * n * 0.9) map.setFlag(i, FLAG.TREES, true);
-    }
-  }
+  growTrees(map, rng);
 
-  // Regional highway entering from the west edge — the city's link to the world.
+  // Regional road entering from the west edge: the city's link to the world.
   for (let x = 0; x < highwayLength; x++) {
     const i = map.idx(x, highwayRow);
     map.type[i] = TILE.ROAD;
     map.roadClass[i] = ROAD_CLASS.AVENUE;
     map.setFlag(i, FLAG.TREES, false);
   }
-  // Keep the area around the highway end clear so the first blocks are easy.
+  // Keep the area around its end clear so the first blocks are easy.
   for (let y = highwayRow - 3; y <= highwayRow + 3; y++) {
     for (let x = 0; x < highwayLength + 3; x++) {
       if (map.inBounds(x, y) && rng() < 0.8) map.setFlag(map.idx(x, y), FLAG.TREES, false);
@@ -162,4 +182,76 @@ export function generateMap(seed = (Math.random() * 1e9) | 0) {
   map.computeWaterDistance();
   map.roadsDirty = true;
   return map;
+}
+
+const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass'];
+
+// Grow a city's map to newSize x newSize, adding land evenly on every side.
+// The river keeps meandering into the new land and every road that ran off the old
+// edge is extended to the new edge, so the city stays connected to the region.
+// Returns { map, dx, dy } where (dx, dy) is where the old map now sits.
+export function expandMap(old, newSize, seed = (Math.random() * 1e9) | 0) {
+  const W = Math.max(newSize, old.width), H = Math.max(newSize, old.height);
+  const dx = Math.floor((W - old.width) / 2), dy = Math.floor((H - old.height) / 2);
+  const map = new GameMap(W, H);
+  map.seed = old.seed;
+  const rng = makeRng(seed);
+  for (let i = 0; i < map.size; i++) map.variant[i] = (rng() * 256) | 0;
+  for (let y = 0; y < old.height; y++) for (let x = 0; x < old.width; x++) {
+    const a = old.idx(x, y), b = map.idx(x + dx, y + dy);
+    for (const k of PERSISTENT_LAYERS) map[k][b] = old[k][a];
+  }
+  const inOld = (x, y) => x >= dx && y >= dy && x < dx + old.width && y < dy + old.height;
+
+  // Rivers: continue each run of water on the old top/bottom (and left/right) edge.
+  const extendWater = (runs, steps, place) => {
+    for (const run of runs) {
+      let offset = 0;
+      for (let s = 1; s <= steps; s++) {
+        if (rng() < 0.3) offset += rng() < 0.5 ? -1 : 1;
+        for (const k of run) place(k + offset, s);
+      }
+    }
+  };
+  const edgeRuns = (len, isWater) => {
+    const runs = []; let cur = null;
+    for (let k = 0; k < len; k++) {
+      if (isWater(k)) { (cur ??= []).push(k); } else if (cur) { runs.push(cur); cur = null; }
+    }
+    if (cur) runs.push(cur);
+    return runs;
+  };
+  const setWater = (x, y) => { if (map.inBounds(x, y) && !inOld(x, y)) map.terrain[map.idx(x, y)] = TERRAIN.WATER; };
+  const W1 = TERRAIN.WATER;
+  extendWater(edgeRuns(old.width, (k) => old.terrain[old.idx(k, 0)] === W1), dy, (k, s) => setWater(k + dx, dy - s));
+  extendWater(edgeRuns(old.width, (k) => old.terrain[old.idx(k, old.height - 1)] === W1), H - dy - old.height, (k, s) => setWater(k + dx, dy + old.height - 1 + s));
+  extendWater(edgeRuns(old.height, (k) => old.terrain[old.idx(0, k)] === W1), dx, (k, s) => setWater(dx - s, k + dy));
+  extendWater(edgeRuns(old.height, (k) => old.terrain[old.idx(old.width - 1, k)] === W1), W - dx - old.width, (k, s) => setWater(dx + old.width - 1 + s, k + dy));
+
+  growTrees(map, rng, (i) => !inOld(i % W, (i / W) | 0));
+
+  // Roads that ran off the old edge continue straight to the new edge (free).
+  const extendRoad = (x, y, sx, sy, cls) => {
+    for (x += sx, y += sy; map.inBounds(x, y) && !inOld(x, y); x += sx, y += sy) {
+      const i = map.idx(x, y);
+      map.type[i] = TILE.ROAD;
+      map.roadClass[i] = cls;
+      map.setFlag(i, FLAG.TREES, false);
+    }
+  };
+  for (let x = 0; x < old.width; x++) {
+    const top = old.idx(x, 0), bot = old.idx(x, old.height - 1);
+    if (old.type[top] === TILE.ROAD) extendRoad(x + dx, dy, 0, -1, old.roadClass[top]);
+    if (old.type[bot] === TILE.ROAD) extendRoad(x + dx, dy + old.height - 1, 0, 1, old.roadClass[bot]);
+  }
+  for (let y = 0; y < old.height; y++) {
+    const left = old.idx(0, y), right = old.idx(old.width - 1, y);
+    if (old.type[left] === TILE.ROAD) extendRoad(dx, y + dy, -1, 0, old.roadClass[left]);
+    if (old.type[right] === TILE.ROAD) extendRoad(dx + old.width - 1, y + dy, 1, 0, old.roadClass[right]);
+  }
+
+  map.computeWaterDistance();
+  map.roadsDirty = true;
+  map.version = old.version + 1;
+  return { map, dx, dy };
 }

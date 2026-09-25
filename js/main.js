@@ -1,7 +1,8 @@
 // Entry point: wires state, simulation clock, renderer, input and UI together.
 
 import { CONFIG } from './config.js';
-import { createGame, tick } from './simulation.js';
+import { createGame, tick, refreshFields } from './simulation.js';
+import { expandMap, highwayEntry } from './map.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
@@ -78,15 +79,34 @@ const game = {
     this.ui.clearToasts();
     this.pinned = null;
     this.preview = null;
-    const H = CONFIG.map.highwayRow;
+    const entry = highwayEntry(state.map.width, state.map.height);
     this.renderer2d.cam.zoom = 1.25;
-    for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(state.map, CONFIG.map.highwayLength + 4, H);
+    for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(state.map, entry.length + 4, entry.row);
   },
-  newCity() {
+  newCity(size = CONFIG.map.defaultSize) {
     clearAutosave();
-    this.setState(createGame());
+    this.setState(createGame(undefined, size));
     this.setSpeed(1);
-    this.ui.toast('Welcome! Extend the highway with roads, then zone next to them.', 'good', 6000);
+    this.ui.toast('Welcome! Extend the regional road with streets, then zone next to them.', 'good', 6000);
+  },
+  expandMap(size) {
+    const s = this.state, cost = CONFIG.map.expansionCost[size] ?? 0;
+    if (cost > s.funds) { this.ui.toast(`Expanding costs $${cost.toLocaleString()}: not enough funds`, 'bad'); return; }
+    const view = this.renderer.viewCenterTile();
+    const { map, dx, dy } = expandMap(s.map, size);
+    s.funds -= cost;
+    // Carry per-tile traffic and pollution over so nothing flickers on the first frame.
+    for (let y = 0; y < s.map.height; y++) for (let x = 0; x < s.map.width; x++) {
+      const a = s.map.idx(x, y), b = map.idx(x + dx, y + dy);
+      map.traffic[b] = s.map.traffic[a];
+    }
+    s.map = map;
+    refreshFields(s);
+    this.pinned = null;
+    this.preview = null;
+    for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(map, view.x + dx, view.y + dy);
+    this.ui.toast(`The city now spans ${size}×${size}. New land on every side!`, 'good', 4500);
+    autosave(s);
   },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {
@@ -122,6 +142,7 @@ document.getElementById('btnView').addEventListener('click', () => game.toggle3D
 // Fixed-timestep simulation, decoupled from the render frame rate.
 let last = performance.now(), acc = 0, lastAutosaveYear = null;
 function frame(now) {
+  requestAnimationFrame(frame); // schedule first so one bad frame can't stop the game
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   game.input.update(dt);
@@ -140,7 +161,6 @@ function frame(now) {
   }
   game.renderer.render(game.state, game.hover, game.preview);
   game.ui.update(now);
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => { if (!game.state.bankrupt) autosave(game.state); });

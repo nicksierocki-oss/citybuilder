@@ -21,6 +21,7 @@ const PAL = {
     4: [null, '#e8c874', '#c9a04a', '#94712f'],
   },
   laneWhite: 'rgba(255,255,255,0.7)', median: '#8fae6e',
+  highway: '#484e59', barrier: '#d9d6cf', shoulder: 'rgba(255,255,255,0.85)',
   cars: ['#e8665a', '#f2f2f2', '#5b9bdb', '#f2c14e', '#3d4450', '#8fd0a4', '#c9a0dc'],
   abandoned: '#8d8a86', abandonedDark: '#6c6a67',
   shadow: 'rgba(20,30,40,0.28)',
@@ -188,10 +189,11 @@ export class Renderer {
     const cs = s || (y === map.height - 1 && (n || (!w && !e)));
     const cw = w || (x === 0 && (e || (!n && !s)));
     const ce = e || (x === map.width - 1 && (w || (!n && !s)));
-    const avenue = map.roadClass[map.idx(x, y)] === 1;
-    const hw = avenue ? 15 : 11; // half width of carriageway
+    const cls = map.roadClass[map.idx(x, y)];
+    const avenue = cls === 1, highway = cls === 2;
+    const hw = cls > 0 ? 15 : 11; // half width of carriageway
     const c = TS / 2;
-    ctx.fillStyle = PAL.asphalt;
+    ctx.fillStyle = highway ? PAL.highway : PAL.asphalt;
     ctx.fillRect(px + c - hw, py + c - hw, hw * 2, hw * 2);
     if (cn) ctx.fillRect(px + c - hw, py, hw * 2, c);
     if (cs) ctx.fillRect(px + c - hw, py + c, hw * 2, c);
@@ -206,7 +208,19 @@ export class Renderer {
     const horiz = (cw || ce) && !cn && !cs, vert = (cn || cs) && !cw && !ce;
     if (!horiz && !vert) return;
     const along = (fn) => { for (let k = 2; k < TS; k += 10) fn(k); };
-    if (avenue) {
+    if (highway) {
+      // concrete barrier, solid shoulders, dashed lanes
+      ctx.fillStyle = PAL.barrier;
+      if (horiz) ctx.fillRect(px, py + c - 1, TS, 2); else ctx.fillRect(px + c - 1, py, 2, TS);
+      ctx.fillStyle = PAL.shoulder;
+      if (horiz) { ctx.fillRect(px, py + c - 13, TS, 1); ctx.fillRect(px, py + c + 12, TS, 1); }
+      else { ctx.fillRect(px + c - 13, py, 1, TS); ctx.fillRect(px + c + 12, py, 1, TS); }
+      ctx.fillStyle = PAL.laneWhite;
+      along((k) => {
+        if (horiz) { ctx.fillRect(px + k, py + c - 7, 6, 1); ctx.fillRect(px + k, py + c + 6, 6, 1); }
+        else { ctx.fillRect(px + c - 7, py + k, 1, 6); ctx.fillRect(px + c + 6, py + k, 1, 6); }
+      });
+    } else if (avenue) {
       // planted median + dashed white lane lines
       ctx.fillStyle = PAL.median;
       if (horiz) ctx.fillRect(px, py + c - 1.5, TS, 3); else ctx.fillRect(px + c - 1.5, py, 3, TS);
@@ -226,30 +240,13 @@ export class Renderer {
 
   // Little cars on straight road tiles; count follows volume, speed follows congestion.
   drawCars(map, x0, y0, x1, y1) {
-    const ctx = this.ctx, t = this.time;
+    const ctx = this.ctx;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-      const i = map.idx(x, y);
-      if (map.type[i] !== TILE.ROAD || map.traffic[i] < 4) continue;
-      const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
-      const h = road(-1, 0) || road(1, 0) || x === 0 || x === map.width - 1;
-      const v = road(0, -1) || road(0, 1);
-      if (h === v) continue; // intersections, corners, isolated tiles
-      const avenue = map.roadClass[i] === 1;
-      const lanes = avenue ? [-11, -4.5, 4.5, 11] : [-5, 5];
-      const perLane = Math.min(avenue ? 2 : 3, Math.ceil(map.traffic[i] / (avenue ? 90 : 35) / lanes.length * 2));
-      const speed = 34 / (roadTime(map, i) / (avenue ? 0.5 : 0.8)); // px/s, slows when congested
-      const seed = map.variant[i];
-      for (let l = 0; l < lanes.length; l++) {
-        const dir = lanes[l] < 0 ? -1 : 1; // opposite directions either side of the centre line
-        for (let k = 0; k < perLane; k++) {
-          let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;
-          if (dir < 0) pos = TS - pos;
-          ctx.fillStyle = PAL.cars[(seed + k * 3 + l) % PAL.cars.length];
-          const off = TS / 2 + lanes[l];
-          if (h) ctx.fillRect(x * TS + pos - 3, y * TS + off - 1.75, 6, 3.5);
-          else ctx.fillRect(x * TS + off - 1.75, y * TS + pos - 3, 3.5, 6);
-        }
-      }
+      forEachCar(map, x, y, this.time, (along, off, horiz, hex) => {
+        ctx.fillStyle = hex;
+        if (horiz) ctx.fillRect(x * TS + along * TS - 3, y * TS + off * TS - 1.75, 6, 3.5);
+        else ctx.fillRect(x * TS + off * TS - 1.75, y * TS + along * TS - 3, 3.5, 6);
+      });
     }
   }
 
@@ -417,6 +414,33 @@ export class Renderer {
         ctx.fillStyle = `rgba(110,45,120,${Math.min(0.8, 0.12 + p / 110)})`;
       }
       ctx.fillRect(x * TS, y * TS, TS, TS);
+    }
+  }
+}
+
+// Car placement shared by the 2D and 3D views. Calls emit(along, offset, horizontal, colour)
+// with along/offset in tile units (0..1) for every car on tile (x, y) at time t.
+const LANES = [[-5, 5], [-11, -4.5, 4.5, 11], [-10.5, -5, 5, 10.5]];
+const CARS_PER = [35, 90, 150];    // trips per car shown, by road class
+const MAX_PER_LANE = [3, 2, 3];
+export function forEachCar(map, x, y, t, emit) {
+  const i = map.idx(x, y);
+  if (map.type[i] !== TILE.ROAD || map.traffic[i] < 4) return;
+  const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
+  const h = road(-1, 0) || road(1, 0) || x === 0 || x === map.width - 1;
+  const v = road(0, -1) || road(0, 1);
+  if (h === v) return; // intersections, corners, isolated tiles
+  const cls = map.roadClass[i], lanes = LANES[cls];
+  const perLane = Math.min(MAX_PER_LANE[cls], Math.ceil(map.traffic[i] / CARS_PER[cls] / lanes.length * 2));
+  const free = [0.8, 0.5, 0.3][cls];
+  const speed = 34 * (cls === 2 ? 1.6 : 1) / (roadTime(map, i) / free); // px/s, slows when congested
+  const seed = map.variant[i];
+  for (let l = 0; l < lanes.length; l++) {
+    const dir = lanes[l] < 0 ? -1 : 1; // opposite directions either side of the centre line
+    for (let k = 0; k < perLane; k++) {
+      let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;
+      if (dir < 0) pos = TS - pos;
+      emit(pos / TS, (TS / 2 + lanes[l]) / TS, h, PAL.cars[(seed + k * 3 + l) % PAL.cars.length]);
     }
   }
 }

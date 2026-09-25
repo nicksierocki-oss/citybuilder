@@ -3,11 +3,11 @@
 // buildings, trees and cars are instanced low-poly meshes.
 
 import * as THREE from '../vendor/three/three.module.js';
-import { Renderer, TS } from './renderer.js';
+import { Renderer, TS, forEachCar } from './renderer.js';
 import { TILE, FLAG } from './map.js';
-import { roadTime } from './traffic.js';
 
-const TEX_PX = TS;              // texture pixels per tile (matches the 2D painter)
+// Ground texture pixels per tile: full 2D detail on small maps, capped near 2k px for big ones.
+const texPx = (size) => Math.max(16, Math.min(TS, Math.floor(2048 / size)));
 const GROUND_THROTTLE_MS = 200; // max ground-texture redraw rate while the sim runs
 const MESH_THROTTLE_MS = 120;
 
@@ -26,7 +26,6 @@ const COL = {
   band: '#00000022', awnings: ['#e8665a', '#f2b84b', '#6cc19c'],
   abandoned: '#9b9893', abandonedRoof: '#7c7975',
   trunk: '#7a5a3a', leaves: ['#4f8f45', '#5c9d4e', '#467f3d'],
-  cars: ['#e8665a', '#f2f2f2', '#5b9bdb', '#f2c14e', '#3d4450', '#8fd0a4', '#c9a0dc'],
   slab: '#4a3f35', bg: '#1d2430',
 };
 const colorCache = new Map();
@@ -122,12 +121,7 @@ export class Renderer3D {
     this.painter.cam = { zoom: 1 };
     this.painter.flatOnly = true;
 
-    this.boxes = new Batch(scene, GEO.box, 12000);
-    this.roofs = new Batch(scene, GEO.pyramid, 4000);
-    this.cylinders = new Batch(scene, GEO.cylinder, 6000);
-    this.blobs = new Batch(scene, GEO.blob, 6000);
-    this.cars = new Batch(scene, GEO.box, 4000, { shadows: false });
-    this.buildingBatches = [this.boxes, this.roofs, this.cylinders, this.blobs];
+    this.makeBatches(40 * 40);
 
     // Hover outline + drag preview
     const sq = new THREE.BufferGeometry().setFromPoints([
@@ -144,6 +138,20 @@ export class Renderer3D {
     this.resize();
   }
 
+  // Instance capacity scales with map area (worst case: every tile built up).
+  makeBatches(tiles) {
+    for (const b of this.buildingBatches ?? []) this.scene.remove(b.mesh);
+    if (this.cars) this.scene.remove(this.cars.mesh);
+    const scene = this.scene;
+    this.boxes = new Batch(scene, GEO.box, tiles * 7);
+    this.roofs = new Batch(scene, GEO.pyramid, tiles * 2);
+    this.cylinders = new Batch(scene, GEO.cylinder, tiles * 3);
+    this.blobs = new Batch(scene, GEO.blob, tiles * 3);
+    this.cars = new Batch(scene, GEO.box, tiles * 3, { shadows: false });
+    this.buildingBatches = [this.boxes, this.roofs, this.cylinders, this.blobs];
+    this.batchTiles = tiles;
+  }
+
   // ------------------------------------------------------------ camera API
   resize() {
     const r = this.canvas.getBoundingClientRect();
@@ -156,6 +164,13 @@ export class Renderer3D {
 
   updateCamera() {
     const o = this.orbit, c = Math.cos(o.pitch);
+    // Keep depth precision proportional to how far out we are (big maps zoom out a lot).
+    const near = Math.max(0.1, o.dist * 0.02), far = Math.max(400, o.dist * 8);
+    if (this.camera.near !== near || this.camera.far !== far) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.position.set(
       o.target.x + Math.sin(o.yaw) * c * o.dist,
       o.target.y + Math.sin(o.pitch) * o.dist,
@@ -199,7 +214,7 @@ export class Renderer3D {
     const o = this.orbit;
     const p = this.groundPoint(sx, sy);
     const before = o.dist;
-    o.dist = Math.max(6, Math.min(90, o.dist / factor));
+    o.dist = Math.max(6, Math.min(this.maxDist ?? 90, o.dist / factor));
     const k = 1 - o.dist / before; // move toward the cursor as we zoom in
     if (p) { o.target.x += (p.x - o.target.x) * k; o.target.z += (p.z - o.target.z) * k; }
     this.clampCamera(map);
@@ -227,19 +242,29 @@ export class Renderer3D {
   // ------------------------------------------------------------ scene building
   fitMap(map) {
     const w = map.width, h = map.height;
-    this.groundCanvas.width = w * TEX_PX;
-    this.groundCanvas.height = h * TEX_PX;
+    if (w * h > this.batchTiles) this.makeBatches(w * h);
+    this.texPx = texPx(Math.max(w, h));
+    this.groundCanvas.width = w * this.texPx;
+    this.groundCanvas.height = h * this.texPx;
+    this.maxDist = Math.max(w, h) * 2.2;
     this.groundTex.dispose();
     this.groundTex.image = this.groundCanvas;
     this.ground.geometry.dispose();
     this.ground.geometry = new THREE.PlaneGeometry(w, h).rotateX(-Math.PI / 2).translate(w / 2, 0, h / 2);
     this.slab.scale.set(w + 0.6, 1.2, h + 0.6);
-    this.slab.position.set(w / 2, -1.205, h / 2);
+    this.slab.position.set(w / 2, -1.28, h / 2); // top 8cm below the ground: no z-fighting
     const s = this.sun;
-    s.position.set(w / 2 - 22, 38, h / 2 + 16);
+    const k = Math.max(w, h) / 40;
+    s.position.set(w / 2 - 22 * k, 38 * k, h / 2 + 16 * k);
     s.target.position.set(w / 2, 0, h / 2);
     const r = Math.max(w, h) * 0.8;
-    Object.assign(s.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 120 });
+    const shadowRes = Math.max(w, h) > 64 ? 4096 : 2048;
+    if (s.shadow.mapSize.x !== shadowRes) {
+      s.shadow.mapSize.set(shadowRes, shadowRes);
+      s.shadow.map?.dispose();
+      s.shadow.map = null;
+    }
+    Object.assign(s.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 120 * k });
     s.shadow.camera.updateProjectionMatrix();
   }
 
@@ -248,7 +273,8 @@ export class Renderer3D {
     const p = this.painter;
     p.ctx = ctx;
     p.overlay = this.overlay;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const scale = this.texPx / TS;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) p.drawGround(map, x, y);
     p.drawGrid(0, 0, map.width - 1, map.height - 1);
     if (this.overlay) p.drawOverlay(map, 0, 0, map.width - 1, map.height - 1);
@@ -349,33 +375,15 @@ export class Renderer3D {
     }
   }
 
-  // Cars: same flow logic as the 2D view, one small box each.
+  // Cars: same placement as the 2D view, one small box each.
   buildCars(map) {
-    const cars = this.cars, t = this.time;
+    const cars = this.cars;
     cars.begin();
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
-      const i = map.idx(x, y);
-      if (map.type[i] !== TILE.ROAD || map.traffic[i] < 4) continue;
-      const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
-      const h = road(-1, 0) || road(1, 0) || x === 0 || x === map.width - 1;
-      const v = road(0, -1) || road(0, 1);
-      if (h === v) continue;
-      const avenue = map.roadClass[i] === 1;
-      const lanes = avenue ? [-11, -4.5, 4.5, 11] : [-5, 5];
-      const perLane = Math.min(avenue ? 2 : 3, Math.ceil(map.traffic[i] / (avenue ? 90 : 35) / lanes.length * 2));
-      const speed = 34 / (roadTime(map, i) / (avenue ? 0.5 : 0.8));
-      const seed = map.variant[i];
-      for (let l = 0; l < lanes.length; l++) {
-        const dir = lanes[l] < 0 ? -1 : 1;
-        for (let k = 0; k < perLane; k++) {
-          let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;
-          if (dir < 0) pos = TS - pos;
-          const hex = COL.cars[(seed + k * 3 + l) % COL.cars.length];
-          const off = (TS / 2 + lanes[l]) / TS, along = pos / TS;
-          if (h) cars.add(x + along, 0.02, y + off, 0.2, 0.09, 0.11, hex);
-          else cars.add(x + off, 0.02, y + along, 0.11, 0.09, 0.2, hex);
-        }
-      }
+      forEachCar(map, x, y, this.time, (along, off, horiz, hex) => {
+        if (horiz) cars.add(x + along, 0.02, y + off, 0.2, 0.09, 0.11, hex);
+        else cars.add(x + off, 0.02, y + along, 0.11, 0.09, 0.2, hex);
+      });
     }
     cars.end();
   }
@@ -389,7 +397,8 @@ export class Renderer3D {
     }
     const edited = c.version !== map.version;
     const ticked = c.tick !== state.tick;
-    if (edited || c.overlay !== this.overlay || (ticked && now - c.groundAt > GROUND_THROTTLE_MS)) {
+    const groundEvery = GROUND_THROTTLE_MS * (map.size > 5000 ? 2.5 : 1);
+    if (edited || c.overlay !== this.overlay || (ticked && now - c.groundAt > groundEvery)) {
       this.paintGround(map);
       c.groundAt = now;
       c.overlay = this.overlay;
@@ -403,7 +412,9 @@ export class Renderer3D {
     const faded = this.overlay ? 0.28 : 1;
     for (const b of this.buildingBatches) if (b.mesh.material.opacity !== faded) b.setOpacity(faded);
 
-    if (this.orbit.dist < 60) this.buildCars(map); else { this.cars.begin(); this.cars.end(); }
+    // Cars: every frame on normal maps, ~30 fps on big ones; hidden when zoomed far out.
+    if (this.orbit.dist >= 60) { this.cars.begin(); this.cars.end(); }
+    else if (map.size <= 5000 || now - (c.carsAt ?? 0) > 33) { this.buildCars(map); c.carsAt = now; }
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;

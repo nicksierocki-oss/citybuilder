@@ -2,16 +2,16 @@
 
 import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, isZone } from './map.js';
 import { evaluateTile, levelName } from './simulation.js';
 import { roadLoad } from './traffic.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TOOL_SWATCH = {
-  inspect: '#9aa4b2', road: '#5c6370', avenue: '#454b57', residential: '#6fbf5a', commercial: '#4f8fd6',
+  inspect: '#9aa4b2', road: '#5c6370', avenue: '#454b57', highway: '#353a44', upgrade: '#8a7bd1', residential: '#6fbf5a', commercial: '#4f8fd6',
   industrial: '#d9a93f', park: '#86c870', bulldoze: '#d9674f',
 };
-const TOOL_ICON = { inspect: '✋', road: '▦', avenue: '▥', residential: 'R', commercial: 'C', industrial: 'I', park: '♣', bulldoze: '✕' };
+const TOOL_ICON = { inspect: '✋', road: '▦', avenue: '▥', highway: '≡', upgrade: '⇧', residential: 'R', commercial: 'C', industrial: 'I', park: '♣', bulldoze: '✕' };
 
 const $ = (id) => document.getElementById(id);
 const money = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString();
@@ -56,8 +56,15 @@ export class UI {
       if (f) this.game.load(f);
       e.target.value = '';
     });
-    $('btnNew').addEventListener('click', () => {
-      this.confirm('Start a new city?', 'Your current city will be lost unless you save it first.', 'New city', () => this.game.newCity());
+    $('btnNew').addEventListener('click', () => this.newCityDialog((size) => this.game.newCity(size)));
+    $('btnExpand').addEventListener('click', () => {
+      const map = this.game.state.map, next = CONFIG.map.expandSteps.find((n) => n > Math.max(map.width, map.height));
+      if (!next) return;
+      const cost = CONFIG.map.expansionCost[next] ?? 0;
+      this.confirm(`Expand to ${next}×${next}?`,
+        `New land is added on every side of your ${map.width}×${map.height} city. The river continues and roads to the region are extended to the new edge.`
+        + (cost ? ` The land costs $${cost.toLocaleString()}.` : ''),
+        'Expand', () => this.game.expandMap(next));
     });
     $('budgetStat').addEventListener('click', () => $('budget').classList.toggle('open'));
     $('helpBtn').addEventListener('click', () => $('help').classList.toggle('open'));
@@ -117,6 +124,7 @@ export class UI {
     $('commuteDetail').classList.toggle('warn', !!(tr && (tr.congested || unemployed)));
     $('tax').textContent = `${s.taxRate}%`;
     this.updateRCI();
+    this.updateExpandButton();
     this.updateBudget();
     this.updateInfo();
   }
@@ -143,11 +151,12 @@ export class UI {
       ${row('Industrial tax', b.income.industrial)}
       ${row('Road upkeep', -b.expenses.roads)}
       ${row('Avenue upkeep', -b.expenses.avenues)}
+      ${row('Highway upkeep', -b.expenses.highways)}
       ${row('Bridge upkeep', -b.expenses.bridges)}
       ${row('Park upkeep', -b.expenses.parks)}
       ${row('Net', b.totalIncome - b.totalExpenses, 'total')}
     </table>
-    <p class="muted">${s.stats.roads} road · ${s.stats.avenues} avenue · ${s.stats.bridges} bridge · ${s.stats.parks} park tiles.
+    <p class="muted">${s.stats.roads} road · ${s.stats.avenues} avenue · ${s.stats.highways} highway · ${s.stats.bridges} bridge · ${s.stats.parks} park tiles.
     Workers ${Math.round(s.stats.workers)} / jobs ${s.stats.jobs}.</p>`;
   }
 
@@ -163,20 +172,24 @@ export class UI {
     const ab = map.hasFlag(i, FLAG.ABANDONED);
     let title = ZONE_NAMES[type];
     if (type === TILE.EMPTY) title = water ? 'Water' : map.hasFlag(i, FLAG.TREES) ? 'Woodland' : 'Open land';
-    const rows = [];
+    const rows = [], notes = [];
     if (isZone(type)) {
       const cap = CONFIG.capacity[['', '', 'residential', 'commercial', 'industrial'][type]][lv];
       rows.push(['Density', ab ? 'Abandoned' : lv === 0 ? 'Vacant lot' : `${levelName(lv)} (${lv}/3)`]);
       if (!ab && lv > 0) rows.push([type === TILE.RES ? 'Residents' : 'Jobs', cap]);
     }
     if (type === TILE.ROAD) {
-      title = (map.roadClass[i] === 1 ? 'Avenue' : 'Street') + (water ? ' bridge' : '');
-      rows.push(['Network', map.roadDist[i] >= 0 ? `${map.roadDist[i]} tiles to highway` : 'Not connected!']);
+      title = ROAD_NAMES[map.roadClass[i]] + (water ? ' bridge' : '');
+      rows.push(['Network', map.roadDist[i] >= 0 ? `${map.roadDist[i]} tiles to the map edge` : 'Not connected!']);
       if (map.roadDist[i] >= 0) {
         const load = roadLoad(map, i);
         rows.push(['Traffic', `${Math.round(map.traffic[i])} trips/mo`]);
         rows.push(['Capacity', `${Math.round(load * 100)}% ${load > 1 ? '— jammed' : load > 0.5 ? '— busy' : ''}`]);
+        if (load > 0.8 && map.roadClass[i] < 2) {
+          notes.push(`Busy: upgrade to ${ROAD_NAMES[map.roadClass[i] + 1]} with the Upgrade tool (9)`);
+        }
       }
+      if (map.roadClass[i] === 2) notes.push('Limited access: buildings can\'t use a highway as their street');
     }
     if (type === TILE.RES && lv > 0 && !ab) {
       const c = map.commute[i];
@@ -190,7 +203,6 @@ export class UI {
       rows.push(['Land value', bar(map.landValue[i], 'lv')]);
       rows.push(['Pollution', bar(map.pollution[i], 'pol')]);
     }
-    let notes = [];
     if (isZone(type)) {
       const ev = evaluateTile(g.state, i);
       if (ev.connected && !ab) {
@@ -198,7 +210,7 @@ export class UI {
           : (lv > ev.maxLevel || ev.score < CONFIG.growth.declineThreshold) && lv > 0 ? '▼ declining' : '■ stable';
         rows.push(['Outlook', trend]);
       }
-      notes = ev.reasons;
+      notes.push(...ev.reasons);
     }
     el.innerHTML = `<div class="ihead"><b>${title}</b><span class="muted">${t.x}, ${t.y}${g.pinned ? ' · pinned (Esc)' : ''}</span></div>
       <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
@@ -243,12 +255,47 @@ export class UI {
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, ms);
   }
 
+  // New-city dialog with a map-size choice.
+  newCityDialog(onPick) {
+    const m = $('modal');
+    m.querySelector('h2').textContent = 'Start a new city?';
+    const sizes = Object.entries(CONFIG.map.sizes);
+    m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first. Pick a map size:'
+      + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`;
+    let size = CONFIG.map.defaultSize;
+    for (const b of m.querySelectorAll('[data-size]')) {
+      b.onclick = () => {
+        size = Number(b.dataset.size);
+        for (const o of m.querySelectorAll('[data-size]')) o.classList.toggle('sel', o === b);
+      };
+    }
+    const ok = $('modalOk'), cancel = $('modalCancel');
+    ok.textContent = 'New city';
+    cancel.textContent = 'Cancel';
+    cancel.hidden = false;
+    m.hidden = false;
+    const close = () => { m.hidden = true; ok.onclick = cancel.onclick = null; };
+    ok.onclick = () => { close(); onPick(size); };
+    cancel.onclick = close;
+  }
+
+  updateExpandButton() {
+    const map = this.game.state.map, next = CONFIG.map.expandSteps.find((n) => n > Math.max(map.width, map.height));
+    const b = $('btnExpand');
+    b.hidden = !next;
+    if (next) {
+      const cost = CONFIG.map.expansionCost[next] ?? 0;
+      b.title = `Expand the map to ${next}×${next}${cost ? ` for $${cost.toLocaleString()}` : ''}`;
+    }
+  }
+
   confirm(title, body, okLabel, onOk) {
     const m = $('modal');
     m.querySelector('h2').textContent = title;
     m.querySelector('p').textContent = body;
     const ok = $('modalOk'), cancel = $('modalCancel');
     ok.textContent = okLabel;
+    cancel.textContent = 'Cancel';
     cancel.hidden = false;
     m.hidden = false;
     const close = () => { m.hidden = true; ok.onclick = cancel.onclick = null; };

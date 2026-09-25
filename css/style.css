@@ -85,7 +85,8 @@ main { display: flex; height: calc(100% - 52px); }
 #viewport { position: relative; flex: 1; min-width: 0; }
 #game, #game3d { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
 #game[hidden], #game3d[hidden] { display: none; }
-body[data-tool="inspect"] #game, body[data-tool="inspect"] #game3d { cursor: grab; }
+body[data-tool="inspect"] #game, body[data-tool="inspect"] #game3d,
+body.shift-pan #game, body.shift-pan #game3d { cursor: grab; }
 .group button.view { font-weight: 800; min-width: 44px; background: var(--accent); color: #2a2a2a; border-color: var(--accent); }
 #viewHint { position: absolute; left: 12px; top: 10px; font-size: 12px; pointer-events: none; display: none; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
 body[data-view="3d"] #viewHint { display: block; }
@@ -150,6 +151,13 @@ body[data-view="3d"] #viewHint { display: block; }
 .modal-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; width: min(420px, calc(100% - 32px)); }
 .modal-card h2 { margin: 0 0 8px; }
 .modal-card p { color: var(--muted); line-height: 1.5; }
+.sizes { display: flex; gap: 8px; margin-top: 12px; }
+.sizes button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-weight: 700;
+}
+.sizes button small { color: var(--muted); font-weight: 400; }
+.sizes button.sel { border-color: var(--accent); color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-actions .primary { background: var(--accent); color: #2a2a2a; border-color: var(--accent); font-weight: 700; }
 

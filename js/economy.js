@@ -5,8 +5,10 @@ import { TILE, TERRAIN, FLAG, isZone } from './map.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
-  road:        { label: 'Road',        key: '1', shape: 'line', tile: TILE.ROAD },
-  avenue:      { label: 'Avenue',      key: '7', shape: 'line', tile: TILE.ROAD },
+  road:        { label: 'Street',      key: '1', shape: 'line', tile: TILE.ROAD, roadClass: 0 },
+  avenue:      { label: 'Avenue',      key: '7', shape: 'line', tile: TILE.ROAD, roadClass: 1 },
+  highway:     { label: 'Highway',     key: '8', shape: 'line', tile: TILE.ROAD, roadClass: 2 },
+  upgrade:     { label: 'Upgrade road', key: '9', shape: 'line' },
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
@@ -16,25 +18,34 @@ export const TOOLS = {
 
 function push(state, text, kind = 'info') { state.events.push({ text, kind }); }
 
-// Cost of applying `tool` at tile i, or null if not allowed (reason in .why).
+// Build cost of a road class on land or water.
+export function roadCost(cls, water) {
+  const C = CONFIG.costs;
+  return water ? [C.bridge, C.avenueBridge, C.highwayBridge][cls] : [C.road, C.avenue, C.highway][cls];
+}
+
+// Road class a road tool would leave on tile i (null = no change).
+function targetRoadClass(map, tool, i) {
+  if (tool === 'upgrade') return map.type[i] === TILE.ROAD && map.roadClass[i] < 2 ? map.roadClass[i] + 1 : null;
+  const want = TOOLS[tool].roadClass;
+  if (map.type[i] !== TILE.ROAD) return want;
+  return want > map.roadClass[i] ? want : null; // painting a bigger road over a smaller one upgrades it
+}
+
+// Cost of applying `tool` at tile i, or null if not allowed.
 export function toolCost(state, tool, i) {
   const map = state.map, C = CONFIG.costs;
   const t = map.type[i], water = map.terrain[i] === TERRAIN.WATER;
   const trees = map.hasFlag(i, FLAG.TREES) ? C.clearTrees : 0;
   switch (tool) {
-    case 'avenue':
-      if (t === TILE.ROAD) {
-        if (map.roadClass[i] === 1) return null;
-        return water ? C.avenueBridge - C.bridge : C.avenue - C.road; // upgrade a street
-      }
-      if (isZone(t) && map.level[i] > 0) return null;
-      if (t === TILE.PARK) return null;
-      return water ? C.avenueBridge : C.avenue + trees;
-    case 'road':
-      if (t === TILE.ROAD) return null;
+    case 'road': case 'avenue': case 'highway': case 'upgrade': {
+      const cls = targetRoadClass(map, tool, i);
+      if (cls == null) return null;
+      if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
       if (t === TILE.PARK) return null;
-      return water ? C.bridge : C.road + trees;
+      return roadCost(cls, water) + (water ? 0 : trees);
+    }
     case 'residential': case 'commercial': case 'industrial': case 'park': {
       const want = TOOLS[tool].tile;
       if (water || t === TILE.ROAD || t === want) return null;
@@ -61,9 +72,15 @@ function applyOne(state, tool, i) {
     map.roadClass[i] = 0;
     map.traffic[i] = 0;
     map.setFlag(i, FLAG.ABANDONED, false);
+  } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {
+    map.roadClass[i] = targetRoadClass(map, tool, i);
+    map.type[i] = TILE.ROAD;
+    map.level[i] = 0;
+    map.setFlag(i, FLAG.TREES, false);
+    map.setFlag(i, FLAG.ABANDONED, false);
   } else {
     map.type[i] = TOOLS[tool].tile;
-    map.roadClass[i] = tool === 'avenue' ? 1 : 0;
+    map.roadClass[i] = 0;
     map.level[i] = 0;
     map.setFlag(i, FLAG.TREES, false);
     map.setFlag(i, FLAG.ABANDONED, false);
@@ -110,6 +127,7 @@ export function monthlyBudget(state) {
   const expenses = {
     roads: s.roads * E.roadMaintenance,
     avenues: s.avenues * E.avenueMaintenance,
+    highways: s.highways * E.highwayMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
     parks: s.parks * E.parkMaintenance,
   };

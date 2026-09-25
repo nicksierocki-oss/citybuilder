@@ -1,7 +1,6 @@
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
-import { GameMap, TILE } from './map.js';
-import { CONFIG } from './config.js';
+import { GameMap, TILE, highwayEntry } from './map.js';
 import { refreshFields } from './simulation.js';
 
 const VERSION = 2;
@@ -68,7 +67,7 @@ export function deserialize(data) {
 // v1 had no avenues. New maps start with the regional highway as an avenue,
 // so give v1 cities the same (free) upgrade — otherwise commuters would jam it.
 function migrateV1(map) {
-  const { highwayRow, highwayLength } = CONFIG.map;
+  const { row: highwayRow, length: highwayLength } = highwayEntry(map.width, map.height);
   if (highwayRow >= map.height) return;
   for (let x = 0; x < Math.min(highwayLength, map.width); x++) {
     const i = map.idx(x, highwayRow);

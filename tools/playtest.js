@@ -3,7 +3,9 @@
 import { createGame, tick, refreshFields, evaluateTile } from '../js/simulation.js';
 import { applyTool } from '../js/economy.js';
 import { CONFIG } from '../js/config.js';
-import { TILE, TERRAIN } from '../js/map.js';
+import { TILE, TERRAIN, highwayEntry } from '../js/map.js';
+const SIZE = 40; // the scripted layouts below were designed for the small map
+const H0 = highwayEntry(SIZE, SIZE).row;
 
 const TPM = CONFIG.time.ticksPerMonth;
 
@@ -26,7 +28,7 @@ function riverX(state, y) {
 
 // A sensible player: a small street grid, mixed zoning, a park, grows as demand appears.
 function sensible(state, avenues = false) {
-  const H = CONFIG.map.highwayRow;
+  const H = H0;
   const rx = Math.min(riverX(state, H - 6), riverX(state, H + 6), riverX(state, H)) - 2;
   const plan = [
     () => {
@@ -77,7 +79,7 @@ function sensible(state, avenues = false) {
 
 // A careless player: huge road grid, all residential, industry dumped in the middle.
 function careless(state) {
-  const H = CONFIG.map.highwayRow;
+  const H = H0;
   for (let x = 10; x < 38; x += 3) applyTool(state, 'road', line(state, x, 1, x, 38));
   for (let y = 2; y < 38; y += 4) applyTool(state, 'road', line(state, 10, y, 37, y));
   applyTool(state, 'road', line(state, 10, H, 37, H));
@@ -88,7 +90,7 @@ function careless(state) {
 
 // A sprawling player: a generous road grid, zones everywhere, industry mixed into housing.
 function sprawl(state) {
-  const H = CONFIG.map.highwayRow;
+  const H = H0;
   applyTool(state, 'road', line(state, 10, H, 22, H));
   for (let x = 12; x <= 22; x += 5) applyTool(state, 'road', line(state, x, 3, x, 36));
   for (let y = 3; y <= 36; y += 5) applyTool(state, 'road', line(state, 12, y, 22, y));
@@ -101,7 +103,7 @@ function sprawl(state) {
 }
 
 function run(name, strategy, months = 72, seed = 12345) {
-  const state = createGame(seed);
+  const state = createGame(seed, SIZE);
   state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
   const step = strategy(state);
   refreshFields(state);

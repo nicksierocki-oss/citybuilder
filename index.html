@@ -36,6 +36,7 @@
     </div>
     <div class="group">
       <button id="btnNew">New</button>
+      <button id="btnExpand" title="Expand the map" hidden>Expand</button>
       <button id="btnSave" title="Download city as JSON">Save</button>
       <button id="btnLoad" title="Load a city JSON file">Load</button>
       <button id="helpBtn" title="How to play">?</button>
@@ -65,7 +66,7 @@
     <div id="viewport">
       <canvas id="game"></canvas>
       <canvas id="game3d" hidden></canvas>
-      <div id="viewHint" class="muted">Right-drag to orbit · middle-drag or WASD to pan · Q/E rotate · wheel zoom</div>
+      <div id="viewHint" class="muted">Right-drag to orbit · Shift+drag, middle-drag or WASD to pan · Q/E rotate · wheel zoom</div>
       <div id="costTip" hidden></div>
       <div id="info" class="panel" hidden></div>
       <div id="legend" class="panel" hidden></div>
@@ -75,15 +76,15 @@
         <button id="helpClose" aria-label="Close">×</button>
         <h3>How to play</h3>
         <ol>
-          <li><b>Extend the highway</b> (grey road at the west edge) with the Road tool. Only roads connected to it count.</li>
+          <li><b>Extend the regional road</b> (the avenue entering from the west edge). Only roads connected to a map edge count.</li>
           <li><b>Zone beside roads</b>: Residential, Commercial, Industrial. Drag to paint rectangles.</li>
           <li><b>Watch the RCI meter</b>: homes need jobs, shops need residents, industry needs workers &amp; customers.</li>
           <li><b>Raise land value</b> with parks and waterfront; keep industry away from homes to reach high density.</li>
-          <li><b>Keep traffic moving</b>: workers drive to the nearest open jobs. Long or jammed commutes make homes decline. Upgrade busy streets to <b>Avenues</b> (<kbd>7</kbd>), which carry 3× the traffic.</li>
+          <li><b>Keep traffic moving</b>: workers drive to the nearest open jobs. Long or jammed commutes make homes decline. Upgrade busy roads with the <b>Upgrade</b> tool (<kbd>9</kbd>): Street → Avenue (3× capacity) → Highway (fastest, 7.5×, but no driveways).</li>
           <li><b>Mind the budget</b>: roads cost upkeep. Six months in debt and you're fired.</li>
         </ol>
         <p><kbd>1</kbd>–<kbd>6</kbd> tools · <kbd>0</kbd>/<kbd>Esc</kbd> inspect · <kbd>WASD</kbd>/arrows pan · wheel zoom ·
-          right-drag pan (orbit in 3D) · <kbd>V</kbd> 2D/3D view · <kbd>Q</kbd>/<kbd>E</kbd> rotate (3D) · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd>/<kbd>T</kbd> overlays</p>
+          right-drag pan (orbit in 3D) · <kbd>Shift</kbd>+drag or scroll pan · <kbd>V</kbd> 2D/3D view · <kbd>Q</kbd>/<kbd>E</kbd> rotate (3D) · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd>/<kbd>T</kbd> overlays</p>
       </div>
     </div>
   </main>
