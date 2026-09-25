@@ -1,6 +1,7 @@
 // Rendering: draws the map with flat shapes on a 2D canvas. Reads state, never mutates it.
 
 import { TILE, TERRAIN, FLAG } from './map.js';
+import { roadLoad, roadTime } from './traffic.js';
 
 export const TS = 32; // tile size in world units
 
@@ -19,6 +20,8 @@ const PAL = {
     3: [null, '#8fc3ec', '#5b9bdb', '#2f6db5'],
     4: [null, '#e8c874', '#c9a04a', '#94712f'],
   },
+  laneWhite: 'rgba(255,255,255,0.7)', median: '#8fae6e',
+  cars: ['#e8665a', '#f2f2f2', '#5b9bdb', '#f2c14e', '#3d4450', '#8fd0a4', '#c9a0dc'],
   abandoned: '#8d8a86', abandonedDark: '#6c6a67',
   shadow: 'rgba(20,30,40,0.28)',
 };
@@ -29,7 +32,8 @@ export class Renderer {
     this.ctx = canvas.getContext('2d');
     this.cam = { x: 0, y: 0, zoom: 1 };
     this.dpr = 1;
-    this.overlay = null; // 'landValue' | 'pollution' | null
+    this.overlay = null; // 'landValue' | 'pollution' | 'traffic' | null
+    this.time = 0;       // animation clock in seconds (advanced only while the sim runs)
     this.resize();
   }
 
@@ -86,6 +90,7 @@ export class Renderer {
     // Pass 1: ground (terrain, roads, lots). Pass 2: buildings & trees (they cast shadows onto neighbours).
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawGround(map, x, y);
     if (cam.zoom >= 0.7) this.drawGrid(x0, y0, x1, y1);
+    if (cam.zoom >= 0.55) this.drawCars(map, x0, y0, x1, y1);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawObjects(map, x, y);
 
     if (this.overlay) this.drawOverlay(map, x0, y0, x1, y1);
@@ -167,7 +172,8 @@ export class Renderer {
     const cs = s || (y === map.height - 1 && (n || (!w && !e)));
     const cw = w || (x === 0 && (e || (!n && !s)));
     const ce = e || (x === map.width - 1 && (w || (!n && !s)));
-    const hw = 11; // half width of carriageway
+    const avenue = map.roadClass[map.idx(x, y)] === 1;
+    const hw = avenue ? 15 : 11; // half width of carriageway
     const c = TS / 2;
     ctx.fillStyle = PAL.asphalt;
     ctx.fillRect(px + c - hw, py + c - hw, hw * 2, hw * 2);
@@ -180,12 +186,54 @@ export class Renderer {
       if (cw || ce) { ctx.fillRect(px, py + c - hw - 2, TS, 2); ctx.fillRect(px, py + c + hw, TS, 2); }
       if (cn || cs) { ctx.fillRect(px + c - hw - 2, py, 2, TS); ctx.fillRect(px + c + hw, py, 2, TS); }
     }
-    // lane markings (skip at intersections)
-    const links = cn + cs + cw + ce;
-    ctx.fillStyle = PAL.laneMark;
-    if (links <= 2) {
-      if (cw || ce) { for (let k = 2; k < TS; k += 10) if ((cw || k > c) && (ce || k < c)) ctx.fillRect(px + k, py + c - 1, 5, 2); }
-      if (cn || cs) { for (let k = 2; k < TS; k += 10) if ((cn || k > c) && (cs || k < c)) ctx.fillRect(px + c - 1, py + k, 2, 5); }
+    // lane markings (skip at intersections and corners)
+    const horiz = (cw || ce) && !cn && !cs, vert = (cn || cs) && !cw && !ce;
+    if (!horiz && !vert) return;
+    const along = (fn) => { for (let k = 2; k < TS; k += 10) fn(k); };
+    if (avenue) {
+      // planted median + dashed white lane lines
+      ctx.fillStyle = PAL.median;
+      if (horiz) ctx.fillRect(px, py + c - 1.5, TS, 3); else ctx.fillRect(px + c - 1.5, py, 3, TS);
+      ctx.fillStyle = PAL.laneWhite;
+      along((k) => {
+        if (horiz) { ctx.fillRect(px + k, py + c - 8, 5, 1); ctx.fillRect(px + k, py + c + 7, 5, 1); }
+        else { ctx.fillRect(px + c - 8, py + k, 1, 5); ctx.fillRect(px + c + 7, py + k, 1, 5); }
+      });
+    } else {
+      ctx.fillStyle = PAL.laneMark;
+      along((k) => {
+        if (horiz && (cw || k > c) && (ce || k < c)) ctx.fillRect(px + k, py + c - 1, 5, 2);
+        if (vert && (cn || k > c) && (cs || k < c)) ctx.fillRect(px + c - 1, py + k, 2, 5);
+      });
+    }
+  }
+
+  // Little cars on straight road tiles; count follows volume, speed follows congestion.
+  drawCars(map, x0, y0, x1, y1) {
+    const ctx = this.ctx, t = this.time;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = map.idx(x, y);
+      if (map.type[i] !== TILE.ROAD || map.traffic[i] < 4) continue;
+      const road = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD;
+      const h = road(-1, 0) || road(1, 0) || x === 0 || x === map.width - 1;
+      const v = road(0, -1) || road(0, 1);
+      if (h === v) continue; // intersections, corners, isolated tiles
+      const avenue = map.roadClass[i] === 1;
+      const lanes = avenue ? [-11, -4.5, 4.5, 11] : [-5, 5];
+      const perLane = Math.min(avenue ? 2 : 3, Math.ceil(map.traffic[i] / (avenue ? 90 : 35) / lanes.length * 2));
+      const speed = 34 / (roadTime(map, i) / (avenue ? 0.5 : 0.8)); // px/s, slows when congested
+      const seed = map.variant[i];
+      for (let l = 0; l < lanes.length; l++) {
+        const dir = lanes[l] < 0 ? -1 : 1; // opposite directions either side of the centre line
+        for (let k = 0; k < perLane; k++) {
+          let pos = (t * speed + k * (TS / perLane) + ((seed * (l + 3)) % TS)) % TS;
+          if (dir < 0) pos = TS - pos;
+          ctx.fillStyle = PAL.cars[(seed + k * 3 + l) % PAL.cars.length];
+          const off = TS / 2 + lanes[l];
+          if (h) ctx.fillRect(x * TS + pos - 3, y * TS + off - 1.75, 6, 3.5);
+          else ctx.fillRect(x * TS + off - 1.75, y * TS + pos - 3, 3.5, 6);
+        }
+      }
     }
   }
 
@@ -341,7 +389,9 @@ export class Renderer {
     const ctx = this.ctx;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = map.idx(x, y);
-      if (this.overlay === 'landValue') {
+      if (this.overlay === 'traffic') {
+        ctx.fillStyle = map.type[i] === TILE.ROAD ? trafficColor(map.traffic[i] > 0.5 ? roadLoad(map, i) : -1) : 'rgba(20,28,38,0.45)';
+      } else if (this.overlay === 'landValue') {
         if (map.terrain[i] === TERRAIN.WATER && map.type[i] !== TILE.ROAD) continue;
         ctx.fillStyle = landValueColor(map.landValue[i]);
       } else {
@@ -352,6 +402,15 @@ export class Renderer {
       ctx.fillRect(x * TS, y * TS, TS, TS);
     }
   }
+}
+
+// green (free-flowing) -> yellow (busy) -> red (over capacity); grey = unused
+export function trafficColor(load) {
+  if (load < 0) return 'rgba(200,205,212,0.55)';
+  if (load < 0.5) return 'rgba(80,190,100,0.8)';
+  if (load < 1) return 'rgba(240,200,60,0.85)';
+  if (load < 1.6) return 'rgba(235,120,50,0.9)';
+  return 'rgba(215,55,50,0.9)';
 }
 
 // red (0) -> yellow (50) -> green (100)

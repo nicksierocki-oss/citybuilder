@@ -144,6 +144,7 @@ export class Input {
       case ' ': e.preventDefault(); g.togglePause(); break;
       case 'l': g.toggleOverlay('landValue'); break;
       case 'p': g.toggleOverlay('pollution'); break;
+      case 't': g.toggleOverlay('traffic'); break;
       case '=': case '+': this.renderer.zoomAt(g.state.map, this.renderer.viewW / 2, this.renderer.viewH / 2, 1.2); break;
       case '-': case '_': this.renderer.zoomAt(g.state.map, this.renderer.viewW / 2, this.renderer.viewH / 2, 1 / 1.2); break;
       case '.': case '>': g.setSpeed(Math.min(3, g.speed + 1)); break;

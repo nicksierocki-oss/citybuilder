@@ -24,7 +24,11 @@ Plain HTML + CSS + JavaScript (ES modules) on a `<canvas>`. No frameworks, no bu
    positive and the site is good. Residential density is capped by land value:
    medium needs about 40 and high needs about 62. Parks and waterfront raise land value.
    Industrial pollution lowers it.
-5. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
+5. **Keep traffic moving.** Workers drive to the nearest jobs with open positions.
+   Long or jammed commutes make homes decline, and homes with no job in reach empty out.
+   Upgrade busy streets to **Avenues**, which carry 3× the traffic. Busy roads
+   are noisy and polluting, so they lower land value next to them. Shops like passing traffic.
+6. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
    upkeep. If funds stay negative for 6 months, the council removes you.
 
 A good opener: run a street off the highway, put industry near the highway
@@ -35,12 +39,12 @@ among the homes.
 
 | Action | Input |
 | --- | --- |
-| Tools | `1` Road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
+| Tools | `1` Road · `7` Avenue (paint over a street to upgrade) · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
 | Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles |
 | Pan | `WASD` / arrow keys, right- or middle-drag, or left-drag with the Inspect tool |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution |
+| Overlays | `L` land value · `P` pollution · `T` traffic |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
 | Taxes | `−` / `+` in the top bar (higher tax = more income, less demand) |
@@ -57,20 +61,34 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
 
 1. **Roads.** A breadth-first search from road tiles on the map edge. Each road gets a
    distance to the edge, or -1 if it is disconnected.
-2. **Pollution.** Industry emits 30 / 50 / 75 by density, with linear falloff over
+2. **Traffic** (`js/traffic.js`, every 4 ticks).
+   - **Commuting:** homes are visited in random order. Each one runs a shortest-time
+     search over the road network and fills the nearest open jobs with its workers
+     (half its residents). Map-edge roads lead to 50 jobs in neighbouring towns.
+     Commutes are capped at 45 minutes.
+   - **Freight:** each industrial job sends 0.4 truck trips to the nearest highway exit.
+   - **Congestion:** trips add volume to every road tile on their route. A street tile
+     takes 0.8 min and an avenue 0.5 min at free flow, multiplied by
+     `1 + 1.6 × load²`, where load = volume / capacity (160 per street, 480 per avenue).
+     Volumes are smoothed between runs, so drivers gradually shift to less-jammed routes.
+   - **Effects:**
+     - Homes lose score above a 20-minute commute and when under 70% of their workers are employed.
+     - Shops gain from passing trips.
+     - Busy roads add pollution and noise, which lowers land value.
+3. **Pollution.** Industry emits 30 / 50 / 75 by density, with linear falloff over
    radius 3 / 4 / 6. Large commerce emits a little. Parks and trees absorb pollution nearby.
-3. **Land value.** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
+4. **Land value.** Starts at 32. Adds up to +20 for waterfront, parks (up to +36),
    trees and nearby shops. Subtracts 0.8 × pollution and a penalty near abandoned buildings.
-4. **Shoppers.** Residents within 6 tiles of each tile, computed with a summed-area table.
-5. **Demand (RCI).**
+5. **Shoppers.** Residents within 6 tiles of each tile, computed with a summed-area table.
+6. **Demand (RCI).**
    - Residential target population = (jobs + 50 outside jobs) / 0.5 workforce ratio.
    - Commercial target = 0.2 jobs per resident.
    - Industrial target = 0.32 jobs per resident + 40 export jobs.
    - C and I are also capped by available labour.
    - Each gap is normalised to −1..1, shifted by the tax rate, and smoothed.
-6. **Growth.** Every zoned tile gets a score:
-   - **R:** demand + land value.
-   - **C:** demand + land value + nearby shoppers.
+7. **Growth.** Every zoned tile gets a score:
+   - **R:** demand + land value − commute and unemployment penalties.
+   - **C:** demand + land value + nearby shoppers + passing traffic.
    - **I:** demand + freight access, meaning a short road trip to the highway.
 
    Positive scores can raise density, up to the cap the site allows:
@@ -80,7 +98,7 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
    Negative scores shrink buildings, and a very bad small building is abandoned.
    Abandoned buildings recover when conditions improve. Tiles cut off from the road
    network decline.
-7. **Economy.** At each month boundary, taxes minus upkeep go into funds. Debt counts down to bankruptcy.
+8. **Economy.** At each month boundary, taxes minus upkeep go into funds. Debt counts down to bankruptcy.
 
 The **tile info panel** explains why a tile isn't growing, for example "Needs a road next
 to it", "Land value 34 caps density at low (needs 40)", or "Only 45 residents
@@ -92,17 +110,18 @@ nearby".
 upkeep, tax bases, capacities, demand ratios, growth chances, density thresholds,
 pollution and land-value weights, and tick speed.
 
-`tools/playtest.js` runs the real simulation headless with three scripted
+`tools/playtest.js` runs the real simulation headless with four scripted
 players and prints population, funds and RCI over six years:
 
 ```sh
-node tools/playtest.js
+node tools/playtest.js          # add DIAG=1 for traffic stats and why homes aren't growing
 ```
 
 Current results (seed 12345):
 
-- **Sensible layout:** 1,000 people by month about 22 (about 70 s at 1×) and about +$650 per month by year 6.
-- **Sprawl** (road grid everywhere, industry mixed into housing): stalls near 700 people and slowly bleeds money.
+- **Sensible layout** (streets only): 1,000 people by month 29 (about 90 s at 1×), then jams cap it near 1,650.
+- **Same layout with the main spine upgraded to avenues:** about 2,100 people by year 6, everyone employed, commutes about 21 min instead of 27.
+- **Sprawl** (road grid everywhere, industry mixed into housing): stalls near 530 people and drains the treasury.
 - **Careless** (everything zoned residential, 300+ roads): bankrupt within 6 months.
 
 ---
@@ -114,7 +133,8 @@ index.html          page shell (top bar, sidebar, panels)
 css/style.css       UI styling
 js/config.js        ALL balance numbers
 js/map.js           GameMap: grid of typed-array layers + map generator (river, trees, highway)
-js/simulation.js    systems pipeline: roads, pollution, land value, demand, growth, stats
+js/simulation.js    systems pipeline: roads, traffic, pollution, land value, demand, growth, stats
+js/traffic.js       commuting, freight, congestion (Dijkstra over the road graph)
 js/economy.js       tools, build costs, monthly budget, bankruptcy
 js/renderer.js      canvas drawing, camera (pan/zoom), overlays
 js/input.js         mouse painting, panning, keyboard shortcuts

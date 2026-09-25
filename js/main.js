@@ -80,6 +80,7 @@ function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   game.input.update(dt);
+  if (game.speed > 0 && !game.state.bankrupt) game.renderer.time += dt * (0.6 + 0.4 * game.speed);
   if (game.speed > 0 && !game.state.bankrupt) {
     acc += dt * 1000;
     const step = CONFIG.time.msPerTick[game.speed];

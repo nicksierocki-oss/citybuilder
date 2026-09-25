@@ -16,6 +16,7 @@
       <label>Last month ▾</label><span id="net">—</span><small id="netDetail"></small>
     </button>
     <div class="stat"><label>Population</label><span id="pop">0</span><small id="jobs"></small></div>
+    <div class="stat"><label>Commute</label><span id="commute">—</span><small id="commuteDetail"></small></div>
     <div class="stat"><label>Date</label><span id="date">Jan 2000</span></div>
     <div class="group" role="group" aria-label="Speed">
       <button data-speed="0" title="Pause (Space)">❚❚</button>
@@ -46,6 +47,7 @@
         <h4>Overlays</h4>
         <button class="ovl" data-overlay="landValue">Land value <kbd>L</kbd></button>
         <button class="ovl" data-overlay="pollution">Pollution <kbd>P</kbd></button>
+        <button class="ovl" data-overlay="traffic">Traffic <kbd>T</kbd></button>
       </div>
       <div class="section">
         <h4>Demand</h4>
@@ -72,10 +74,11 @@
           <li><b>Zone beside roads</b>: Residential, Commercial, Industrial. Drag to paint rectangles.</li>
           <li><b>Watch the RCI meter</b>: homes need jobs, shops need residents, industry needs workers &amp; customers.</li>
           <li><b>Raise land value</b> with parks and waterfront; keep industry away from homes to reach high density.</li>
+          <li><b>Keep traffic moving</b>: workers drive to the nearest open jobs. Long or jammed commutes make homes decline. Upgrade busy streets to <b>Avenues</b> (<kbd>7</kbd>), which carry 3× the traffic.</li>
           <li><b>Mind the budget</b>: roads cost upkeep. Six months in debt and you're fired.</li>
         </ol>
         <p><kbd>1</kbd>–<kbd>6</kbd> tools · <kbd>0</kbd>/<kbd>Esc</kbd> inspect · <kbd>WASD</kbd>/arrows pan · wheel zoom ·
-          right-drag pan · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd> overlays</p>
+          right-drag pan · <kbd>Space</kbd> pause · <kbd>,</kbd> <kbd>.</kbd> speed · <kbd>L</kbd>/<kbd>P</kbd>/<kbd>T</kbd> overlays</p>
       </div>
     </div>
   </main>

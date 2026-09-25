@@ -4,13 +4,14 @@ import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget } from './economy.js';
 import { TILE, TERRAIN, FLAG, ZONE_NAMES, isZone } from './map.js';
 import { evaluateTile, levelName } from './simulation.js';
+import { roadLoad } from './traffic.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TOOL_SWATCH = {
-  inspect: '#9aa4b2', road: '#5c6370', residential: '#6fbf5a', commercial: '#4f8fd6',
+  inspect: '#9aa4b2', road: '#5c6370', avenue: '#454b57', residential: '#6fbf5a', commercial: '#4f8fd6',
   industrial: '#d9a93f', park: '#86c870', bulldoze: '#d9674f',
 };
-const TOOL_ICON = { inspect: '✋', road: '▦', residential: 'R', commercial: 'C', industrial: 'I', park: '♣', bulldoze: '✕' };
+const TOOL_ICON = { inspect: '✋', road: '▦', avenue: '▥', residential: 'R', commercial: 'C', industrial: 'I', park: '♣', bulldoze: '✕' };
 
 const $ = (id) => document.getElementById(id);
 const money = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString();
@@ -75,6 +76,7 @@ export class UI {
     const lg = $('legend');
     lg.hidden = !o;
     if (o === 'landValue') lg.innerHTML = '<b>Land value</b><div class="ramp lv"></div><div class="rampl"><span>0</span><span>50</span><span>100</span></div>';
+    if (o === 'traffic') lg.innerHTML = '<b>Traffic</b> <span class="muted">(share of road capacity)</span><div class="ramp traffic"></div><div class="rampl"><span>free</span><span>busy</span><span>jammed</span></div>';
     if (o === 'pollution') lg.innerHTML = '<b>Pollution</b><div class="ramp pol"></div><div class="rampl"><span>clean</span><span>heavy</span></div>';
   }
 
@@ -102,6 +104,11 @@ export class UI {
     $('pop').textContent = st.population.toLocaleString();
     $('jobs').textContent = `${st.jobs.toLocaleString()} jobs`;
     $('date').textContent = `${MONTHS[s.month]} ${s.year}`;
+    const tr = s.traffic;
+    $('commute').textContent = tr && tr.employed > 0 ? `${Math.round(tr.avgCommute)} min` : '—';
+    const unemployed = tr ? Math.max(0, Math.round(tr.workers - tr.employed)) : 0;
+    $('commuteDetail').textContent = tr && tr.congested ? `${tr.congested} jammed road${tr.congested > 1 ? 's' : ''}` : unemployed ? `${unemployed} can't reach jobs` : 'traffic flowing';
+    $('commuteDetail').classList.toggle('warn', !!(tr && (tr.congested || unemployed)));
     $('tax').textContent = `${s.taxRate}%`;
     this.updateRCI();
     this.updateBudget();
@@ -129,11 +136,12 @@ export class UI {
       ${row('Commercial tax', b.income.commercial)}
       ${row('Industrial tax', b.income.industrial)}
       ${row('Road upkeep', -b.expenses.roads)}
+      ${row('Avenue upkeep', -b.expenses.avenues)}
       ${row('Bridge upkeep', -b.expenses.bridges)}
       ${row('Park upkeep', -b.expenses.parks)}
       ${row('Net', b.totalIncome - b.totalExpenses, 'total')}
     </table>
-    <p class="muted">${s.stats.roads} road · ${s.stats.bridges} bridge · ${s.stats.parks} park tiles.
+    <p class="muted">${s.stats.roads} road · ${s.stats.avenues} avenue · ${s.stats.bridges} bridge · ${s.stats.parks} park tiles.
     Workers ${Math.round(s.stats.workers)} / jobs ${s.stats.jobs}.</p>`;
   }
 
@@ -149,14 +157,29 @@ export class UI {
     const ab = map.hasFlag(i, FLAG.ABANDONED);
     let title = ZONE_NAMES[type];
     if (type === TILE.EMPTY) title = water ? 'Water' : map.hasFlag(i, FLAG.TREES) ? 'Woodland' : 'Open land';
-    if (type === TILE.ROAD && water) title = 'Bridge';
     const rows = [];
     if (isZone(type)) {
       const cap = CONFIG.capacity[['', '', 'residential', 'commercial', 'industrial'][type]][lv];
       rows.push(['Density', ab ? 'Abandoned' : lv === 0 ? 'Vacant lot' : `${levelName(lv)} (${lv}/3)`]);
       if (!ab && lv > 0) rows.push([type === TILE.RES ? 'Residents' : 'Jobs', cap]);
     }
-    if (type === TILE.ROAD) rows.push(['Network', map.roadDist[i] >= 0 ? `${map.roadDist[i]} tiles to highway` : 'Not connected!']);
+    if (type === TILE.ROAD) {
+      title = (map.roadClass[i] === 1 ? 'Avenue' : 'Street') + (water ? ' bridge' : '');
+      rows.push(['Network', map.roadDist[i] >= 0 ? `${map.roadDist[i]} tiles to highway` : 'Not connected!']);
+      if (map.roadDist[i] >= 0) {
+        const load = roadLoad(map, i);
+        rows.push(['Traffic', `${Math.round(map.traffic[i])} trips/mo`]);
+        rows.push(['Capacity', `${Math.round(load * 100)}% ${load > 1 ? '— jammed' : load > 0.5 ? '— busy' : ''}`]);
+      }
+    }
+    if (type === TILE.RES && lv > 0 && !ab) {
+      const c = map.commute[i];
+      rows.push(['Commute', Number.isFinite(c) ? `${Math.round(c)} min` : 'no job in reach']);
+      rows.push(['Employed', `${Math.round(map.employed[i] * 100)}%`]);
+    } else if (type === TILE.RES && Number.isFinite(map.commute[i])) {
+      rows.push(['Nearest job', `${Math.round(map.commute[i])} min`]);
+    }
+    if (type === TILE.COM) rows.push(['Passing trips', Math.round(map.passing[i])]);
     if (!water) {
       rows.push(['Land value', bar(map.landValue[i], 'lv')]);
       rows.push(['Pollution', bar(map.pollution[i], 'pol')]);
