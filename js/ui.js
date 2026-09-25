@@ -2,8 +2,8 @@
 
 import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, isUnlocked, visitorIncome, repayLoan, loanPayoff } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone, skilledShare, footprintSize } from './map.js';
-import { evaluateTile, levelName, districtAt } from './simulation.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
+import { evaluateTile, levelName, districtAt, tourismScore } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
 import { supplyOf, happinessReasons, educationTarget } from './services.js';
 import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
@@ -22,7 +22,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // Toolbar layout: groups of tools.
 const GROUPS = [
   ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange']],
-  ['Zones', ['residential', 'commercial', 'industrial']],
+  ['Zones', ['residential', 'commercial', 'industrial', 'office', 'farm', 'mixed']],
   ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
   ['Transit', ['bus', 'metro']],
@@ -33,7 +33,7 @@ const GROUPS = [
 
 const TOOL_COLOR = {
   road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
-  residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a',
+  residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a', office: '#5abec8', farm: '#b9c46a', mixed: '#cd9678',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
@@ -49,6 +49,9 @@ const TOOL_HELP = {
   residential: 'Homes. Grow when there are jobs.',
   commercial: 'Shops and offices. Grow with residents nearby.',
   industrial: 'Factories. Need workers; pollute.',
+  office: 'Offices: many skilled jobs, clean, high tax. Need educated residents nearby.',
+  farm: 'Farms: cheap outlying land, no power needed, no pollution. Fields can be 2 tiles from a road.',
+  mixed: 'Mixed-use: homes upstairs, shops at street level. Grows with both housing and shop demand.',
   wind: 'Clean power (150 units). Place beside a road.',
   coal: 'Lots of power (600 units) but pollutes.',
   pump: 'Water (400 units near a river, 130 on dry land).',
@@ -85,6 +88,9 @@ const ICONS = {
   residential: I('<path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>'),
   commercial: I('<path d="M4 9h16l-1.5-4h-13z"/><path d="M5 9v10h14V9"/><path d="M9 19v-5h6v5"/>'),
   industrial: I('<path d="M3 20V10l5 3V10l5 3V6h4v14z"/><path d="M3 20h18"/>'),
+  office: I('<rect x="6" y="3" width="12" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>'),
+  farm: I('<path d="M3 20h18M4 16c3-1 5-1 8 0s5 1 8 0"/><path d="M7 13V7l3-3 3 3v6z"/><path d="M16 13V8h3v5"/>'),
+  mixed: I('<path d="M5 21V8l7-5 7 5v13z"/><path d="M5 15h14"/><path d="M9 21v-3h6v3M9 10h2M13 10h2"/>'),
   wind: I('<path d="M12 12v9"/><path d="M12 12 12 3M12 12l7.5 4.5M12 12l-7.5 4.5"/><circle cx="12" cy="12" r="1.2"/>'),
   coal: I('<path d="M3 20v-7h7v7"/><path d="M13 20c.8-3 .8-8 0-12h6c-.8 4-.8 9 0 12z"/><path d="M15 4c1-1 2 0 3-1"/>'),
   pump: I('<path d="M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-4 3-7 6-11z"/>'),
@@ -153,7 +159,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -546,12 +552,15 @@ export class UI {
       ['c', 'Shops', 'var(--c)', labour < 0 ? 'short of workers: zone homes' : shops >= 0 ? `shoppers want ~${shops} more shop jobs` : 'more shops than shoppers'],
       ['i', 'Industry', 'var(--i)', labour < 0 ? 'short of workers: zone homes' : goods >= 0 ? `~${goods} more factory jobs wanted` : 'enough industry for now'],
     ];
+    // Offices and farms only show once they matter (zoned, or clearly wanted).
+    if (st.zoned.o || (d.o ?? 0) > 0.15) rows.push(['o', 'Offices', '#5abec8', (s.education ?? 0) < 0.3 ? 'need more skilled residents: build schools' : (d.o ?? 0) > 0 ? 'skilled workers want office jobs' : 'enough offices for now']);
+    if (st.zoned.f || (d.f ?? 0) > 0.15) rows.push(['f', 'Farms', '#b9c46a', (d.f ?? 0) > 0 ? 'the region wants more produce' : 'enough farms for now']);
     const bar = (v, color) => {
       const w = Math.abs(v) * 50;
       return `<b style="left:${v >= 0 ? 50 : 50 - w}%;width:${w}%;background:${v >= 0 ? color : 'var(--bad)'};opacity:${v >= 0 ? 1 : 0.55}"></b>`;
     };
     $('demand').innerHTML = `<h4><span>Demand</span><span>${taxNote}</span></h4>` + rows.map(([k, name, color, why]) => {
-      const v = Math.max(-1, Math.min(1, d[k]));
+      const v = Math.max(-1, Math.min(1, d[k] ?? 0));
       const pct = Math.round(v * 100);
       return `<div class="drow"><span class="dname"><i style="background:${color}"></i>${name}</span>
         <div class="dbar">${bar(v, color)}</div><span class="dval ${pct < 0 ? 'neg' : ''}">${pct > 0 ? '+' : ''}${pct}%</span></div>
@@ -592,6 +601,7 @@ export class UI {
       ${row('Residential tax', b.income.residential)}
       ${row('Commercial tax', b.income.commercial)}
       ${row('Industrial tax', b.income.industrial)}
+      ${Math.round(b.income.offices) ? row('Office tax', b.income.offices) : ''}${Math.round(b.income.farms) ? row('Farm tax', b.income.farms) : ''}${Math.round(b.income.tourism) ? row('Tourists (hotels)', b.income.tourism) : ''}
       ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
@@ -642,10 +652,17 @@ export class UI {
     const rows = [], notes = [];
     const supply = (v) => `<span class="pill ${['none', 'short', 'ok'][v]}">${['none', 'shortage', 'yes'][v]}</span>`;
     if (isZone(type)) {
-      const cap = CONFIG.capacity[['', '', 'residential', 'commercial', 'industrial'][type]][lv];
+      const cap = jobCap(map, i);
       if (type === TILE.IND && lv > 0 && !ab && map.hasFlag(i, FLAG.HIGHTECH)) title = 'High-tech industry';
+      if (type === TILE.COM && lv > 0 && !ab && map.hasFlag(i, FLAG.HOTEL)) title = 'Hotel';
       rows.push(['Density', ab ? 'Abandoned' : lv === 0 ? 'Vacant lot' : `${levelName(lv)} (${lv}/3)`]);
-      if (!ab && lv > 0) rows.push([type === TILE.RES ? 'Residents' : 'Jobs', cap]);
+      if (!ab && lv > 0 && isHome(type)) rows.push(['Residents', homeCap(map, i)]);
+      if (!ab && lv > 0 && cap) rows.push(['Jobs', cap]);
+      if (type === TILE.COM) {
+        const t = tourismScore(map, i);
+        if (map.hasFlag(i, FLAG.HOTEL)) rows.push(['Tourists', `${money(CONFIG.economy.hotelIncome[lv] * (1 + t))}/mo`]);
+        else if (t > CONFIG.zones.hotelThreshold * 0.6) notes.push(t >= CONFIG.zones.hotelThreshold ? (lv >= 2 ? 'Great spot for tourists: may become a hotel' : 'Great spot for tourists: a hotel may open here once it grows to medium density') : 'Nearly a tourist spot: a park, landmark or higher land value would attract hotels');
+      }
       if (type !== TILE.RES && !ab && lv > 0) {
         const posts = cap * skilledShare(map, i);
         if (posts >= 0.5) rows.push(['Skilled jobs', `${Math.round(posts)} · ${Math.round(map.skillFill[i] * 100)}% filled`]);
@@ -695,9 +712,9 @@ export class UI {
         else if (jk === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) notes.push('Busy intersection: traffic lights would cut the delay');
       }
     }
-    if (type === TILE.RES && lv > 0 && !ab) rows.push(['Health', bar(map.health[i], 'hp')]);
+    if (isHome(type) && lv > 0 && !ab) rows.push(['Health', bar(map.health[i], 'hp')]);
     if (map.trash[i] > 3) rows.push(['Garbage', `${bar(map.trash[i], 'trash')}${map.coverage.landfill[i] < 0.02 && map.coverage.recycling[i] < 0.02 ? ' · no pickup' : ''}`]);
-    if (type === TILE.RES && lv > 0 && !ab) {
+    if (isHome(type) && lv > 0 && !ab) {
       const c = map.commute[i], edu = map.education[i] / 2.55, target = educationTarget(map, i) * 100;
       rows.push(['Happiness', bar(map.happiness[i], 'hp')]);
       rows.push(['Skilled', `${Math.round(edu)}%${Math.abs(target - edu) >= 3 ? ` (${target > edu ? 'rising' : 'falling'} to ${Math.round(target)}%)` : ''}`]);

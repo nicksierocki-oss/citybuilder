@@ -29,6 +29,9 @@ export const CONFIG = {
     taxPerResident: 3,
     taxPerCommercialJob: 4,
     taxPerIndustrialJob: 4,
+    taxPerOfficeJob: 6,
+    taxPerFarmJob: 2.5,
+    hotelIncome: [0, 0, 18, 40], // tourist spending per hotel a month, by density (× attraction)
     // monthly upkeep
     roadMaintenance: 1.25,
     bridgeMaintenance: 5,
@@ -62,6 +65,9 @@ export const CONFIG = {
     commercial: 10,
     industrial: 10,
     park: 40,
+    office: 15,
+    farm: 5,
+    mixed: 15,
     clearTrees: 5,           // extra charge when building on trees
     plantTrees: 15,
     bulldoze: 5,
@@ -73,6 +79,10 @@ export const CONFIG = {
     residential: [0, 10, 35, 90],   // residents
     commercial: [0, 6, 18, 45],     // jobs
     industrial: [0, 10, 25, 50],    // jobs
+    office: [0, 12, 40, 110],       // jobs (mostly skilled)
+    farm: [0, 4, 8, 14],            // jobs
+    mixedHomes: [0, 6, 20, 45],     // mixed-use: residents upstairs...
+    mixedJobs: [0, 3, 8, 18],       // ...and shop jobs at street level
   },
 
   demand: {
@@ -81,6 +91,10 @@ export const CONFIG = {
     externalLabor: 40,       // commuters from outside willing to work here
     comPerResident: 0.2,     // commercial jobs a resident "supports" by shopping
     comBase: 5,
+    officePerSkilled: 0.5,   // office jobs a skilled worker supports
+    officeBase: 10,
+    farmPerResident: 0.06,   // farm jobs needed per resident (food)
+    farmBase: 40,            // regional demand for produce
     indPerResident: 0.32,    // industrial jobs needed per resident (goods)
     indBase: 40,             // regional export demand for goods
     scaleMin: 60,            // normalisation floor so small cities aren't jumpy
@@ -261,8 +275,8 @@ export const CONFIG = {
 
   utilities: {
     // Units consumed per building by density level [vacant, low, medium, high]
-    powerUse: { residential: [0, 1, 3, 7], commercial: [0, 2, 4, 9], industrial: [0, 3, 6, 12] },
-    waterUse: { residential: [0, 1, 3, 7], commercial: [0, 1, 3, 6], industrial: [0, 3, 6, 10] },
+    powerUse: { residential: [0, 1, 3, 7], commercial: [0, 2, 4, 9], industrial: [0, 3, 6, 12], office: [0, 3, 6, 12], farm: [0, 1, 1, 2], mixed: [0, 2, 4, 9] },
+    waterUse: { residential: [0, 1, 3, 7], commercial: [0, 1, 3, 6], industrial: [0, 3, 6, 10], office: [0, 1, 3, 6], farm: [0, 3, 4, 6], mixed: [0, 2, 4, 8] },
     serviceUse: 4,           // power and water used by schools, clinics, etc.
     powerForLevel: 2,        // buildings need power to grow to this density or higher...
     waterForLevel: 3,        // ...and water for this one
@@ -317,7 +331,7 @@ export const CONFIG = {
     ratePerMonth: 0.1,       // how fast a neighbourhood moves toward its target (people take time to learn)
     taxBonus: 0.5,           // skilled residents pay up to this much more tax
     // Share of jobs that need skilled workers, by density level
-    skilledShare: { commercial: [0, 0.05, 0.25, 0.5], industrial: [0, 0, 0.1, 0.2] },
+    skilledShare: { commercial: [0, 0.05, 0.25, 0.5], industrial: [0, 0, 0.1, 0.2], office: [0, 0.5, 0.65, 0.8], farm: [0, 0, 0, 0.1], mixed: [0, 0.05, 0.2, 0.35] },
     minSkilledPosts: 1,      // below this many skilled posts a building doesn't care
     growFill: 0.75,          // share of skilled posts filled before a building can grow denser
     declineFill: 0.35,       // below this, the business loses score
@@ -333,6 +347,17 @@ export const CONFIG = {
       freight: 0.5,          // truck trips multiplier
       taxMult: 1.8,          // tax per job multiplier
     },
+  },
+
+  // Specialised zones and hotels.
+  zones: {
+    officeLevelLV: [0, 0, 35, 55],    // land value needed for medium / high offices
+    officeEduWeight: 0.6,             // score from the local skilled share (above 30%)
+    farmMaxLandValue: 55,             // farms dislike expensive land (score falls above this)
+    farmPollutionLimit: 25,           // and polluted fields
+    // Hotels: shops at medium+ density near attractions may become hotels.
+    hotelThreshold: 0.55, hotelChance: 0.02,
+    hotelWater: 0.35, hotelLandmarks: 0.6, hotelLandValue: 0.4,
   },
 
   // District policies (see ui.js district panel)

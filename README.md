@@ -124,7 +124,16 @@ There's an optional **3D view**, built with Three.js. The library is included in
    **garbage**: a **landfill** (2×2, collects 700 a month within 24 tiles, smelly) or recycling centres
    collect it; uncollected garbage piles up at the kerb and hurts happiness, land value and health
    (**Garbage** overlay).
-19. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+19. **Specialised zones.** Beside homes, shops and industry:
+   - **Offices:** many skilled jobs, no pollution, the highest tax per job. They need educated
+     residents nearby (30%+ skilled) and land value to grow tall.
+   - **Farms:** cheap outlying land, no power or water needed, no pollution; fields only need a
+     road within 2 tiles. Crops change colour with the seasons.
+   - **Mixed-use:** homes upstairs, shops at street level; grows with both housing and shop demand.
+   - **Hotels:** shops at medium density or more near water, landmarks and high land value may
+     become hotels, which bring tourist spending each month (more with the tourism campaign).
+   Offices and farms get their own demand bars once they matter.
+20. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
    drains. Loans can be repaid early from the same panel. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt

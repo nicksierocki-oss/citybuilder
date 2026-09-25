@@ -5,7 +5,7 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
 import { Renderer, TS, forEachCar } from './renderer.js';
-import { TILE, FLAG, KINDS, footprintSize } from './map.js';
+import { TILE, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { drawDistricts } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
 
@@ -375,10 +375,12 @@ export class Renderer3D {
         this.tree(x + 8 / 32, y + 9 / 32, 0.32, v);
         this.tree(x + 24 / 32, y + 23 / 32, 0.38, v >> 2);
         if (v & 4) this.tree(x + 23 / 32, y + 7 / 32, 0.26, v >> 3);
-      } else if ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) {
+      } else if (isZone(t) && map.level[i] > 0) {
         const ab = map.hasFlag(i, FLAG.ABANDONED), P = this.placer(map, x, y);
         this.lit = !ab && !map.hasFlag(i, FLAG.FIRE) ? { seed: v + i, share: t === TILE.RES ? 0.5 : t === TILE.COM ? 0.6 : 0.3 } : null;
         if (t === TILE.IND && !ab && map.hasFlag(i, FLAG.HIGHTECH)) this.hightech(P, map.level[i], v);
+        else if (t === TILE.COM && !ab && map.hasFlag(i, FLAG.HOTEL)) this.hotel(P, map.level[i], v);
+        else if (t === TILE.OFFICE || t === TILE.FARM || t === TILE.MIXED) this.special(P, t, map.level[i], v, ab);
         else this.building(P, t, map.level[i], v, ab);
       } else if (t === TILE.SERVICE) {
         const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
@@ -590,6 +592,40 @@ export class Renderer3D {
         P(this.cylinders, 0.32, 0.3, 0.08, 0.08, 0, 1.8, roof(COL.stack));
       }
     }
+  }
+
+  // Offices, farms and mixed-use.
+  special(P, t, lv, v, ab) {
+    const wall = (hex) => (ab ? COL.abandoned : hex), roof = (hex) => (ab ? COL.abandonedRoof : this.snowy(hex));
+    if (t === TILE.OFFICE) {
+      const h = [0, 0.7, 1.6, 3.2][lv] + (v & 3) * 0.12, sz = [0, 0.5, 0.74, 0.8][lv];
+      P(this.rboxes, 0, 0, sz, sz, 0, h, wall('#cfe8ec'));
+      this.win(P, 0, 0, sz, sz, h, 0, 0.22);
+      for (let y0 = 0.22; y0 < h - 0.05; y0 += 0.22) P(this.boxes, 0, 0, sz + 0.02, sz + 0.02, y0, 0.025, wall('#eef8f9'));
+      P(this.rboxes, 0, 0, sz * 0.7, sz * 0.7, h, 0.12, roof('#8ecbd3'));
+    } else if (t === TILE.FARM) {
+      const E = this.env, crop = ab ? '#d6d0c2' : E.snow > 0.5 ? '#eef2f0' : E.season === 3 ? '#e3c27a' : E.season === 2 ? '#c6dd8e' : '#d8e6a8';
+      P(this.boxes, 0, 0, 0.9, 0.9, 0, 0.03, crop);
+      for (let k = -3; k <= 3; k++) P(this.boxes, k * 0.12, 0, 0.05, 0.84, 0.03, 0.04 + (lv >= 2 && E.season === 2 ? 0.05 : 0), ab ? '#c4beb0' : '#9fbf6e');
+      if (lv >= 2) { P(this.rboxes, -0.25, -0.25, 0.3, 0.26, 0, 0.26, wall('#d98a7a')); P(this.roofs, -0.25, -0.25, 0.34, 0.3, 0.26, 0.14, roof('#b86f62')); }
+      if (lv >= 3) { P(this.cylinders, 0.26, -0.26, 0.16, 0.16, 0, 0.62, wall('#e4e1da')); P(this.cones, 0.26, -0.26, 0.17, 0.17, 0.62, 0.1, roof('#c9c3b8')); }
+    } else {
+      const h = [0, 0.42, 0.85, 1.4][lv], sz = [0, 0.6, 0.8, 0.84][lv];
+      P(this.rboxes, 0, -0.03, sz, sz * 0.85, 0, h, wall('#e8c7b4'));
+      this.win(P, 0, -0.03, sz, sz * 0.85, h, 0.24, 0.24);
+      P(this.boxes, 0, -0.03 + sz * 0.425 + 0.04, sz, 0.1, 0.18, 0.04, roof(COL.awnings[v % 3])); // awning over the shops
+      P(this.rboxes, 0, -0.03, sz + 0.03, sz * 0.85 + 0.03, h, 0.05, roof('#cc947c'));
+    }
+  }
+
+  // Hotels: a tower with a rooftop pool.
+  hotel(P, lv, v) {
+    const h = lv === 3 ? 2.2 : 1.3;
+    P(this.rboxes, 0, 0, 0.74, 0.74, 0, h, '#f3e3d3');
+    this.win(P, 0, 0, 0.74, 0.74, h, 0, 0.24);
+    P(this.boxes, 0, 0, 0.78, 0.78, h, 0.05, this.snowy('#d9a58f'));
+    P(this.boxes, 0, -0.1, 0.4, 0.26, h + 0.05, 0.02, '#9ed3ee');
+    for (const u of [-0.25, 0.25]) P(this.cones, u, 0.22, 0.14, 0.14, h + 0.05, 0.08, '#e9b8b0');
   }
 
   // High-tech industry: glass labs, solar roofs and green courtyards.

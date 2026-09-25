@@ -4,8 +4,9 @@
 import { CONFIG } from './config.js';
 
 export const TERRAIN = { GRASS: 0, WATER: 1 };
-export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6 };
-export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building'];
+// New types go at the END (saves store the number).
+export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6, OFFICE: 7, FARM: 8, MIXED: 9 };
+export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building', 'Offices', 'Farm', 'Mixed-use'];
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
 // New kinds go at the END (saves store the index).
 export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro',
@@ -13,7 +14,7 @@ export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza',
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
-export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16, HIGHTECH: 32 };
+export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16, HIGHTECH: 32, HOTEL: 64 };
 // Junction kinds (see junctionKind): how a road tile meets its neighbours.
 export const JUNCTION = { NONE: 0, MERGE: 1, INTERSECTION: 2, HIGHWAY: 3 };
 
@@ -29,13 +30,34 @@ export function footprintSize(kind) {
 export function skilledShare(map, i) {
   const E = CONFIG.education, t = map.type[i], lv = map.level[i];
   if (t === TILE.COM) return E.skilledShare.commercial[lv];
+  if (t === TILE.OFFICE) return E.skilledShare.office[lv];
+  if (t === TILE.FARM) return E.skilledShare.farm[lv];
+  if (t === TILE.MIXED) return E.skilledShare.mixed[lv];
   if (t !== TILE.IND) return 0;
   return lv > 0 && map.hasFlag(i, FLAG.HIGHTECH) ? E.hightech.skilledShare : E.skilledShare.industrial[lv];
 }
 
 export function isZone(type) {
-  return type === TILE.RES || type === TILE.COM || type === TILE.IND;
+  return type === TILE.RES || type === TILE.COM || type === TILE.IND || type === TILE.OFFICE || type === TILE.FARM || type === TILE.MIXED;
 }
+// Zones people live in / work in (mixed-use is both).
+export function isHome(type) { return type === TILE.RES || type === TILE.MIXED; }
+export function isJob(type) { return type === TILE.COM || type === TILE.IND || type === TILE.OFFICE || type === TILE.FARM || type === TILE.MIXED; }
+// Shop-like zones (attract shoppers, count as commercial).
+export function isShop(type) { return type === TILE.COM || type === TILE.MIXED; }
+
+// Residents / jobs of tile i at its current density (0 if vacant; abandonment is the caller's call).
+export function homeCap(map, i) {
+  const t = map.type[i], C = CONFIG.capacity;
+  return t === TILE.RES ? C.residential[map.level[i]] : t === TILE.MIXED ? C.mixedHomes[map.level[i]] : 0;
+}
+const JOB_CAP = { [TILE.COM]: 'commercial', [TILE.IND]: 'industrial', [TILE.OFFICE]: 'office', [TILE.FARM]: 'farm', [TILE.MIXED]: 'mixedJobs' };
+export function jobCap(map, i) {
+  const k = JOB_CAP[map.type[i]];
+  return k ? CONFIG.capacity[k][map.level[i]] : 0;
+}
+// Config key for per-zone tables (utility use etc.).
+export const ZONE_KEY = { [TILE.RES]: 'residential', [TILE.COM]: 'commercial', [TILE.IND]: 'industrial', [TILE.OFFICE]: 'office', [TILE.FARM]: 'farm', [TILE.MIXED]: 'mixed' };
 
 // Small deterministic RNG (mulberry32) so a seed reproduces a map.
 export function makeRng(seed) {
@@ -138,6 +160,18 @@ export class GameMap {
       if (!this.inBounds(nx, ny)) continue;
       const j = this.idx(nx, ny);
       if (this.isLocalRoad(j) && this.roadDist[j] >= 0) return true;
+    }
+    return false;
+  }
+
+  // Is there a connected local road within r tiles (fields don't need their own frontage)?
+  roadWithin(i, r) {
+    const x0 = i % this.width, y0 = (i / this.width) | 0;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(this.height - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(this.width - 1, x0 + r); x++) {
+        const j = y * this.width + x;
+        if (this.isLocalRoad(j) && this.roadDist[j] >= 0) return true;
+      }
     }
     return false;
   }

@@ -16,6 +16,9 @@ export const TOOLS = {
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
+  office:      { label: 'Offices',     shape: 'rect', tile: TILE.OFFICE },
+  farm:        { label: 'Farms',       shape: 'rect', tile: TILE.FARM },
+  mixed:       { label: 'Mixed-use',   shape: 'rect', tile: TILE.MIXED },
   park:        { label: 'Park',        key: '5', shape: 'rect', tile: TILE.PARK },
   trees:       { label: 'Plant trees', shape: 'rect' },
   bulldoze:    { label: 'Bulldoze',    key: '6', shape: 'rect' },
@@ -110,7 +113,7 @@ export function toolCost(state, tool, i, arg = 0) {
       if (t === TILE.PARK || t === TILE.SERVICE) return null;
       return roadCost(cls, water) + (water ? 0 : trees);
     }
-    case 'residential': case 'commercial': case 'industrial': case 'park': {
+    case 'residential': case 'commercial': case 'industrial': case 'office': case 'farm': case 'mixed': case 'park': {
       const want = TOOLS[tool].tile;
       if (water || t === TILE.ROAD || t === want || t === TILE.SERVICE) return null;
       if (isZone(t) && map.level[i] > 0) return null;
@@ -292,6 +295,9 @@ export function monthlyBudget(state) {
     residential: base.r * E.taxPerResident * rate,
     commercial: base.c * E.taxPerCommercialJob * rate,
     industrial: base.i * E.taxPerIndustrialJob * rate,
+    offices: (base.o ?? 0) * E.taxPerOfficeJob * rate,
+    farms: (base.f ?? 0) * E.taxPerFarmJob * rate,
+    tourism: (s.hotelIncome ?? 0) * (ordinance(state, 'tourism') ? CONFIG.ordinances.tourism.visitorMult : 1),
     visitors: visitorIncome(state),
   };
   const expenses = {

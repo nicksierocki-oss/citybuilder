@@ -1,11 +1,12 @@
 // Mini-map: one pixel per tile, the camera's view outlined; click or drag to move the camera.
 
-import { TILE, TERRAIN, FLAG } from './map.js';
+import { TILE, TERRAIN, FLAG, isZone } from './map.js';
 
 const KEY = 'gridline.minimap';
 const COL = {
   grass: [226, 240, 211], water: [166, 214, 238], trees: [169, 211, 154], road: [150, 157, 168],
   [TILE.RES]: [124, 196, 122], [TILE.COM]: [111, 166, 227], [TILE.IND]: [227, 183, 90],
+  [TILE.OFFICE]: [90, 190, 200], [TILE.FARM]: [196, 206, 110], [TILE.MIXED]: [205, 150, 120],
   park: [146, 207, 122], service: [200, 170, 210], abandoned: [190, 186, 180], fire: [232, 100, 80],
 };
 
@@ -51,12 +52,12 @@ export class Minimap {
       let c;
       if (map.hasFlag(i, FLAG.FIRE)) c = COL.fire;
       else if (t === TILE.ROAD) c = COL.road;
-      else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) c = map.hasFlag(i, FLAG.ABANDONED) ? COL.abandoned : COL[t];
+      else if (isZone(t)) c = map.hasFlag(i, FLAG.ABANDONED) ? COL.abandoned : COL[t];
       else if (t === TILE.PARK) c = COL.park;
       else if (t === TILE.SERVICE) c = COL.service;
       else if (map.terrain[i] === TERRAIN.WATER) c = COL.water;
       else c = map.hasFlag(i, FLAG.TREES) ? COL.trees : COL.grass;
-      const dim = (t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] === 0 ? 0.55 : 1; // vacant lots paler
+      const dim = isZone(t) && map.level[i] === 0 ? 0.55 : 1; // vacant lots paler
       d[i * 4] = 255 - (255 - c[0]) * dim; d[i * 4 + 1] = 255 - (255 - c[1]) * dim; d[i * 4 + 2] = 255 - (255 - c[2]) * dim; d[i * 4 + 3] = 255;
     }
     g.putImageData(img, 0, 0);

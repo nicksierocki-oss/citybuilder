@@ -35,7 +35,7 @@ for (const d of state.districts ?? []) {
 console.log(`Traffic: avg commute ${Math.round(state.traffic.avgCommute)} min, ${Math.round(state.traffic.workers - state.traffic.employed)} can't reach jobs, ${state.traffic.congested} jammed road tiles`);
 
 // Zones by density and why they aren't growing
-const zones = { [TILE.RES]: 'homes', [TILE.COM]: 'shops', [TILE.IND]: 'industry' };
+const zones = { [TILE.RES]: 'homes', [TILE.COM]: 'shops', [TILE.IND]: 'industry', [TILE.OFFICE]: 'offices', [TILE.FARM]: 'farms', [TILE.MIXED]: 'mixed-use' };
 const levels = {}, reasons = {};
 let vacantNoRoad = 0;
 for (let i = 0; i < m.size; i++) {
@@ -62,7 +62,7 @@ const svc = {};
 for (let i = 0; i < m.size; i++) if (m.type[i] === TILE.SERVICE) { const k = KINDS[m.kind[i]]; svc[k] = (svc[k] || 0) + 1; }
 console.log(`\n## Public buildings: ${Object.entries(svc).map(([k, n]) => `${k} ×${n}`).join(', ') || 'none'}`);
 const homes = [];
-for (let i = 0; i < m.size; i++) if (m.type[i] === TILE.RES && m.level[i] > 0) homes.push(i);
+for (let i = 0; i < m.size; i++) if ((m.type[i] === TILE.RES || m.type[i] === TILE.MIXED) && m.level[i] > 0) homes.push(i);
 for (const k of ['school', 'clinic', 'police', 'fire']) {
   const miss = homes.filter((i) => m.coverage[k][i] < 0.05);
   if (!miss.length) continue;

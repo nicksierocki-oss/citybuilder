@@ -3,7 +3,7 @@
 // services) plug into SYSTEMS without touching rendering.
 
 import { CONFIG } from './config.js';
-import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, isZone, skilledShare } from './map.js';
+import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, KINDS, isZone, isHome, isShop, homeCap, jobCap, skilledShare } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
 import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem, healthSystem, garbageSystem,
@@ -68,9 +68,10 @@ function emptyStats() {
   return {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
     roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0, lights: 0, interchanges: 0,
-    zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
+    zoned: { r: 0, c: 0, i: 0, o: 0, f: 0, m: 0 }, abandoned: 0,
+    officeJobs: 0, farmJobs: 0, hotels: 0, hotelIncome: 0,
     services: {},             // count per public building kind (landmarks count once)
-    taxBase: { r: 0, c: 0, i: 0 }, // taxable residents/jobs after education, high-tech and tax breaks
+    taxBase: { r: 0, c: 0, i: 0, o: 0, f: 0 }, // taxable residents/jobs after education, high-tech and tax breaks
     skilledJobs: 0, hightech: 0,
     districts: {},            // id -> { population, jobs, happiness, homes }
   };
@@ -130,7 +131,7 @@ export function pollutionSystem(state) {
       e = P.industryEmission[lv] * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.emission : 1);
       r = P.industryRadius[lv];
     }
-    else if (t === TILE.COM) { e = P.commercialEmission[lv]; r = P.commercialRadius[lv]; }
+    else if (isShop(t)) { e = P.commercialEmission[lv]; r = P.commercialRadius[lv]; }
     if (e <= 0) continue;
     const x0 = i % w, y0 = (i / w) | 0;
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
@@ -193,7 +194,7 @@ export function landValueSystem(state) {
     const t = map.type[i];
     if (t === TILE.PARK) spread(parkB, i, L.parkRadius, L.parkBonus, true);
     else if (map.hasFlag(i, FLAG.TREES)) spread(treeB, i, L.treeRadius, L.treeBonus, false);
-    if (t === TILE.COM && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+    if (isShop(t) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
       spread(comB, i, L.commercialRadius, L.commercialBonus * map.level[i], false);
     }
     if (map.hasFlag(i, FLAG.ABANDONED)) spread(abB, i, L.abandonedRadius, L.abandonedPenalty, false);
@@ -227,7 +228,7 @@ export function shopperSystem(state) {
     let row = 0;
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      if (map.type[i] === TILE.RES && !map.hasFlag(i, FLAG.ABANDONED)) row += cap[map.level[i]];
+      if (isHome(map.type[i]) && !map.hasFlag(i, FLAG.ABANDONED)) row += homeCap(map, i);
       sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row;
     }
   }
@@ -251,21 +252,24 @@ export function computeStats(state) {
     const alive = !abandoned && !map.hasFlag(i, FLAG.FIRE); // burning buildings are empty for now
     const did = map.district[i], ds = did ? s.districts[did] : null;
     const tax = did && policies.get(did)?.taxBreak ? cut : 1;
-    if (t === TILE.RES) {
-      s.zoned.r++;
-      if (alive) {
-        const pop = cap.residential[lv], edu = map.education[i] / 255;
+    if (isZone(t)) {
+      if (t === TILE.RES) s.zoned.r++; else if (t === TILE.COM) s.zoned.c++; else if (t === TILE.IND) s.zoned.i++;
+      else if (t === TILE.OFFICE) s.zoned.o++; else if (t === TILE.FARM) s.zoned.f++; else s.zoned.m++;
+      if (alive && isHome(t)) {
+        const pop = homeCap(map, i), edu = map.education[i] / 255;
         s.population += pop;
         eduSum += pop * edu;
         s.taxBase.r += pop * (1 + E.taxBonus * edu) * tax;
         if (ds && lv > 0) { ds.population += pop; ds.happiness += map.happiness[i] * pop; ds.homes++; }
       }
-    } else if (t === TILE.COM || t === TILE.IND) {
-      if (t === TILE.COM) s.zoned.c++; else s.zoned.i++;
-      if (alive) {
-        const jobs = (t === TILE.COM ? cap.commercial : cap.industrial)[lv];
-        const ht = t === TILE.IND && lv > 0 && map.hasFlag(i, FLAG.HIGHTECH);
-        if (t === TILE.COM) { s.comJobs += jobs; s.taxBase.c += jobs * tax; } else { s.indJobs += jobs; s.taxBase.i += jobs * tax * (ht ? E.hightech.taxMult : 1); }
+      const jobs = alive ? jobCap(map, i) : 0;
+      if (jobs) {
+        const ht = t === TILE.IND && map.hasFlag(i, FLAG.HIGHTECH);
+        if (isShop(t)) { s.comJobs += jobs; s.taxBase.c += jobs * tax; }
+        else if (t === TILE.IND) { s.indJobs += jobs; s.taxBase.i += jobs * tax * (ht ? E.hightech.taxMult : 1); }
+        else if (t === TILE.OFFICE) { s.officeJobs += jobs; s.taxBase.o += jobs * tax; }
+        else { s.farmJobs += jobs; s.taxBase.f += jobs * tax; }
+        if (t === TILE.COM && map.hasFlag(i, FLAG.HOTEL)) { s.hotels++; s.hotelIncome += CONFIG.economy.hotelIncome[lv] * (1 + tourismScore(map, i)); }
         s.skilledJobs += jobs * skilledShare(map, i);
         if (ht) s.hightech++;
         if (ds) ds.jobs += jobs;
@@ -284,7 +288,7 @@ export function computeStats(state) {
     if (isZone(t) && abandoned) s.abandoned++;
   }
   for (const ds of Object.values(s.districts)) ds.happiness = ds.population ? ds.happiness / ds.population : 0;
-  s.jobs = s.comJobs + s.indJobs;
+  s.jobs = s.comJobs + s.indJobs + s.officeJobs + s.farmJobs;
   s.workers = s.population * CONFIG.demand.workforceRatio;
   state.education = s.population ? eduSum / s.population : 0;
   state.stats = s;
@@ -293,7 +297,7 @@ export function computeStats(state) {
 // RCI demand — the classic meter. See README for the model.
 export function targetDemand(state) {
   const D = CONFIG.demand, s = state.stats;
-  const P = s.population, C = s.comJobs, I = s.indJobs, jobs = C + I;
+  const P = s.population, C = s.comJobs, I = s.indJobs, O = s.officeJobs ?? 0, F = s.farmJobs ?? 0, jobs = C + I + O + F;
   const norm = (want, have) => (want - have) / Math.max(want, D.scaleMin);
 
   // Residential: people move in when there are jobs for them.
@@ -308,10 +312,15 @@ export function targetDemand(state) {
   let c = Math.min(norm(P * D.comPerResident + D.comBase, C), laborRoom);
   // Industrial: goods for residents + regional exports.
   let i = Math.min(norm(P * D.indPerResident + D.indBase, I), laborRoom);
+  // Offices: skilled workers looking for skilled work.
+  const skilled = P * D.workforceRatio * (state.education ?? 0);
+  let o = Math.min(norm(skilled * D.officePerSkilled + D.officeBase, O), laborRoom);
+  // Farms: food for residents plus regional produce demand.
+  let f = Math.min(norm(P * D.farmPerResident + D.farmBase, F), laborRoom);
 
   const tax = (state.taxRate - D.taxNeutral) * D.taxSensitivity;
   const clamp = (v) => Math.max(-1, Math.min(1, v - tax));
-  return { r: clamp(r), c: clamp(c), i: clamp(i) };
+  return { r: clamp(r), c: clamp(c), i: clamp(i), o: clamp(o), f: clamp(f) };
 }
 
 export function demandSystem(state) {
@@ -319,6 +328,8 @@ export function demandSystem(state) {
   state.demand.r += (t.r - state.demand.r) * k;
   state.demand.c += (t.c - state.demand.c) * k;
   state.demand.i += (t.i - state.demand.i) * k;
+  state.demand.o = (state.demand.o ?? 0) + (t.o - (state.demand.o ?? 0)) * k;
+  state.demand.f = (state.demand.f ?? 0) + (t.f - (state.demand.f ?? 0)) * k;
 }
 
 // Score a zone tile: >0 wants to grow, <0 wants to shrink. Also returns the
@@ -328,7 +339,7 @@ export function evaluateTile(state, i) {
   const t = map.type[i];
   const reasons = [];
   if (!isZone(t)) return null;
-  if (!map.hasRoadAccess(i)) {
+  if (!map.hasRoadAccess(i) && !(t === TILE.FARM && map.roadWithin(i, 2))) {
     const near = adjacentRoadKinds(map, i);
     reasons.push(near.local ? 'Road is not connected to the regional network'
       : near.highway ? 'Highways have no driveways: needs a street or avenue next to it'
@@ -336,8 +347,9 @@ export function evaluateTile(state, i) {
     return { score: -1, maxLevel: 0, reasons, connected: false };
   }
   const lv = map.landValue[i];
-  let score, maxLevel = 3;
-  if (t === TILE.RES) {
+  // Residential part (homes and mixed-use upstairs).
+  const homePart = () => {
+    let score, maxLevel = 3;
     const hp = map.happiness[i];
     score = state.demand.r + (lv - 40) / 60 * G.landValueWeight + (hp - 50) / 50 * CONFIG.happiness.scoreWeight;
     if (hp < 40 && map.level[i] > 0) {
@@ -361,7 +373,11 @@ export function evaluateTile(state, i) {
       score -= (TR.unemploymentThreshold - emp) * TR.unemploymentWeight;
       reasons.push(`${Math.round((1 - emp) * 100)}% of workers here can't reach a job`);
     }
-  } else if (t === TILE.COM) {
+    return [score, maxLevel];
+  };
+  // Shop part (shops and mixed-use street level).
+  const shopPart = () => {
+    let score, maxLevel = 3;
     const shoppers = map.shoppers[i];
     const TR = CONFIG.traffic;
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
@@ -375,6 +391,28 @@ export function evaluateTile(state, i) {
       if (shoppers < G.commercialLevelShoppers[maxLevel + 1]) reasons.push(`Only ${shoppers.toFixed(0)} residents nearby — ${levelName(maxLevel + 1)} shops need ${G.commercialLevelShoppers[maxLevel + 1]}`);
       if (lv < G.commercialLevelLV[maxLevel + 1]) reasons.push(`Land value ${lv.toFixed(0)} caps density (needs ${G.commercialLevelLV[maxLevel + 1]})`);
     }
+    return [score, maxLevel];
+  };
+  let score, maxLevel = 3;
+  if (t === TILE.RES) [score, maxLevel] = homePart();
+  else if (t === TILE.COM) [score, maxLevel] = shopPart();
+  else if (t === TILE.MIXED) {
+    const a = homePart(), b = shopPart();
+    score = (a[0] + b[0]) / 2 + 0.05; // a little extra appeal: shops downstairs, homes upstairs
+    maxLevel = Math.min(a[1], Math.max(1, b[1]));
+  } else if (t === TILE.OFFICE) {
+    const Z = CONFIG.zones, edu = map.eduNearby[i];
+    score = (state.demand.o ?? 0) + (lv - 40) / 60 * 0.3 + (edu - 0.3) * Z.officeEduWeight - map.crime[i] / 100 * CONFIG.crime.businessWeight;
+    while (maxLevel > 1 && lv < Z.officeLevelLV[maxLevel]) maxLevel--;
+    if ((state.demand.o ?? 0) <= 0) reasons.push('No office demand: offices need skilled residents (schools, a university)');
+    if (edu < 0.3) reasons.push(`Only ${Math.round(edu * 100)}% of nearby residents are skilled: offices want 30%+`);
+    if (maxLevel < 3) reasons.push(`Land value ${lv.toFixed(0)} caps offices at ${levelName(maxLevel)} (needs ${Z.officeLevelLV[maxLevel + 1]})`);
+  } else if (t === TILE.FARM) {
+    const Z = CONFIG.zones;
+    score = (state.demand.f ?? 0) + 0.05 - Math.max(0, lv - Z.farmMaxLandValue) / 50 - Math.max(0, map.pollution[i] - Z.farmPollutionLimit) / 50;
+    if ((state.demand.f ?? 0) <= 0) reasons.push('No farm demand right now');
+    if (lv > Z.farmMaxLandValue) reasons.push(`Land here is too valuable for farming (${lv.toFixed(0)}; farms like under ${Z.farmMaxLandValue})`);
+    if (map.pollution[i] > Z.farmPollutionLimit) reasons.push('Crops don\'t grow well in polluted air');
   } else {
     const rd = map.accessRoadDist(i);
     if (map.hasFlag(i, FLAG.HIGHTECH) && map.level[i] > 0) reasons.push('High-tech industry: clean, well paid, needs skilled workers');
@@ -390,6 +428,7 @@ export function evaluateTile(state, i) {
   let utilCap = 3;
   if (!hasPower) utilCap = U.powerForLevel - 1;
   else if (!hasWater) utilCap = U.waterForLevel - 1;
+  if (t === TILE.FARM) utilCap = 3; // farms get by on wells and generators
   if (utilCap < maxLevel) {
     const need = !hasPower ? (map.power[i] === SUPPLY.SHORT ? 'Power shortage: build another plant' : 'No power: build a power plant beside a connected road')
       : (map.water[i] === SUPPLY.SHORT ? 'Water shortage: build another pump' : 'No water: build a water pump beside a connected road');
@@ -414,7 +453,7 @@ export function evaluateTile(state, i) {
   // Skilled jobs: denser businesses need educated workers.
   if (t !== TILE.RES && map.level[i] > 0) {
     const E = CONFIG.education, lv0 = map.level[i];
-    const posts = (t === TILE.COM ? CONFIG.capacity.commercial : CONFIG.capacity.industrial)[lv0] * skilledShare(map, i);
+    const posts = jobCap(map, i) * skilledShare(map, i);
     if (posts >= E.minSkilledPosts) {
       const fill = map.skillFill[i];
       const why = `Only ${Math.round(fill * 100)}% of its ${Math.round(posts)} skilled jobs are filled${map.coverage.school[i] < 0.05 ? ': build a school nearby' : ': more schools raise education'}`;
@@ -468,6 +507,7 @@ export function growthSystem(state) {
       continue;
     }
     if (t === TILE.IND && level > 0) highTechCheck(state, i);
+    if (t === TILE.COM) hotelCheck(state, i);
     if (level < ev.maxLevel && ev.score > G.growThreshold) {
       if (rng() < G.growChance * ev.score * G.levelGrowMult[level]) {
         map.level[i]++;
@@ -479,6 +519,32 @@ export function growthSystem(state) {
         else if (level > 1 || ev.score < G.declineThreshold) map.level[i]--;
       }
     }
+  }
+}
+
+// How attractive tile i is to visitors (0..~1.3): water views, landmarks nearby, land value.
+export function tourismScore(map, i) {
+  const Z = CONFIG.zones, c = map.coverage, wd = map.waterDist[i];
+  const water = wd <= 3 ? Z.hotelWater * (1 - (wd - 1) / 3) : 0;
+  const sights = Math.max(c.stadium[i], c.centralpark[i], c.townpark[i] * 0.6, c.university[i] * 0.5, c.statue[i] * 0.5);
+  return water + Math.min(1, sights) * Z.hotelLandmarks + map.landValue[i] / 100 * Z.hotelLandValue;
+}
+
+// Shops (medium density and up) in attractive spots may become hotels, and back if the spot fades.
+function hotelCheck(state, i) {
+  const map = state.map, Z = CONFIG.zones, hotel = map.hasFlag(i, FLAG.HOTEL);
+  if (map.level[i] < 2 || map.hasFlag(i, FLAG.ABANDONED)) { if (hotel) map.setFlag(i, FLAG.HOTEL, false); return; }
+  const score = tourismScore(map, i);
+  if (!hotel && score >= Z.hotelThreshold && state.rng() < Z.hotelChance) {
+    map.setFlag(i, FLAG.HOTEL, true);
+    map.version++;
+    if (!state.milestones.includes('hotel')) {
+      state.milestones.push('hotel');
+      state.events.push({ text: 'Your first hotel! Tourists come for the views and landmarks, and spend money in town.', kind: 'good', x: i % map.width, y: (i / map.width) | 0 });
+    }
+  } else if (hotel && score < Z.hotelThreshold * 0.7 && state.rng() < Z.hotelChance) {
+    map.setFlag(i, FLAG.HOTEL, false);
+    map.version++;
   }
 }
 

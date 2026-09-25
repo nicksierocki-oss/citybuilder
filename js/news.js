@@ -2,7 +2,7 @@
 // headline sums up the month. Pure simulation, no DOM. Items live in state.news (newest last).
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, makeRng } from './map.js';
+import { TILE, FLAG, makeRng, isHome, isJob } from './map.js';
 import { happinessReasons } from './services.js';
 import { ordinance } from './cityhall.js';
 
@@ -93,10 +93,10 @@ export function newsSystem(state) {
     for (let tries = 0; tries < 40 && posted < CONFIG.news.chirpsPerMonth; tries++) {
       const i = Math.floor(rng() * m.size), t = m.type[i];
       if (!m.level[i] || m.hasFlag(i, FLAG.ABANDONED)) continue;
-      const line = t === TILE.RES ? residentLine(state, i, rng) : t === TILE.COM || t === TILE.IND ? businessLine(state, i) : null;
+      const line = isHome(t) && (t === TILE.RES || rng() < 0.5) ? residentLine(state, i, rng) : isJob(t) ? businessLine(state, i) : null;
       if (!line || !topicFree(line[0])) continue;
       recent[line[0]] = state.tick;
-      const who = `${pick(rng, NAMES)}${t === TILE.RES ? '' : t === TILE.COM ? ', shop owner' : ', factory boss'}`;
+      const who = `${pick(rng, NAMES)}${({ [TILE.RES]: '', [TILE.MIXED]: '', [TILE.COM]: ', shop owner', [TILE.IND]: ', factory boss', [TILE.OFFICE]: ', office manager', [TILE.FARM]: ', farmer' })[t] ?? ''}`;
       add(state, { kind: 'chirp', who, place: where(state, i), text: line[1], tx: i % m.width, ty: (i / m.width) | 0, mood: line[0] === 'happy' ? 'good' : 'bad' });
       posted++;
     }

@@ -4,7 +4,7 @@
 // - Achievements: checked monthly; the UI remembers them across cities (per browser).
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, makeRng } from './map.js';
+import { TILE, FLAG, makeRng, isHome, homeCap } from './map.js';
 
 const svc = (s, k) => s.stats.services?.[k] ?? 0;
 const pop = (s) => s.stats.population;
@@ -15,8 +15,9 @@ export function homePollution(state) {
   const m = state.map, cap = CONFIG.capacity.residential;
   let sum = 0, w = 0;
   for (let i = 0; i < m.size; i++) {
-    if (m.type[i] !== TILE.RES || !m.level[i] || m.hasFlag(i, FLAG.ABANDONED)) continue;
-    sum += m.pollution[i] * cap[m.level[i]]; w += cap[m.level[i]];
+    if (!isHome(m.type[i]) || !m.level[i] || m.hasFlag(i, FLAG.ABANDONED)) continue;
+    const p = homeCap(m, i);
+    sum += m.pollution[i] * p; w += p;
   }
   return w ? sum / w : 0;
 }
@@ -51,6 +52,8 @@ export const CHAINS = {
       check: (s) => svc(s, 'university') >= 1, reward: 2000 },
     { id: 'c-edu', text: 'Educate the city: 40% of residents skilled', hint: 'Schools and universities raise it over a couple of years (overlay N).',
       check: (s) => s.education >= 0.4, progress: (s) => [Math.round(s.education * 100), 40], reward: 2000 },
+    { id: 'c-offices', text: 'Employ 200 people in offices', hint: 'Zone Offices near well-educated homes; they pay the most tax per job.', tool: 'office',
+      check: (s) => (s.stats.officeJobs ?? 0) >= 200, progress: (s) => [s.stats.officeJobs ?? 0, 200], reward: 2500 },
     { id: 'c-happy', text: 'Keep 2,000+ residents at 60% happiness', hint: 'Hover unhappy homes to see why; parks, clinics and short commutes help.',
       check: (s) => pop(s) >= 2000 && s.happiness >= 60, progress: (s) => [Math.round(s.happiness), 60], reward: 2500 },
     { id: 'c-transit', text: 'Get 10% of commuters onto transit', hint: 'Pair bus stops or metro stations: one among homes, one among jobs.', tool: 'bus',
@@ -150,6 +153,8 @@ export const ACHIEVEMENTS = [
   { id: 'clean', name: 'Clean air', text: '2,000+ residents breathing almost no pollution', check: (s) => pop(s) >= 2000 && homePollution(s) < 5 },
   { id: 'safe', name: 'Safe streets', text: '2,000+ residents and crime under 8', check: (s) => pop(s) >= 2000 && s.crime < 8 },
   { id: 'beloved', name: 'Beloved mayor', text: 'A mayor rating of 85', check: (s) => (s.rating ?? 0) >= 85 },
+  { id: 'resort', name: 'Resort town', text: 'Five hotels', check: (s) => (s.stats.hotels ?? 0) >= 5 },
+  { id: 'farms', name: 'Breadbasket', text: '100 people working on farms', check: (s) => (s.stats.farmJobs ?? 0) >= 100 },
   { id: 'hoods', name: 'Neighbourhoods', text: 'Three districts', check: (s) => (s.districts?.length ?? 0) >= 3 },
   ...SCENARIO_ORDER.map((k) => ({ id: `scenario:${k}`, name: SCENARIOS[k].name, text: `Win the ${SCENARIOS[k].name} scenario`,
     check: (s) => s.scenario?.id === k && s.scenario.status === 'won' })),

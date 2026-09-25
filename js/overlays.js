@@ -3,7 +3,7 @@
 // kind 'roads'  -> colours road tiles only
 // kind 'supply' -> per-tile utility status for buildings and lots
 
-import { TILE, TERRAIN, SUPPLY, FLAG, isZone } from './map.js';
+import { TILE, TERRAIN, SUPPLY, FLAG, isZone, isHome } from './map.js';
 import { roadLoad } from './traffic.js';
 import { educationTarget } from './services.js';
 
@@ -106,7 +106,7 @@ export const OVERLAYS = {
     label: 'Education', key: 'n', kind: 'field',
     value: (map, i) => {
       if (!isLand(map, i) || map.type[i] === TILE.ROAD) return null;
-      return map.type[i] === TILE.RES && map.level[i] > 0 ? map.education[i] / 2.55 : educationTarget(map, i) * 100;
+      return isHome(map.type[i]) && map.level[i] > 0 ? map.education[i] / 2.55 : educationTarget(map, i) * 100;
     },
     color: (v) => learn((v - 15) / 70),
     legend: { gradient: gradient(learn), labels: ['few skills', 'some', 'well educated'] },

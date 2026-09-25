@@ -1,6 +1,6 @@
 // Rendering: draws the map with soft flat shapes on a 2D canvas. Reads state, never mutates it.
 
-import { TILE, TERRAIN, FLAG, KINDS, footprintSize } from './map.js';
+import { TILE, TERRAIN, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { roadTime } from './traffic.js';
 import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
@@ -16,15 +16,18 @@ export const PAL = {
   asphalt: ['#b3b9c1', '#a8aeb7', '#9ea5ae'], laneMark: '#fbf0cc', laneWhite: 'rgba(255,255,255,0.85)',
   median: '#c6e1b6', barrier: '#eeebe4', bridgeRail: '#cfbba5',
   park: '#c9e6b8', parkPath: '#f5efdc',
-  lot: { 2: '#ecf3e6', 3: '#e8eef5', 4: '#f5f1e6' },
-  lotEdge: { 2: '#bad6ac', 3: '#b2c8df', 4: '#dccaa2' },
+  lot: { 2: '#ecf3e6', 3: '#e8eef5', 4: '#f5f1e6', 7: '#e6f2f3', 8: '#eef0da', 9: '#f4ebe4' },
+  lotEdge: { 2: '#bad6ac', 3: '#b2c8df', 4: '#dccaa2', 7: '#9fd0d6', 8: '#cdd39a', 9: '#dcb9a6' },
   wall: { 2: '#faf4ec', 3: '#f1f5f9', 4: '#f6f1e6' },
   // roofs per zone per level (1..3): light -> deeper = small -> large
   roof: {
     2: [null, '#efcdbe', '#e6bba8', '#d9aa97'],
     3: [null, '#c6d9ec', '#b1cae3', '#9fbad8'],
     4: [null, '#ede0bd', '#e2d2aa', '#d3c197'],
+    7: [null, '#c8e6ea', '#aad8de', '#8ecbd3'],
+    9: [null, '#e3b9a3', '#d9a58d', '#cc947c'],
   },
+  crops: ['#d8e6a8', '#c6dd8e', '#e8d88e', '#e3c27a'], barn: '#d98a7a', silo: '#e4e1da', hotelPool: '#9ed3ee',
   cars: ['#e9a59c', '#ffffff', '#a6c4e2', '#eed7a0', '#9098a3', '#b4d8c3', '#d3c1e0'],
   abandoned: '#d2cfca', abandonedDark: '#b3b0ab',
   shadow: 'rgba(70,80,100,0.12)',
@@ -65,6 +68,8 @@ const WINDOWS = {
   [TILE.RES]: [null, null, [[4, 5, 24, 20, 5]], [[3, 3, 26, 26, 4]]],
   [TILE.COM]: [null, [[5, 8, 22, 14, 4]], [[3, 4, 26, 22, 4]], [[3, 3, 26, 26, 5]]],
   [TILE.IND]: [null, [[4, 6, 16, 18, 6]], [[3, 4, 26, 22, 6]], [[2, 5, 22, 24, 6]]],
+  [TILE.OFFICE]: [null, [[7, 7, 18, 18, 4]], [[4, 4, 24, 24, 4]], [[3, 3, 26, 26, 4]]],
+  [TILE.MIXED]: [null, [[6, 6, 20, 17, 5]], [[4, 4, 24, 21, 5]], [[3, 3, 26, 23, 4]]],
 };
 const hash = (a, b, c) => (((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) >>> 0) % 1000 / 1000;
 
@@ -224,7 +229,7 @@ export class Renderer {
         const side = (x & 1) ? -1 : 1, r = map.roadClass[i] ? 18 : 14;
         ctx.globalAlpha = n * 0.55;
         ctx.drawImage(sprite, px + TS / 2 + side * 6 - r, py + TS / 2 + side * 6 - r, r * 2, r * 2);
-      } else if ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+      } else if (isZone(t) && t !== TILE.FARM && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
         ctx.globalAlpha = n * (t === TILE.COM ? 0.35 : 0.22) * (late ? 0.6 : 1);
         ctx.drawImage(sprite, px - 4, py - 4, TS + 8, TS + 8);
       } else if (t === TILE.SERVICE && KINDS[map.kind[i]] === 'stadium' && !map.part[i]) {
@@ -300,14 +305,14 @@ export class Renderer {
         ctx.restore();
       } else this.drawServicePad(map, i, px, py);
     }
-    else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
+    else if (isZone(t)) {
       const ab = map.hasFlag(i, FLAG.ABANDONED);
       ctx.fillStyle = ab ? '#e2dfda' : PAL.lot[t];
       roundRect(ctx, px + 1.5, py + 1.5, TS - 3, TS - 3, 6);
       ctx.fill();
       if (map.level[i] === 0) {
         // vacant lot: dashed outline in zone colour (grey if it has no road access)
-        const access = map.hasRoadAccess(i);
+        const access = map.hasRoadAccess(i) || (t === TILE.FARM && map.roadWithin(i, 2));
         ctx.strokeStyle = access ? PAL.lotEdge[t] : '#c3beb6';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 3]);
@@ -536,12 +541,16 @@ export class Renderer {
       const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
       if (fw > 1 || fh > 1) { if (!map.part[i]) this.drawLandmark(k, px, py, fw * TS, fh * TS, v); }
       else this.drawService(map, i, px, py, v);
-    } else if (t === TILE.RES || t === TILE.COM || t === TILE.IND) {
+    } else if (isZone(t)) {
       const lv = map.level[i];
       if (lv === 0) return;
       const ab = map.hasFlag(i, FLAG.ABANDONED);
       if (t === TILE.RES) this.drawResidential(px, py, lv, v, ab);
+      else if (t === TILE.COM && !ab && map.hasFlag(i, FLAG.HOTEL)) this.drawHotel(px, py, lv, v);
       else if (t === TILE.COM) this.drawCommercial(px, py, lv, v, ab);
+      else if (t === TILE.OFFICE) this.drawOffice(px, py, lv, v, ab);
+      else if (t === TILE.FARM) this.drawFarm(px, py, lv, v, ab);
+      else if (t === TILE.MIXED) this.drawMixed(px, py, lv, v, ab);
       else if (!ab && map.hasFlag(i, FLAG.HIGHTECH)) this.drawHighTech(px, py, lv, v);
       else this.drawIndustrial(px, py, lv, v, ab);
     }
@@ -683,6 +692,58 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(px + 29, py + 2, 4 + (v & 3), 0, Math.PI * 2); ctx.fill();
       } else this.cracks(px + 2, py + 5, 22, 24);
     }
+  }
+
+  // Offices: teal glass blocks, taller with density.
+  drawOffice(px, py, lv, v, ab) {
+    const roof = PAL.roof[TILE.OFFICE][lv], ctx = this.ctx, inset = [0, 7, 4, 3][lv], h = [0, 3, 6, 11][lv];
+    this.box(px + inset, py + inset, TS - inset * 2, TS - inset * 2, h, roof, ab, 4);
+    ctx.strokeStyle = ab ? PAL.abandonedDark : 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let k = inset + 4; k < TS - inset - 2; k += 4) { ctx.moveTo(px + k, py + inset + 2); ctx.lineTo(px + k, py + TS - inset - 2); }
+    ctx.stroke();
+    if (lv === 3 && !ab) { ctx.fillStyle = '#e9f5f7'; roundRect(ctx, px + 11, py + 11, 10, 10, 2); ctx.fill(); } // helipad-ish roof
+    if (ab) this.cracks(px + inset, py + inset, TS - inset * 2, TS - inset * 2);
+  }
+
+  // Farms: crop rows that change with the seasons, a barn and a silo as they grow.
+  drawFarm(px, py, lv, v, ab) {
+    const ctx = this.ctx, E = this.env;
+    const crop = ab ? '#d6d0c2' : E.snow > 0.5 ? '#eef2f0' : E.season === 3 ? PAL.crops[3] : E.season === 2 ? PAL.crops[1 + (v & 1)] : PAL.crops[0];
+    ctx.fillStyle = crop;
+    roundRect(ctx, px + 2, py + 2, TS - 4, TS - 4, 4); ctx.fill();
+    ctx.strokeStyle = ab ? '#c4beb0' : 'rgba(110,130,60,0.28)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    const vert = v & 1;
+    for (let k = 6; k < TS - 3; k += 4) { if (vert) { ctx.moveTo(px + k, py + 4); ctx.lineTo(px + k, py + TS - 4); } else { ctx.moveTo(px + 4, py + k); ctx.lineTo(px + TS - 4, py + k); } }
+    ctx.stroke();
+    if (lv >= 2) this.box(px + 4, py + 4, 11, 9, 3, ab ? PAL.abandoned : PAL.barn, ab, 2);
+    if (lv >= 3) this.round(px + 24, py + 8, 4, PAL.silo, 7);
+  }
+
+  // Mixed-use: brick blocks with shopfront awnings along the street side.
+  drawMixed(px, py, lv, v, ab) {
+    const roof = PAL.roof[TILE.MIXED][lv], ctx = this.ctx;
+    const inset = [0, 6, 4, 3][lv], h = [0, 3, 5, 8][lv];
+    this.box(px + inset, py + inset, TS - inset * 2, TS - inset * 2 - 3, h, roof, ab, 3);
+    this.windows(px + inset, py + inset, TS - inset * 2, TS - inset * 2 - 3, 5, ab);
+    ctx.fillStyle = ab ? PAL.abandonedDark : ['#e9b8b0', '#ecd9a6', '#b8dac6'][v % 3];
+    roundRect(ctx, px + inset - 1, py + TS - inset - 5, TS - inset * 2 + 2, 3.5, 1.5); ctx.fill();
+    if (ab) this.cracks(px + inset, py + inset, TS - inset * 2, TS - inset * 2 - 3);
+  }
+
+  // Hotels: a tall block with a rooftop pool.
+  drawHotel(px, py, lv, v) {
+    const ctx = this.ctx;
+    this.box(px + 4, py + 3, 24, 26, lv === 3 ? 11 : 7, '#f3e3d3', false, 5);
+    ctx.fillStyle = PAL.hotelPool;
+    roundRect(ctx, px + 8, py + 7, 12, 7, 3); ctx.fill();
+    ctx.fillStyle = '#e9b8b0';
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(px + 10 + k * 5, py + 20, 1.8, 0, Math.PI * 2); ctx.fill(); } // parasols
+    ctx.fillStyle = '#d9a58f';
+    roundRect(ctx, px + 4, py + 26, 24, 3, 1.5); ctx.fill();
   }
 
   // High-tech industry: glass-roofed labs with solar panels and green courtyards.

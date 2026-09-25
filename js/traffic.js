@@ -3,7 +3,7 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, JUNCTION, skilledShare } from './map.js';
+import { TILE, FLAG, KINDS, JUNCTION, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
 
@@ -99,8 +99,8 @@ export function trafficSystem(state) {
   const jobsAt = new Map(); // road index -> [job tile indices]
   for (let i = 0; i < size; i++) {
     const t = map.type[i];
-    if ((t !== TILE.COM && t !== TILE.IND) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED) || map.hasFlag(i, FLAG.FIRE)) continue;
-    const posts = (t === TILE.COM ? CAP.commercial : CAP.industrial)[map.level[i]];
+    if (!isJob(t) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED) || map.hasFlag(i, FLAG.FIRE)) continue;
+    const posts = jobCap(map, i);
     skilledPosts[i] = remainingS[i] = posts * skilledShare(map, i);
     remaining[i] = posts - remainingS[i];
     openS += remainingS[i]; openU += remaining[i];
@@ -140,7 +140,7 @@ export function trafficSystem(state) {
   // --- commuting: each home (random order) fills the nearest open jobs
   const homes = [];
   for (let i = 0; i < size; i++) {
-    if (map.type[i] !== TILE.RES) continue;
+    if (!isHome(map.type[i])) continue;
     map.employed[i] = 1;
     const roads = accessRoads(i);
     let best = Infinity;
@@ -193,7 +193,7 @@ export function trafficSystem(state) {
   const hopeless = () => external <= 1e-6
     && (leftU <= 1e-6 || openU <= 1e-6) && (leftS <= 1e-6 || openU + openS <= 1e-6);
   for (const home of homes) {
-    const workers = CAP.residential[map.level[home]] * D.workforceRatio;
+    const workers = homeCap(map, home) * D.workforceRatio;
     leftS = workers * map.education[home] / 255;
     leftU = workers - leftS;
     let left = workers, minutes = 0;
@@ -285,11 +285,11 @@ export function trafficSystem(state) {
   }
   let freightTrips = 0;
   for (let i = 0; i < size; i++) {
-    if (map.type[i] !== TILE.IND || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED)) continue;
+    if ((map.type[i] !== TILE.IND && map.type[i] !== TILE.FARM) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED)) continue;
     let start = -1;
     for (const r of accessRoads(i)) if (start < 0 || toEdge[r] < toEdge[start]) start = r;
     if (start < 0 || toEdge[start] === Infinity) continue;
-    const trips = CAP.industrial[map.level[i]] * T.freightPerJob * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.freight : 1);
+    const trips = jobCap(map, i) * T.freightPerJob * (map.hasFlag(i, FLAG.HIGHTECH) ? CONFIG.education.hightech.freight : map.type[i] === TILE.FARM ? 0.7 : 1);
     freightTrips += trips;
     for (let p = start; p !== -1; p = edgeParent[p]) volume[p] += trips;
   }

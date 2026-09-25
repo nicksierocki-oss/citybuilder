@@ -2,11 +2,10 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG, KINDS, SUPPLY, TERRAIN, footprintSize } from './map.js';
+import { TILE, FLAG, KINDS, SUPPLY, TERRAIN, footprintSize, ZONE_KEY, isZone, isHome, isShop, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const ZONE_KEY = { [TILE.RES]: 'residential', [TILE.COM]: 'commercial', [TILE.IND]: 'industrial' };
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
 export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital'];
 
@@ -167,7 +166,7 @@ export function educationMonthlySystem(state) {
   if (state.tick % CONFIG.time.ticksPerMonth !== 0) return;
   const map = state.map, rate = CONFIG.education.ratePerMonth;
   for (let i = 0; i < map.size; i++) {
-    if (map.type[i] !== TILE.RES) continue;
+    if (!isHome(map.type[i])) continue;
     const target = educationTarget(map, i) * 255, cur = map.education[i];
     if (map.level[i] === 0) { map.education[i] = Math.round(target); continue; }
     const diff = target - cur;
@@ -182,7 +181,7 @@ export function educationMonthlySystem(state) {
 export function educationFieldSystem(state) {
   const map = state.map, { width: w, height: h } = map, cap = CONFIG.capacity.residential;
   if (!map.educationReady) {
-    for (let i = 0; i < map.size; i++) if (map.type[i] === TILE.RES) map.education[i] = Math.round(educationTarget(map, i) * 255);
+    for (let i = 0; i < map.size; i++) if (isHome(map.type[i])) map.education[i] = Math.round(educationTarget(map, i) * 255);
     map.educationReady = true;
   }
   const r = CONFIG.education.hightech.radius, W = w + 1;
@@ -191,8 +190,8 @@ export function educationFieldSystem(state) {
     let rp = 0, rs = 0;
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      if (map.type[i] === TILE.RES && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
-        const p = cap[map.level[i]];
+      if (isHome(map.type[i]) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+        const p = homeCap(map, i);
         rp += p; rs += p * map.education[i] / 255;
       }
       pop[(y + 1) * W + x + 1] = pop[y * W + x + 1] + rp;
@@ -229,7 +228,7 @@ export function happinessSystem(state) {
     v += carFree + (map.health[i] - 50) * CONFIG.health.happinessWeight - map.trash[i] * CONFIG.garbage.happinessWeight;
     v -= map.crime[i] * CONFIG.crime.happinessWeight;
     if (map.hasFlag(i, FLAG.FIRE)) v -= 30;
-    if (map.type[i] === TILE.RES) {
+    if (isHome(map.type[i])) {
       const cm = map.commute[i];
       if (Number.isFinite(cm) && cm > T.comfortCommute) v -= (cm - T.comfortCommute) * H.commuteWeight;
       if (map.level[i] > 0 && enforce) {
@@ -239,8 +238,8 @@ export function happinessSystem(state) {
     }
     v = Math.max(0, Math.min(100, v));
     map.happiness[i] = v;
-    if (map.type[i] === TILE.RES && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
-      const pop = CONFIG.capacity.residential[map.level[i]];
+    if (isHome(map.type[i]) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) {
+      const pop = homeCap(map, i);
       sum += v * pop; weight += pop;
     }
   }
@@ -258,7 +257,7 @@ export function healthSystem(state) {
     const v = H.base + Math.min(1, c.clinic[i]) * H.clinic + Math.min(1.2, c.hospital[i]) * H.hospital
       - map.pollution[i] * H.pollutionWeight - map.trash[i] * H.trashWeight;
     map.health[i] = Math.max(0, Math.min(100, v));
-    if (map.type[i] === TILE.RES && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) { const p = cap[map.level[i]]; sum += map.health[i] * p; w += p; }
+    if (isHome(map.type[i]) && map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED)) { const p = homeCap(map, i); sum += map.health[i] * p; w += p; }
   }
   state.health = w ? sum / w : 0;
 }
@@ -267,10 +266,8 @@ export function healthSystem(state) {
 export function trashOf(map, i) {
   const t = map.type[i], G = CONFIG.garbage, C = CONFIG.capacity;
   if (!map.level[i] || map.hasFlag(i, FLAG.ABANDONED)) return 0;
-  if (t === TILE.RES) return C.residential[map.level[i]] * G.perResident;
-  if (t === TILE.COM) return C.commercial[map.level[i]] * G.perJob;
-  if (t === TILE.IND) return C.industrial[map.level[i]] * G.perJob;
-  return 0;
+  if (!isZone(t)) return 0;
+  return homeCap(map, i) * G.perResident + jobCap(map, i) * G.perJob * (t === TILE.FARM ? 0.5 : 1);
 }
 
 // Garbage: buildings covered by a landfill or recycling centre get collected, as far as the
@@ -328,7 +325,7 @@ export function happinessReasons(state, i) {
 
 function isBuilding(map, i) {
   const t = map.type[i];
-  return ((t === TILE.RES || t === TILE.COM || t === TILE.IND) && map.level[i] > 0) || (t === TILE.SERVICE && !isParkTile(map, i));
+  return (isZone(t) && map.level[i] > 0) || (t === TILE.SERVICE && !isParkTile(map, i));
 }
 
 // Crime and fire risk for every building (0..100).
@@ -344,9 +341,9 @@ export function safetySystem(state) {
     const t = map.type[i], lv = map.level[i], k = kindOf(map, i);
     // Crime: zones only (public buildings are staffed).
     if (t !== TILE.SERVICE && !map.hasFlag(i, FLAG.ABANDONED)) {
-      let c = lv * C.perLevel + (t === TILE.COM ? C.commercialExtra : 0)
+      let c = lv * C.perLevel * (t === TILE.FARM ? 0.3 : 1) + (isShop(t) || t === TILE.OFFICE ? C.commercialExtra : 0)
         + Math.max(0, 45 - map.landValue[i]) * C.lowLandValue;
-      if (t === TILE.RES) c += (1 - map.employed[i]) * C.unemployment;
+      if (isHome(t)) c += (1 - map.employed[i]) * C.unemployment;
       const x0 = i % w, y0 = (i / w) | 0;
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
         const x = x0 + dx, y = y0 + dy;
@@ -354,10 +351,10 @@ export function safetySystem(state) {
       }
       c *= (1 - C.policeCut * map.coverage.police[i]) * watch;
       map.crime[i] = Math.max(0, Math.min(100, c));
-      if (t === TILE.RES) { const pop = CONFIG.capacity.residential[lv]; crimeSum += map.crime[i] * pop; crimeW += pop; }
+      if (isHome(t)) { const pop = homeCap(map, i); crimeSum += map.crime[i] * pop; crimeW += pop; }
     }
     // Fire risk: every building; industry and coal plants most.
-    let r = k === 'coal' ? F.coalPlantRisk : t === TILE.SERVICE ? F.riskPerLevel : lv * F.riskPerLevel + (t === TILE.IND ? F.industryExtra : 0);
+    let r = k === 'coal' ? F.coalPlantRisk : t === TILE.SERVICE ? F.riskPerLevel : lv * F.riskPerLevel * (t === TILE.FARM ? 0.5 : 1) + (t === TILE.IND ? F.industryExtra : 0);
     r *= (1 - F.stationCut * map.coverage.fire[i]) * smoke;
     map.fireRisk[i] = Math.max(0, Math.min(100, r));
   }
