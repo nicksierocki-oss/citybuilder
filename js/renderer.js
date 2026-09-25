@@ -32,6 +32,7 @@ export const PAL = {
     school: '#efdfb4', schoolRoof: '#e2b6a4', yard: '#d4e8c4', clinic: '#ffffff', cross: '#e4a0a4',
     plaza: '#f0eadf', fountain: '#b5dcee', recycling: '#c1ddba', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'],
     police: '#cdd7ee', policeRoof: '#a3b5da', fire: '#edc2b6', fireRoof: '#d9998b', door: '#fbf7f0',
+    bus: '#efcf9f', busSign: '#e3a35a', metro: '#d9cbe9', metroSign: '#a98bd0',
   },
 };
 
@@ -234,10 +235,29 @@ export class Renderer {
     } else {
       ctx.fillRect(px + c - hw, py + c - hw, hw * 2, hw * 2);
     }
-    if (cn) ctx.fillRect(px + c - hw, py, hw * 2, c);
-    if (cs) ctx.fillRect(px + c - hw, py + c, hw * 2, c);
-    if (cw) ctx.fillRect(px, py + c - hw, c, hw * 2);
-    if (ce) ctx.fillRect(px + c, py + c - hw, c, hw * 2);
+    // Arms taper to meet a neighbour of a different width halfway, so street/avenue/highway
+    // joins blend instead of stepping.
+    const HW = [10.5, 14.5, 14.5];
+    const edgeHw = (dx, dy) => (isRoad(dx, dy) ? (hw + HW[map.roadClass[map.idx(x + dx, y + dy)]]) / 2 : hw);
+    const arm = (dx, dy) => {
+      const e = edgeHw(dx, dy);
+      ctx.beginPath();
+      if (dx) { // horizontal arm from the centre to the west/east edge
+        const ex = px + c + dx * c;
+        ctx.moveTo(px + c, py + c - hw); ctx.lineTo(ex, py + c - e); ctx.lineTo(ex, py + c + e); ctx.lineTo(px + c, py + c + hw);
+      } else {
+        const ey = py + c + dy * c;
+        ctx.moveTo(px + c - hw, py + c); ctx.lineTo(px + c - e, ey); ctx.lineTo(px + c + e, ey); ctx.lineTo(px + c + hw, py + c);
+      }
+      ctx.closePath(); ctx.fill();
+    };
+    if (cn) arm(0, -1);
+    if (cs) arm(0, 1);
+    if (cw) arm(-1, 0);
+    if (ce) arm(1, 0);
+    const i = map.idx(x, y);
+    if (map.hasFlag(i, FLAG.INTERCHANGE)) this.drawInterchange(map, x, y, px, py);
+    if (map.hasFlag(i, FLAG.LIGHTS) && links >= 3) this.drawLights(px, py, hw);
     if (bridge) {
       ctx.fillStyle = PAL.bridgeRail;
       if (cw || ce) { ctx.fillRect(px, py + c - hw - 2, TS, 2); ctx.fillRect(px, py + c + hw, TS, 2); }
@@ -274,6 +294,45 @@ export class Renderer {
     }
   }
 
+  // Traffic signals at the four corners of an intersection; north-south and east-west
+  // take turns on green.
+  drawLights(px, py, hw) {
+    const ctx = this.ctx, c = TS / 2, nsGreen = Math.floor(this.time / 2.5) % 2 === 0;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const x = px + c + sx * (hw + 1), y = py + c + sy * (hw + 1);
+      ctx.fillStyle = '#7d8794';
+      roundRect(ctx, x - 2.2, y - 2.2, 4.4, 4.4, 1.4); ctx.fill();
+      const ns = sx === sy; // two opposite corners face north-south traffic
+      ctx.fillStyle = ns === nsGreen ? '#7fd09a' : '#f08a80';
+      ctx.beginPath(); ctx.arc(x, y, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Interchange: the highway passes over on a bridge deck; curved ramps link it to the
+  // crossing road in each quadrant.
+  drawInterchange(map, x, y, px, py) {
+    const ctx = this.ctx, c = TS / 2;
+    const isHwy = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD
+      && map.roadClass[map.idx(x + dx, y + dy)] === 2;
+    const hwyH = isHwy(-1, 0) || isHwy(1, 0) || !(isHwy(0, -1) || isHwy(0, 1)); // which way the deck runs
+    ctx.strokeStyle = PAL.asphalt[0];
+    ctx.lineWidth = 3.2;
+    ctx.lineCap = 'round';
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      ctx.beginPath();
+      ctx.arc(px + c + sx * c, py + c + sy * c, c - 3, sx < 0 ? (sy < 0 ? 0 : -Math.PI / 2) : (sy < 0 ? Math.PI / 2 : Math.PI), sx < 0 ? (sy < 0 ? Math.PI / 2 : 0) : (sy < 0 ? Math.PI : Math.PI * 1.5));
+      ctx.stroke();
+    }
+    // Deck with a soft shadow on both sides so it reads as elevated.
+    ctx.fillStyle = 'rgba(60,70,90,0.18)';
+    if (hwyH) ctx.fillRect(px, py + c - 13, TS, 28); else ctx.fillRect(px + c - 13, py, 28, TS);
+    ctx.fillStyle = PAL.asphalt[2];
+    if (hwyH) ctx.fillRect(px, py + c - 11.5, TS, 23); else ctx.fillRect(px + c - 11.5, py, 23, TS);
+    ctx.fillStyle = PAL.barrier;
+    if (hwyH) { ctx.fillRect(px, py + c - 12.5, TS, 1.5); ctx.fillRect(px, py + c + 11, TS, 1.5); ctx.fillRect(px, py + c - 0.8, TS, 1.6); }
+    else { ctx.fillRect(px + c - 12.5, py, 1.5, TS); ctx.fillRect(px + c + 11, py, 1.5, TS); ctx.fillRect(px + c - 0.8, py, 1.6, TS); }
+  }
+
   // Little cars on straight road tiles; count follows volume, speed follows congestion.
   drawCars(map, x0, y0, x1, y1) {
     const ctx = this.ctx;
@@ -308,7 +367,7 @@ export class Renderer {
   // Ground-level parts of public buildings (the 3D view reuses these).
   drawServicePad(map, i, px, py) {
     const ctx = this.ctx, k = KINDS[map.kind[i]], S = PAL.svc;
-    const pad = { plaza: S.plaza, school: S.yard, wind: PAL.park }[k] ?? '#ece8e0';
+    const pad = { plaza: S.plaza, school: S.yard, wind: PAL.park, bus: S.plaza, metro: S.plaza }[k] ?? '#ece8e0';
     ctx.fillStyle = pad;
     roundRect(ctx, px + 1.5, py + 1.5, TS - 3, TS - 3, 6);
     ctx.fill();
@@ -552,6 +611,25 @@ export class Renderer {
         this.treeBlob(px + 26, py + 26, 3.5, v >> 1);
         this.treeBlob(px + 26, py + 6, 3.5, v >> 2);
         this.treeBlob(px + 6, py + 26, 3.5, v >> 3);
+        break;
+      case 'bus': {
+        // Shelter, a bench, and the stop sign
+        this.box(px + 6, py + 12, 18, 8, 3, S.bus, false, 2.5);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        roundRect(ctx, px + 8, py + 14, 14, 3, 1.2); ctx.fill();
+        this.round(px + 26, py + 10, 3, S.busSign, 5);
+        ctx.fillStyle = '#ffffff';
+        roundRect(ctx, px + 24.6, py + 9.3, 2.8, 1.4, 0.6); ctx.fill();
+        break;
+      }
+      case 'metro':
+        // Station entrance with stairs down and the "M" roundel
+        this.box(px + 5, py + 7, 22, 16, 4, S.metro, false, 4);
+        ctx.fillStyle = 'rgba(90,80,110,0.25)';
+        for (let k = 0; k < 4; k++) ctx.fillRect(px + 9, py + 11 + k * 2.6, 10, 1.2);
+        this.round(px + 23.5, py + 11, 4, S.metroSign, 4);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(px + 21.6, py + 13); ctx.lineTo(px + 21.6, py + 9.2); ctx.lineTo(px + 23.5, py + 11.6); ctx.lineTo(px + 25.4, py + 9.2); ctx.lineTo(px + 25.4, py + 13); ctx.stroke();
         break;
       case 'police':
         this.box(px + 4, py + 5, 24, 20, 4, S.police, false, 4);

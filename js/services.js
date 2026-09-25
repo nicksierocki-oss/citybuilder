@@ -26,7 +26,7 @@ export function useOf(map, i, res) {
   const U = CONFIG.utilities, t = map.type[i];
   if (t === TILE.SERVICE) {
     const k = kindOf(map, i);
-    if (k === 'coal' || k === 'wind' || k === 'pump') return 0;
+    if (k === 'coal' || k === 'wind' || k === 'pump' || k === 'bus') return 0;
     return U.serviceUse;
   }
   const key = ZONE_KEY[t];
@@ -141,6 +141,7 @@ export function happinessSystem(state) {
     const c = map.coverage;
     let v = H.base
       + c.school[i] * B.school.happiness + c.clinic[i] * B.clinic.happiness + c.plaza[i] * B.plaza.happiness
+      + Math.max(c.bus[i] * B.bus.happiness, c.metro[i] * B.metro.happiness)
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
     v -= map.crime[i] * CONFIG.crime.happinessWeight;

@@ -2,9 +2,9 @@
 
 import { CONFIG } from './config.js';
 import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice } from './economy.js';
-import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, isZone } from './map.js';
 import { evaluateTile, levelName } from './simulation.js';
-import { roadLoad } from './traffic.js';
+import { roadLoad, junctionDelay } from './traffic.js';
 import { supplyOf, happinessReasons } from './services.js';
 import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
 
@@ -12,10 +12,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // Toolbar layout: groups of tools.
 const GROUPS = [
-  ['Roads', ['road', 'avenue', 'highway', 'upgrade']],
+  ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange']],
   ['Zones', ['residential', 'commercial', 'industrial']],
   ['Utilities', ['wind', 'coal', 'pump']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
+  ['Transit', ['bus', 'metro']],
   ['Safety', ['police', 'fire']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
@@ -24,7 +25,7 @@ const TOOL_COLOR = {
   road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
   residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
-  police: '#7f9ee0', fire: '#ee8a6e',
+  police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
 };
@@ -47,6 +48,10 @@ const TOOL_HELP = {
   park: 'Raises land value, absorbs pollution.',
   trees: 'Plant trees on open land: cheap clean air.',
   police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
+  lights: 'Add to busy intersections: a small fixed wait, but far less congestion.',
+  interchange: 'Carries a highway over a crossing road with ramps: no more at-grade bottleneck.',
+  bus: 'Cheap. People within 3 tiles ride to jobs near other bus stops (slower, shares nothing with cars).',
+  metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
   fire: 'Prevents fires and puts them out within 10 tiles.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
@@ -72,6 +77,10 @@ const ICONS = {
   park: I('<circle cx="12" cy="9" r="5"/><path d="M12 14v7"/>'),
   trees: I('<circle cx="8" cy="10" r="4"/><circle cx="16" cy="8" r="3.5"/><path d="M8 14v6M16 11.5V20"/>'),
   inspect: I('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>'),
+  lights: I('<rect x="8" y="2" width="8" height="16" rx="3"/><circle cx="12" cy="6.5" r="1.5"/><circle cx="12" cy="13.5" r="1.5"/><path d="M12 18v4"/>'),
+  interchange: I('<path d="M3 12h18"/><path d="M12 3v18"/><path d="M7 7a7 7 0 0 0 5 5M17 17a7 7 0 0 0-5-5"/>'),
+  bus: I('<rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 21v-3M16 21v-3"/><circle cx="8" cy="14.5" r="1"/><circle cx="16" cy="14.5" r="1"/>'),
+  metro: I('<circle cx="12" cy="12" r="9"/><path d="M8 16V8l4 5 4-5v8"/>'),
   police: I('<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m12 8 1.2 2.5 2.8.4-2 2 .5 2.8L12 14.4l-2.5 1.3.5-2.8-2-2 2.8-.4z"/>'),
   fire: I('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-4 2.5-5 .3 1.5 1 2.5 2 3 0-3 .5-5.5.5-8z"/>'),
   bulldoze: I('<path d="M6 6l12 12M18 6 6 18"/>'),
@@ -103,7 +112,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -236,7 +245,9 @@ export class UI {
     const tr = s.traffic;
     $('commute').textContent = tr && tr.employed > 0 ? `${Math.round(tr.avgCommute)} min` : '—';
     const unemployed = tr ? Math.max(0, Math.round(tr.workers - tr.employed)) : 0;
-    $('commuteDetail').textContent = tr && tr.congested ? `${tr.congested} jammed road${tr.congested > 1 ? 's' : ''}` : unemployed ? `${unemployed} can't reach jobs` : 'traffic flowing';
+    const transitPct = tr && tr.employed > 0 ? Math.round((tr.transitRiders ?? 0) / tr.employed * 100) : 0;
+    $('commuteDetail').textContent = tr && tr.congested ? `${tr.congested} jammed road${tr.congested > 1 ? 's' : ''}`
+      : unemployed ? `${unemployed} can't reach jobs` : transitPct ? `${transitPct}% ride transit` : 'traffic flowing';
     $('commuteDetail').classList.toggle('warn', !!(tr && (tr.congested || unemployed)));
     const crime = s.crime ?? 0, fires = s.fires ?? 0;
     $('safety').textContent = st.population > 0 ? (crime < 12 ? 'Safe' : crime < 25 ? 'Fair' : crime < 40 ? 'Uneasy' : 'Rough') : '—';
@@ -321,7 +332,7 @@ export class UI {
       ${row('Industrial tax', b.income.industrial)}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
-      ${nz('Bridges', b.expenses.bridges)}${nz('Parks', b.expenses.parks)}
+      ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
       ${nz('Loan repayments', b.expenses.loans)}
       ${row('Net', net, 'total')}
@@ -365,6 +376,10 @@ export class UI {
         if (map[res][i] !== SUPPLY.OK) notes.push('Not beside a road: its output isn\'t reaching anyone');
       }
       if (B.radius) rows.push(['Reach', `${B.radius} tiles`]);
+      if (k === 'bus' || k === 'metro') {
+        rows.push(['Riders', `${Math.round(map.riders[i])} / ${B.capacity} a month`]);
+        if (map.riders[i] < 5) notes.push(`No riders yet: people ride between ${k === 'bus' ? 'bus stops' : 'metro stations'}, so build another near jobs or homes`);
+      }
       rows.push(['Upkeep', `${money(B.upkeep)}/mo`]);
       if (!B.power && k !== 'pump') rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
     }
@@ -380,6 +395,15 @@ export class UI {
         }
       }
       if (map.roadClass[i] === 2) notes.push('Limited access: buildings can\'t use a highway as their street');
+      const jk = map.junctionKind(i);
+      if (jk !== JUNCTION.NONE) {
+        const what = jk === JUNCTION.MERGE ? 'Merge' : jk === JUNCTION.INTERSECTION ? 'Intersection' : 'Highway junction';
+        const control = map.hasFlag(i, FLAG.INTERCHANGE) ? ' · interchange' : map.hasFlag(i, FLAG.LIGHTS) ? ' · traffic lights' : '';
+        rows.push(['Junction', `${what}${control} · +${junctionDelay(map, i).toFixed(1)} min`]);
+        const load = roadLoad(map, i);
+        if (jk === JUNCTION.HIGHWAY && !map.hasFlag(i, FLAG.INTERCHANGE)) notes.push('Highway crossing at grade: an Interchange removes the bottleneck');
+        else if (jk === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) notes.push('Busy intersection: traffic lights would cut the delay');
+      }
     }
     if (type === TILE.RES && lv > 0 && !ab) {
       const c = map.commute[i];

@@ -1,7 +1,7 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, isZone } from './map.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -9,6 +9,8 @@ export const TOOLS = {
   avenue:      { label: 'Avenue',      key: '7', shape: 'line', tile: TILE.ROAD, roadClass: 1 },
   highway:     { label: 'Highway',     key: '8', shape: 'line', tile: TILE.ROAD, roadClass: 2 },
   upgrade:     { label: 'Upgrade road', key: '9', shape: 'line' },
+  lights:      { label: 'Traffic lights', shape: 'rect' },
+  interchange: { label: 'Interchange', shape: 'single' },
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
@@ -25,12 +27,15 @@ export const TOOLS = {
   recycling:   { label: 'Recycling',   shape: 'single', building: 'recycling' },
   police:      { label: 'Police station', shape: 'single', building: 'police' },
   fire:        { label: 'Fire station', shape: 'single', building: 'fire' },
+  bus:         { label: 'Bus stop',    shape: 'single', building: 'bus' },
+  metro:       { label: 'Metro station', shape: 'single', building: 'metro' },
 };
 
 export function toolPrice(tool) {
   const def = TOOLS[tool];
   if (def.building) return CONFIG.buildings[def.building].cost;
   if (tool === 'trees') return CONFIG.costs.plantTrees;
+  if (tool === 'lights' || tool === 'interchange') return CONFIG.costs[tool];
   return CONFIG.costs[tool];
 }
 
@@ -61,6 +66,14 @@ export function toolCost(state, tool, i) {
     return CONFIG.buildings[TOOLS[tool].building].cost + trees;
   }
   switch (tool) {
+    case 'lights': {
+      const j = map.junctionKind(i);
+      if ((j !== JUNCTION.INTERSECTION && j !== JUNCTION.HIGHWAY) || map.hasFlag(i, FLAG.LIGHTS) || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
+      return C.lights;
+    }
+    case 'interchange':
+      if (map.junctionKind(i) !== JUNCTION.HIGHWAY || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
+      return C.interchange;
     case 'trees':
       return t === TILE.EMPTY && !water && !map.hasFlag(i, FLAG.TREES) ? C.plantTrees : null;
     case 'road': case 'avenue': case 'highway': case 'upgrade': {
@@ -97,6 +110,11 @@ function applyOne(state, tool, i) {
   const wasRoad = map.type[i] === TILE.ROAD;
   if (tool === 'trees') {
     map.setFlag(i, FLAG.TREES, true);
+  } else if (tool === 'lights') {
+    map.setFlag(i, FLAG.LIGHTS, true);
+  } else if (tool === 'interchange') {
+    map.setFlag(i, FLAG.INTERCHANGE, true);
+    map.setFlag(i, FLAG.LIGHTS, false); // ramps replace the lights
   } else if (TOOLS[tool]?.building) {
     map.type[i] = TILE.SERVICE;
     map.kind[i] = KIND_ID[TOOLS[tool].building];
@@ -110,10 +128,9 @@ function applyOne(state, tool, i) {
     map.level[i] = 0;
     map.kind[i] = 0;
     map.roadClass[i] = 0;
-    map.setFlag(i, FLAG.FIRE, false);
+    map.flags[i] = 0; // clears fire, abandonment, lights and interchanges (trees handled above)
     map.burn[i] = 0;
     map.traffic[i] = 0;
-    map.setFlag(i, FLAG.ABANDONED, false);
   } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {
     map.roadClass[i] = targetRoadClass(map, tool, i);
     map.type[i] = TILE.ROAD;
@@ -175,6 +192,7 @@ export function monthlyBudget(state) {
     highways: s.highways * E.highwayMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
     parks: s.parks * E.parkMaintenance,
+    junctions: s.lights * E.lightsMaintenance + s.interchanges * E.interchangeMaintenance,
     utilities: 0,
     services: 0,
     loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
@@ -287,6 +305,17 @@ export function budgetAdvice(state) {
     out.push(`Demand is strong for ${want}: zone more next to existing roads. Growth is the best cure for a deficit.`);
   }
   if (s.population >= 300 && state.taxRate <= E.taxRate && Math.max(d.r, d.c, d.i) > 0.3 && net < 0) out.push('Demand is high, so you can afford a tax rise of 1–2 points.');
+  // Junctions that cost commuters time.
+  let busyPlain = 0, atGrade = 0;
+  for (let i = 0; i < map.size; i++) {
+    if (map.type[i] !== TILE.ROAD || map.traffic[i] < 1) continue;
+    const j = map.junctionKind(i);
+    const load = map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]];
+    if (j === JUNCTION.HIGHWAY && !map.hasFlag(i, FLAG.INTERCHANGE)) atGrade++;
+    else if (j === JUNCTION.INTERSECTION && !map.hasFlag(i, FLAG.LIGHTS) && load > 0.7) busyPlain++;
+  }
+  if (atGrade) out.push(`${atGrade} highway junction${atGrade > 1 ? 's' : ''} cross other roads at grade: an Interchange ($${CONFIG.costs.interchange.toLocaleString()}) removes the slowdown.`);
+  if (busyPlain) out.push(`${busyPlain} busy intersection${busyPlain > 1 ? 's' : ''} without traffic lights: lights ($${CONFIG.costs.lights}) cut the delay.`);
   if (s.abandoned > 5) out.push(`${s.abandoned} abandoned buildings earn nothing: hover them to see why (jobs, pollution, commute).`);
   if (net < 0 && canTakeLoan(state)) out.push(`A $${E.loanAmount.toLocaleString()} loan buys time while the city grows.`);
   return out;

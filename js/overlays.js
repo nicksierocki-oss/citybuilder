@@ -78,6 +78,13 @@ export const OVERLAYS = {
     legend: { gradient: gradient(cover), labels: ['none', 'some', 'full'] },
     hint: 'Coverage from schools and clinics (strongest of the two). Hover a tile for each one.',
   },
+  transit: {
+    label: 'Transit', key: 'm', kind: 'field',
+    value: (map, i) => (isLand(map, i) ? Math.max(map.coverage.bus[i], map.coverage.metro[i]) * 100 : null),
+    color: (v) => cover(v / 100),
+    legend: { gradient: gradient(cover), labels: ['walk too far', 'nearby', 'at the stop'] },
+    hint: 'Walking distance to a bus stop (3 tiles) or metro station (4). Riders go to jobs near another stop on the same network.',
+  },
   crime: {
     label: 'Crime', key: 'c', kind: 'field',
     value: (map, i) => (isLand(map, i) ? map.crime[i] : null),
@@ -118,7 +125,7 @@ export const OVERLAYS = {
   },
 };
 
-export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'crime', 'fireRisk', 'traffic', 'power', 'water'];
+export const OVERLAY_ORDER = ['landValue', 'pollution', 'happiness', 'services', 'transit', 'crime', 'fireRisk', 'traffic', 'power', 'water'];
 
 // Draw an overlay into a 2D context whose transform maps 1 tile to `ts` units.
 const offscreen = typeof document !== 'undefined' ? document.createElement('canvas') : null;

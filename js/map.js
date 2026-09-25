@@ -7,11 +7,13 @@ export const TERRAIN = { GRASS: 0, WATER: 1 };
 export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6 };
 export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building'];
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
-export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire'];
+export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
-export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4 };
+export const FLAG = { TREES: 1, ABANDONED: 2, FIRE: 4, LIGHTS: 8, INTERCHANGE: 16 };
+// Junction kinds (see junctionKind): how a road tile meets its neighbours.
+export const JUNCTION = { NONE: 0, MERGE: 1, INTERSECTION: 2, HIGHWAY: 3 };
 
 export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
 export const ROAD_NAMES = ['Street', 'Avenue', 'Highway'];
@@ -65,7 +67,9 @@ export class GameMap {
       school: new Float32Array(n), clinic: new Float32Array(n),
       plaza: new Float32Array(n), recycling: new Float32Array(n),
       police: new Float32Array(n), fire: new Float32Array(n),
+      bus: new Float32Array(n), metro: new Float32Array(n),
     };
+    this.riders = new Float32Array(n);    // transit boardings + alightings per station tile
     this.crime = new Float32Array(n);     // 0..100 per building
     this.fireRisk = new Float32Array(n);  // 0..100 per building
     this.burn = new Uint16Array(n);       // ticks a fire has been burning (FLAG.FIRE tiles)
@@ -91,6 +95,24 @@ export class GameMap {
       if (this.isLocalRoad(j) && this.roadDist[j] >= 0) return true;
     }
     return false;
+  }
+
+  // How road tile i meets its neighbours: a highway crossing/joining other roads (legs >= 3),
+  // an ordinary intersection, a merge where road classes change in a straight run, or none.
+  junctionKind(i) {
+    if (this.type[i] !== TILE.ROAD) return JUNCTION.NONE;
+    const x = i % this.width, y = (i / this.width) | 0, cls = this.roadClass[i];
+    let legs = 0, highway = cls === ROAD_CLASS.HIGHWAY, mixed = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!this.inBounds(x + dx, y + dy)) continue;
+      const j = this.idx(x + dx, y + dy);
+      if (this.type[j] !== TILE.ROAD) continue;
+      legs++;
+      if (this.roadClass[j] === ROAD_CLASS.HIGHWAY) highway = true;
+      if (this.roadClass[j] !== cls) mixed = true;
+    }
+    if (legs >= 3) return highway && mixed ? JUNCTION.HIGHWAY : JUNCTION.INTERSECTION;
+    return mixed && highway ? JUNCTION.MERGE : JUNCTION.NONE;
   }
 
   // Roads a building can front onto. Highways are limited-access: no driveways.

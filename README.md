@@ -51,7 +51,22 @@ There's an optional **3D view**, built with Three.js. The library is included in
 
    Happiness (0–100) comes from those services, land value, pollution, commute and utilities.
    Happy neighbourhoods grow faster, and unhappy ones decline.
-8. **Police and fire.**
+8. **Junctions and transit.**
+   - **Intersections cost time:** a tile where 3 or 4 roads meet adds a delay that grows
+     with traffic. **Traffic lights** ($150) add a small fixed wait but stop the delay from
+     ballooning, so they pay off at busy junctions.
+   - **Highways crossing other roads at grade** are a big bottleneck. An **Interchange**
+     ($1,500, the *Ramps* tool) carries the highway over on a deck.
+   - **Road joins:** where a highway simply turns into an avenue, the road tapers smoothly
+     (a merge, with only a small delay).
+   - **Bus stops** ($150): people within 3 tiles ride to jobs near other bus stops.
+     Up to 35% of a home's workers, 150 riders a month per stop, slower rides.
+   - **Metro stations** ($2,500): people within 4 tiles ride to jobs near any other
+     station. Up to 60%, 600 riders a month, fast. Stations also raise land value.
+   - **Riders never use the roads,** so transit cuts congestion, noise and pollution.
+     Stops work in pairs: one near homes, one near jobs. Tile info shows each stop's
+     ridership, and the **Transit** overlay (`M`) shows walking coverage.
+9. **Police and fire.**
    - **Crime:** each building's crime comes from its density, low land value,
      unemployment and nearby abandoned buildings. It lowers happiness and land value,
      and scares off shops and industry. A **police station** cuts crime by up to 85%
@@ -62,7 +77,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **Unattended fires:** a fire outside station cover can spread next door. After
      two months it burns the building down, leaving the zoned lot vacant.
    - **Alerts:** fire alerts are clickable. They jump the camera to the fire.
-9. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+10. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
    drains. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
@@ -94,7 +109,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
 | Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
-| Overlays | `L` land value · `P` pollution · `H` happiness · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
+| Overlays | `L` land value · `P` pollution · `H` happiness · `M` transit · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |
 | Start over | **Reset** (top bar) restarts on a fresh map of the same size. The **City** menu has New city (pick a size), Expand map, Save and Load |
 | Tile info | Hover any tile. With Inspect, click to pin the panel (`Esc` to unpin) |
 | Budget | Click **Last month** in the top bar |
@@ -121,7 +136,10 @@ so a month is about 3 seconds. Each tick runs an ordered pipeline of *systems* (
    - **Congestion:** trips add volume to every road tile on their route. A street tile
      takes 0.8 min and an avenue 0.5 min at free flow, multiplied by
      `1 + 1.6 × load²`, where load = volume / capacity (160 per street, 480 per avenue).
-     Volumes are smoothed between runs, so drivers gradually shift to less-jammed routes.
+     Junction tiles add a delay (intersections, highway crossings, merges) that traffic
+     lights and interchanges reduce. Transit riders are assigned first and never touch the roads.
+     Volumes are smoothed between runs (80% of the previous volume is kept), so drivers
+     gradually shift to less-jammed routes instead of oscillating.
    - **Effects:**
      - Homes lose score above a 20-minute commute and when under 70% of their workers are employed.
      - Shops gain from passing trips.

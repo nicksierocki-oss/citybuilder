@@ -32,6 +32,8 @@ export const CONFIG = {
     roadMaintenance: 1.25,
     bridgeMaintenance: 5,
     avenueMaintenance: 3,
+    lightsMaintenance: 2,
+    interchangeMaintenance: 10,
     highwayMaintenance: 8,
     parkMaintenance: 4,
     // consecutive months with negative funds before the council fires you
@@ -50,6 +52,8 @@ export const CONFIG = {
     bridge: 60,              // road placed on water
     avenue: 30,              // new avenue tile (upgrading a street costs the difference)
     avenueBridge: 120,
+    lights: 150,             // traffic lights on an intersection
+    interchange: 1500,       // grade-separated highway junction (ramps)
     highway: 80,             // limited access: buildings can't use it as their frontage road
     highwayBridge: 240,
     // The Upgrade tool (and painting a bigger road over a smaller one) charges the difference.
@@ -131,7 +135,7 @@ export const CONFIG = {
     capacity: [160, 480, 1200],      // trips/month before a tile is "full": [street, avenue, highway]
     congestionK: 1.6,           // travel time x (1 + K * load^2) where load = volume / capacity
     maxCongestion: 5,           // cap on that multiplier
-    smoothing: 0.5,             // how quickly route costs react to new volumes
+    smoothing: 0.8,             // share of last run's volume kept (higher = steadier routes, slower to react)
     maxCommute: 45,             // minutes; beyond this, workers won't take the job
     comfortCommute: 20,         // minutes; above this, homes become less desirable
     commuteWeight: 0.4,         // score lost at maxCommute
@@ -144,6 +148,14 @@ export const CONFIG = {
     noiseCap: 14,
     pollutionPerTrip: 0.025,    // road tile pollution per trip (radius 1)
     pollutionCap: 18,
+    // Junction delays in minutes, each x (1 + k * load^2). Lights trade a fixed wait for
+    // much less congestion; they pay off above ~70% load. Highways crossing other roads at
+    // grade are slow unless an interchange carries them over.
+    junction: {
+      plain: [0.15, 4], lights: [0.3, 1], highwayAtGrade: [0.8, 3], highwayLights: [0.5, 1.5],
+      interchange: [0.1, 0.5], merge: [0.1, 2],
+    },
+    walkMinutes: 3,             // to and from transit stops
   },
 
   // Public buildings (one tile each). Utilities must touch a road: power and water
@@ -157,6 +169,9 @@ export const CONFIG = {
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
     recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5 },
     police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 10 },
+    // Transit: people within `radius` tiles may ride to jobs near another stop on the network.
+    bus:       { label: 'Bus stop',      cost: 150,  upkeep: 6,  radius: 3, capacity: 150, wait: 4, minutesPerTile: 0.7,  share: 0.35, landValue: 3, happiness: 3 },
+    metro:     { label: 'Metro station', cost: 2500, upkeep: 40, radius: 4, capacity: 600, wait: 2, minutesPerTile: 0.25, share: 0.6,  landValue: 8, happiness: 5 },
     fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 10 },
   },
 

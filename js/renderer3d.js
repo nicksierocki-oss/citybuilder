@@ -36,6 +36,7 @@ const COL = {
     coal: '#d4cdc6', coalTower: '#ece9e4', steam: '#ffffff', wind: '#ffffff', pump: '#cce3f0', tank: '#e6f1f7',
     school: '#f1e4c0', schoolRoof: '#e2b6a4', clinic: '#ffffff', cross: '#e4a0a4', plaza: '#f0eadf', fountain: '#b5dcee',
     recycling: '#c8e2c2', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'], flag: '#e4a0a4',
+    bus: '#efcf9f', busSign: '#e3a35a', metro: '#ddd0ec', metroSign: '#a98bd0',
     police: '#dfe6f4', policeTrim: '#a3b5da', fire: '#efc6ba', fireTrim: '#d9998b', door: '#fbf7f0',
   },
 };
@@ -175,9 +176,10 @@ export class Renderer3D {
     this.cars = new Batch(scene, GEO.box, tiles * 3, { shadows: false });
     this.blades = new Batch(scene, new THREE.BoxGeometry(1, 1, 1), Math.max(64, tiles / 2), { shadows: false });
     this.flames = new Batch(scene, GEO.blob, Math.max(64, tiles / 2), { shadows: false, basic: true });
+    this.lamps = new Batch(scene, GEO.box, Math.max(64, tiles), { shadows: false, basic: true });
     this.smoke = new Batch(scene, GEO.blob, Math.max(64, tiles / 2), { shadows: false });
     this.smoke.setOpacity(0.55);
-    this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke];
+    this.dynamicBatches = [this.cars, this.blades, this.flames, this.smoke, this.lamps];
     this.batchTiles = tiles;
   }
 
@@ -320,6 +322,7 @@ export class Renderer3D {
     for (const b of this.buildingBatches) b.begin();
     this.turbines = [];
     this.burning = [];
+    this.signals = [];
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
       const i = map.idx(x, y), t = map.type[i], v = map.variant[i];
       if (t === TILE.EMPTY && map.hasFlag(i, FLAG.TREES)) {
@@ -336,6 +339,17 @@ export class Renderer3D {
         this.service(this.placer(map, x, y), KINDS[map.kind[i]], v, x, y);
       }
       if (map.hasFlag(i, FLAG.FIRE)) this.burning.push({ x, y, v });
+      if (t === TILE.ROAD && map.hasFlag(i, FLAG.INTERCHANGE)) this.interchange(map, x, y);
+      if (t === TILE.ROAD && map.hasFlag(i, FLAG.LIGHTS)) {
+        // Four signal poles at the corners; their lamps change colour every frame (buildSignals).
+        const hw = map.roadClass[i] > 0 ? 0.47 : 0.36;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          const px = x + 0.5 + sx * hw, pz = y + 0.5 + sy * hw;
+          this.cylinders.add(px, 0, pz, 0.03, 0.34, 0.03, '#8a929c');
+          this.boxes.add(px, 0.3, pz, 0.07, 0.1, 0.07, '#6f7782');
+          this.signals.push({ x: px, z: pz, ns: sx === sy });
+        }
+      }
     }
     for (const b of this.buildingBatches) b.end();
   }
@@ -523,6 +537,20 @@ export class Renderer3D {
           P(this.blobs, u, w, 0.2, 0.2, 0.08, 0.22, COL.leaves[(v + Math.round(u * 5)) % 3]);
         }
         break;
+      case 'bus':
+        P(this.rboxes, 0, 0.12, 0.62, 0.22, 0.26, 0.04, S.bus);          // shelter roof
+        for (const u of [-0.27, 0.27]) P(this.cylinders, u, 0.18, 0.03, 0.03, 0, 0.26, '#b8c0ca');
+        P(this.boxes, 0, 0.05, 0.6, 0.02, 0, 0.24, '#e8f1f8');             // glass back panel
+        P(this.boxes, 0, 0.14, 0.4, 0.08, 0.06, 0.03, '#c9a57a');          // bench
+        P(this.cylinders, 0.38, 0.3, 0.025, 0.025, 0, 0.42, '#b8c0ca');    // sign post
+        P(this.rboxes, 0.38, 0.3, 0.14, 0.03, 0.36, 0.1, S.busSign);
+        break;
+      case 'metro':
+        P(this.rboxes, 0, -0.05, 0.72, 0.56, 0, 0.3, S.metro);
+        P(this.rboxes, 0, -0.05, 0.64, 0.48, 0.3, 0.12, '#eaf2f8');        // glass canopy
+        P(this.cylinders, 0.32, 0.32, 0.03, 0.03, 0, 0.5, '#b8c0ca');
+        P(this.cylinders, 0.32, 0.32, 0.18, 0.18, 0.5, 0.04, S.metroSign); // "M" roundel
+        break;
       case 'police':
         P(this.rboxes, 0, -0.08, 0.8, 0.58, 0, 0.5, S.police);
         P(this.boxes, 0, -0.08, 0.84, 0.62, 0.5, 0.05, S.policeTrim);
@@ -562,6 +590,28 @@ export class Renderer3D {
   }
 
   // Flickering flames and rising smoke on burning buildings.
+  // Signal lamps: north-south and east-west take turns on green.
+  buildSignals() {
+    const b = this.lamps, nsGreen = Math.floor(this.time / 2.5) % 2 === 0;
+    b.begin();
+    for (const s of this.signals ?? []) b.add(s.x, 0.34, s.z, 0.05, 0.04, 0.05, s.ns === nsGreen ? '#7fd09a' : '#f08a80');
+    b.end();
+  }
+
+  // Interchange: an elevated highway deck on two piers over the crossing road.
+  interchange(map, x, y) {
+    const isHwy = (dx, dy) => map.inBounds(x + dx, y + dy) && map.type[map.idx(x + dx, y + dy)] === TILE.ROAD
+      && map.roadClass[map.idx(x + dx, y + dy)] === 2;
+    const horiz = isHwy(-1, 0) || isHwy(1, 0) || !(isHwy(0, -1) || isHwy(0, 1));
+    const [sx, sz] = horiz ? [1.02, 0.78] : [0.78, 1.02];
+    this.rboxes.add(x + 0.5, 0.3, y + 0.5, sx, 0.08, sz, '#c3c8cf');
+    this.boxes.add(x + 0.5, 0.38, y + 0.5, horiz ? 1.02 : 0.03, 0.05, horiz ? 0.03 : 1.02, '#eeebe4');
+    for (const k of [-0.3, 0.3]) {
+      const [px, pz] = horiz ? [x + 0.5, y + 0.5 + k] : [x + 0.5 + k, y + 0.5];
+      this.cylinders.add(px, 0, pz, 0.1, 0.3, 0.1, '#d8d4cd');
+    }
+  }
+
   buildFires() {
     const f = this.flames, s = this.smoke, t = this.time;
     f.begin(); s.begin();
@@ -624,6 +674,7 @@ export class Renderer3D {
     else if (map.size <= 5000 || now - (c.carsAt ?? 0) > 33) { this.buildCars(map); c.carsAt = now; }
     this.buildBlades();
     this.buildFires();
+    this.buildSignals();
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;

@@ -41,7 +41,7 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
 function emptyStats() {
   return {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
-    roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0,
+    roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0, lights: 0, interchanges: 0,
     zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
     services: {},             // count per public building kind
   };
@@ -168,7 +168,8 @@ export function landValueSystem(state) {
     v -= Math.min(L.abandonedCap, abB[i]);
     v -= map.crime[i] * CONFIG.crime.landValueWeight;
     const B = CONFIG.buildings, cov = map.coverage;
-    v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue;
+    v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue
+      + Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight;
     lv[i] = Math.max(0, Math.min(100, v));
@@ -212,6 +213,8 @@ export function computeStats(state) {
       else if (map.roadClass[i] === 1) s.avenues++;
       else if (map.roadClass[i] === 2) s.highways++;
       else s.roads++;
+      if (map.hasFlag(i, FLAG.LIGHTS)) s.lights++;
+      if (map.hasFlag(i, FLAG.INTERCHANGE)) s.interchanges++;
     }
     else if (t === TILE.PARK) s.parks++;
     else if (t === TILE.SERVICE) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }

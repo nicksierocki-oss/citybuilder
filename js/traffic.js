@@ -3,7 +3,7 @@
 // Pure simulation — no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, FLAG } from './map.js';
+import { TILE, FLAG, KINDS, JUNCTION } from './map.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -43,11 +43,23 @@ class Heap {
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-// Travel minutes through one road tile given its current volume.
+// Travel minutes through one road tile given its current volume, including any junction delay.
 export function roadTime(map, i) {
   const T = CONFIG.traffic, c = map.roadClass[i];
   const load = map.traffic[i] / T.capacity[c];
-  return T.minutesPerTile[c] * Math.min(T.maxCongestion, 1 + T.congestionK * load * load);
+  return T.minutesPerTile[c] * Math.min(T.maxCongestion, 1 + T.congestionK * load * load) + junctionDelay(map, i, load);
+}
+
+// Extra minutes spent crossing a junction tile (0 on plain road).
+export function junctionDelay(map, i, load = map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]]) {
+  const J = CONFIG.traffic.junction, kind = map.junctionKind(i);
+  if (kind === JUNCTION.NONE) return 0;
+  const lights = map.hasFlag(i, FLAG.LIGHTS);
+  const [base, k] = kind === JUNCTION.MERGE ? J.merge
+    : kind === JUNCTION.INTERSECTION ? (lights ? J.lights : J.plain)
+    : map.hasFlag(i, FLAG.INTERCHANGE) ? J.interchange
+    : lights ? J.highwayLights : J.highwayAtGrade;
+  return base * (1 + k * Math.min(4, load * load));
 }
 
 export function roadLoad(map, i) {
@@ -135,10 +147,58 @@ export function trafficSystem(state) {
     [homes[k], homes[j]] = [homes[j], homes[k]];
   }
 
+  // --- transit: stops with their walk-in catchments and the jobs around them
+  const B = CONFIG.buildings;
+  const stations = [];
+  map.riders.fill(0);
+  for (let i = 0; i < size; i++) {
+    if (map.type[i] !== TILE.SERVICE) continue;
+    const k = KINDS[map.kind[i]];
+    if ((k !== 'bus' && k !== 'metro') || !accessRoads(i).length) continue;
+    const r = B[k].radius, x0 = i % w, y0 = (i / w) | 0, jobs = [];
+    for (let y = Math.max(0, y0 - r); y <= Math.min(h - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + r); x++) {
+        const j = y * w + x;
+        if (remaining[j] > 0) jobs.push(j);
+      }
+    }
+    stations.push({ i, k, x: x0, y: y0, jobs, left: B[k].capacity });
+  }
+  const nearStations = (home) => {
+    const x = home % w, y = (home / w) | 0;
+    return stations.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B[s.k].radius && s.left > 0);
+  };
+  let transitRiders = 0;
+
   let totalWorkers = 0, totalEmployed = 0, totalMinutes = 0;
   for (const home of homes) {
     const workers = CAP.residential[map.level[home]] * D.workforceRatio;
     let left = workers, minutes = 0;
+    // Some workers near a stop ride transit to jobs near another stop on the same mode
+    // (buses and metro form separate networks). Riders never touch the roads.
+    if (stations.length) {
+      for (const from of nearStations(home).sort((a, b) => B[b.k].share - B[a.k].share)) {
+        let want = Math.min(left, workers * B[from.k].share, from.left);
+        if (want <= 0) continue;
+        const dests = stations.filter((s) => s.k === from.k && s.left > 0)
+          .sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
+        for (const to of dests) {
+          if (want <= 0) break;
+          const ride = T.walkMinutes * 2 + B[to.k].wait + Math.hypot(to.x - from.x, to.y - from.y) * B[to.k].minutesPerTile;
+          if (ride > T.maxCommute) break;
+          for (const j of to.jobs) {
+            if (want <= 0 || to.left <= 0) break;
+            const take = Math.min(want, remaining[j], to.left, from.left);
+            if (take <= 0) continue;
+            remaining[j] -= take; want -= take; left -= take;
+            from.left -= take; if (to !== from) to.left -= take;
+            map.riders[from.i] += take; map.riders[to.i] += take;
+            minutes += take * ride;
+            transitRiders += take;
+          }
+        }
+      }
+    }
     run++;
     heap.clear();
     for (const r of accessRoads(home)) { dist[r] = time[r]; stamp[r] = run; parent[r] = -1; heap.push(r, time[r]); }
@@ -221,5 +281,6 @@ export function trafficSystem(state) {
     avgCommute: totalEmployed > 0 ? totalMinutes / totalEmployed : 0,
     freightTrips,
     congested,
+    transitRiders,
   };
 }
