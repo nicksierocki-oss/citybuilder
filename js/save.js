@@ -1,6 +1,6 @@
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
-import { GameMap, TILE, highwayEntry } from './map.js';
+import { GameMap, TILE, KINDS, highwayEntry } from './map.js';
 import { CONFIG } from './config.js';
 import { refreshFields } from './simulation.js';
 
@@ -16,8 +16,11 @@ function encode(arr) {
   return btoa(s);
 }
 function decode(str, n) {
-  const s = atob(str), out = new Uint8Array(n);
-  if (s.length !== n) throw new Error('Layer size mismatch');
+  if (typeof str !== 'string') throw new Error('Save file is damaged (missing map data)');
+  let s;
+  try { s = atob(str); } catch { throw new Error('Save file is damaged (bad map data)'); }
+  const out = new Uint8Array(n);
+  if (s.length !== n) throw new Error('Save file is damaged (map size mismatch)');
   for (let i = 0; i < n; i++) out[i] = s.charCodeAt(i);
   return out;
 }
@@ -43,28 +46,37 @@ export function serialize(state) {
 export function deserialize(data) {
   if (!data || data.game !== 'gridline') throw new Error('Not a Gridline save file');
   if (data.version > VERSION) throw new Error('Save is from a newer version');
-  const { width, height, layers } = data.map;
+  const { width, height, layers } = data.map ?? {};
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < MIN_DIM || height < MIN_DIM
+    || width > MAX_DIM || height > MAX_DIM || !layers || typeof layers !== 'object') {
+    throw new Error('Save file is damaged (bad map size)');
+  }
   const map = new GameMap(width, height);
-  map.seed = data.map.seed;
+  map.seed = Number.isFinite(data.map.seed) ? data.map.seed : null;
   for (const k of LAYERS) {
     if (layers[k] == null && OPTIONAL_LAYERS.has(k)) continue;
     map[k] = decode(layers[k], width * height);
   }
+  sanitizeLayers(map);
   if ((data.version | 0) < 2) migrateV1(map);
   map.computeWaterDistance();
   map.roadsDirty = true;
+  const E = CONFIG.economy, d = data.demand ?? {}, lm = data.lastMonth;
   const state = {
     map,
-    tick: data.tick | 0, month: data.month | 0, year: data.year | 0,
-    funds: Number(data.funds) || 0,
-    taxRate: Number.isFinite(Number(data.taxRate)) && data.taxRate != null ? Number(data.taxRate) : CONFIG.economy.taxRate,
-    demand: { r: 0, c: 0, i: 0, ...data.demand },
-    stats: null, lastMonth: data.lastMonth ?? null,
-    negativeMonths: data.negativeMonths | 0, bankrupt: false,
-    milestones: Array.isArray(data.milestones) ? data.milestones : [],
+    tick: Math.max(0, data.tick | 0), month: clamp(data.month | 0, 0, 11), year: data.year | 0 || CONFIG.time.startYear,
+    funds: num(data.funds, 0),
+    taxRate: data.taxRate == null ? E.taxRate : clamp(num(data.taxRate, E.taxRate), E.taxRateMin, E.taxRateMax),
+    demand: { r: clamp(num(d.r, 0), -1, 1), c: clamp(num(d.c, 0), -1, 1), i: clamp(num(d.i, 0), -1, 1) },
+    stats: null,
+    // Only the headline numbers are shown before the next month closes; the breakdown is rebuilt then.
+    lastMonth: lm && typeof lm === 'object' ? { income: num(lm.income, 0), expenses: num(lm.expenses, 0), net: num(lm.net, 0) } : null,
+    negativeMonths: Math.max(0, data.negativeMonths | 0), bankrupt: false,
+    milestones: Array.isArray(data.milestones) ? data.milestones.filter(Number.isFinite) : [],
     events: [], rng: Math.random,
-    utilityGrace: data.utilityGrace | 0,
-    loans: Array.isArray(data.loans) ? data.loans.map((l) => ({ monthsLeft: l.monthsLeft | 0, payment: Number(l.payment) || 0 })) : [],
+    utilityGrace: Math.max(0, data.utilityGrace | 0),
+    loans: Array.isArray(data.loans) ? data.loans.filter((l) => l && typeof l === 'object').slice(0, E.maxLoans)
+      .map((l) => ({ monthsLeft: clamp(l.monthsLeft | 0, 1, E.loanMonths), payment: Math.max(0, num(l.payment, E.loanPayment)) })) : [],
     traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
     utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
     happiness: 0,
@@ -82,6 +94,26 @@ export function deserialize(data) {
   }
   refreshFields(state);
   return state;
+}
+
+const MIN_DIM = 8, MAX_DIM = 512;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const num = (v, def) => (v != null && Number.isFinite(Number(v)) ? Number(v) : def);
+
+// Hand-edited or damaged saves must not put unknown values in the map: the renderers
+// and simulation index lookup tables by these.
+function sanitizeLayers(map) {
+  const maxType = Math.max(...Object.values(TILE)), flagMask = 31;
+  for (let i = 0; i < map.size; i++) {
+    if (map.terrain[i] > 1) map.terrain[i] = 0;
+    if (map.type[i] > maxType) map.type[i] = TILE.EMPTY;
+    if (map.level[i] > 3) map.level[i] = 3;
+    map.flags[i] &= flagMask;
+    if (map.type[i] === TILE.ROAD) { if (map.roadClass[i] > 2) map.roadClass[i] = 2; } else map.roadClass[i] = 0;
+    if (map.type[i] === TILE.SERVICE) {
+      if (!map.kind[i] || map.kind[i] >= KINDS.length) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; map.level[i] = 0; }
+    } else map.kind[i] = 0;
+  }
 }
 
 // v1 had no avenues. New maps start with the regional highway as an avenue,

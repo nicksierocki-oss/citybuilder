@@ -74,6 +74,8 @@ export class Input {
       }, { passive: false });
     }
     window.addEventListener('pointerup', (e) => this.onUp(e));
+    // A cancelled pointer (touch interrupted, capture lost) must not leave a drag or pan stuck.
+    window.addEventListener('pointercancel', () => { this.drag = null; this.pan = null; this.game.preview = null; });
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
@@ -95,6 +97,8 @@ export class Input {
     }
     if (e.button !== 0) return;
     const t = this.renderer.screenToTile(p.x, p.y);
+    // Clicking beside the map must not build on the nearest edge tile.
+    if (!this.game.state.map.inBounds(t.x, t.y)) return;
     this.drag = { start: t, end: t };
     this.updatePreview();
   }
