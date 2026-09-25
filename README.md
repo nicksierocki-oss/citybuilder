@@ -177,6 +177,7 @@ players and prints population, funds and RCI over six years:
 
 ```sh
 node tools/playtest.js          # add DIAG=1 for traffic stats and why homes aren't growing
+node tools/analyze.js save.json  # report on one of your saved cities (City → Save to file)
 ```
 
 Current results (seed 12345):

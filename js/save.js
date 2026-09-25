@@ -67,6 +67,8 @@ export function deserialize(data) {
     traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
     utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
     happiness: 0,
+    crime: 0,
+    fires: 0,
   };
   // Cities from before utilities existed get time to build power and water.
   if ((data.version | 0) < 3) {
