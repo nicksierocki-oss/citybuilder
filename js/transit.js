@@ -71,7 +71,7 @@ function accessRoads(map, i) {
 
 // Quickest road path from stop a to stop b over the given per-tile times (Dijkstra).
 // Returns { path: [road tiles], time } or null if they aren't connected.
-function roadPath(map, a, b, time) {
+function roadPath(map, a, b, time, tram = false) {
   const starts = accessRoads(map, a), goals = new Set(accessRoads(map, b));
   if (!starts.length || !goals.size) return null;
   const dist = new Map(), prev = new Map(), heap = new MinHeap();
@@ -89,7 +89,7 @@ function roadPath(map, a, b, time) {
       if (!map.inBounds(x + dx, y + dy)) continue;
       const v = map.idx(x + dx, y + dy);
       if (map.type[v] !== TILE.ROAD || map.roadClass[v] === 2) continue; // buses stay off highways
-      const nd = dist.get(u) + time[v];
+      const nd = dist.get(u) + time[v] * (tram && !map.hasFlag(v, FLAG.TRAM) ? 3 : 1); // trams keep to their track
       if (!dist.has(v) || nd < dist.get(v)) { dist.set(v, nd); prev.set(v, u); heap.push(v, nd); }
     }
   }
@@ -107,7 +107,7 @@ export function buildRoutes(state, time) {
     const path = [], at = [0];
     let t = 0, ok = line.stops.length >= 2;
     for (let k = 1; k < line.stops.length && ok; k++) {
-      const seg = roadPath(map, line.stops[k - 1], line.stops[k], time);
+      const seg = roadPath(map, line.stops[k - 1], line.stops[k], time, line.mode === 'tram');
       if (!seg) { ok = false; break; }
       path.push(...(path.length && path[path.length - 1] === seg.path[0] ? seg.path.slice(1) : seg.path));
       t += seg.time * M.timeFactor + M.dwell;
@@ -185,6 +185,20 @@ export function migrateStops(state) {
 
 // ---------------------------------------------------------------- railways
 
+// The map side ('N', 'E', 'S', 'W') that track at edge tile i runs off, or null. Track has to
+// meet the edge head on: a line running along the border isn't a way out.
+export function railExitSide(map, i) {
+  if (!map.rail[i]) return null;
+  const w = map.width, h = map.height, x = i % w, y = (i / w) | 0;
+  const r = (dx, dy) => map.inBounds(x + dx, y + dy) && map.rail[map.idx(x + dx, y + dy)];
+  const lone = !r(1, 0) && !r(-1, 0) && !r(0, 1) && !r(0, -1);
+  if (x === 0 && (r(1, 0) || lone)) return 'W';
+  if (x === w - 1 && (r(-1, 0) || lone)) return 'E';
+  if (y === 0 && (r(0, 1) || lone)) return 'N';
+  if (y === h - 1 && (r(0, -1) || lone)) return 'S';
+  return null;
+}
+
 // The rail network, rebuilt when the map changes: connected track (components), the stations
 // on each, travel minutes between stations and to the map edge, and paths for the trains.
 export function railNetwork(state) {
@@ -199,7 +213,7 @@ export function railNetwork(state) {
     comp[i] = c;
     for (let hd = 0; hd < q.length; hd++) {
       const u = q[hd], x = u % w, y = (u / w) | 0;
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) edges.push(u);
+      if (railExitSide(map, u)) edges.push(u);
       for (const v of nb(u)) if (map.rail[v] && comp[v] < 0) { comp[v] = c; q.push(v); }
     }
     comps.push({ tiles: q.length, edges, stations: [] });

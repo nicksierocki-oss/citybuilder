@@ -3,7 +3,7 @@
 
 import { CONFIG } from './config.js';
 import { TILE, makeRng } from './map.js';
-import { railNetwork } from './transit.js';
+import { railNetwork, railExitSide } from './transit.js';
 
 const SIDES = ['N', 'E', 'S', 'W'];
 const SIDE_NAMES = { N: 'north', E: 'east', S: 'south', W: 'west' };
@@ -16,7 +16,8 @@ export function regionInfo(state) {
   const R = CONFIG.region, sides = Object.fromEntries(SIDES.map((s) => [s, { weight: 0, exits: 0 }]));
   const rail = railNetwork(state);
   const add = (i, side) => {
-    if (map.rail[i] && rail.comps[rail.comp[i]]?.stations.length) { sides[side].weight += CONFIG.rail.linkWeight; sides[side].rails = (sides[side].rails ?? 0) + 1; }
+    const rs = railExitSide(map, i);
+    if (rs && rail.comps[rail.comp[i]]?.stations.length) { sides[rs].weight += CONFIG.rail.linkWeight; sides[rs].rails = (sides[rs].rails ?? 0) + 1; }
     if (map.type[i] !== TILE.ROAD) return;
     sides[side].weight += R.exitWeight[map.roadClass[i]];
     sides[side].exits++;

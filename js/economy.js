@@ -121,10 +121,10 @@ export function toolCost(state, tool, i, arg = 0) {
     case 'road': case 'avenue': case 'highway': case 'upgrade': {
       const cls = targetRoadClass(map, tool, i);
       if (cls == null) return null;
+      if (map.rail[i] && (water || cls === 2)) return null; // a street or avenue can cross the tracks, a highway can't
       if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
       if (t === TILE.PARK || t === TILE.SERVICE) return null;
-      if (t === TILE.RAIL && (water || cls === 2)) return null; // a street or avenue can cross the tracks
       return roadCost(cls, water) + (water ? 0 : trees);
     }
     case 'residential': case 'commercial': case 'industrial': case 'office': case 'farm': case 'mixed': case 'park': {

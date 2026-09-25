@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, JUNCTION, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
-import { buildRoutes, lineCapacity, railNetwork } from './transit.js';
+import { buildRoutes, lineCapacity, railNetwork, railExits } from './transit.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -196,7 +196,7 @@ export function trafficSystem(state) {
     return { ...st, jobs, left: B.railstation.capacity * funding(state, 'railstation') };
   });
   const trainAt = new Map(trains.map((t) => [t.i, t]));
-  let regionalJobs = RL.regionalJobs * rail.comps.reduce((a, c) => a + (c.stations.length ? c.edges.length : 0), 0);
+  let regionalJobs = RL.regionalJobs * railExits(state);
   const trainsNear = (home) => {
     const x = home % w, y = (home / w) | 0;
     return trains.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B.railstation.radius && s.left > 0);
@@ -236,8 +236,10 @@ export function trafficSystem(state) {
     // Some workers near a stop ride transit to jobs near another stop on the same mode
     // (buses and metro form separate networks). Riders never touch the roads.
     // Lines first: board at a nearby stop, ride to a stop near jobs.
+    const onLine = new Map(); // riders from this home per line: a line's share counts once, however many stops are near
     for (const [L, k] of lines.length ? linesNear(home) : []) {
-      let want = Math.min(left, workers * Math.min(0.95, L.M.share * shareMult), L.left);
+      const before = left;
+      let want = Math.min(left, workers * Math.min(0.95, L.M.share * shareMult) - (onLine.get(L) ?? 0), L.left);
       if (want <= 0) continue;
       const wait = L.M.wait / L.line.freq, dests = L.line.stops.map((si, d) => [d, Math.abs(L.route.at[d] - L.route.at[k])])
         .filter(([d]) => d !== k).sort((a, b) => a[1] - b[1]);
@@ -255,10 +257,13 @@ export function trafficSystem(state) {
           transitRiders += take;
         }
       }
+      onLine.set(L, (onLine.get(L) ?? 0) + before - left);
     }
     // Trains: to jobs near other stations on the network, or out to the region.
+    let byTrain = 0;
     for (const from of trains.length ? trainsNear(home) : []) {
-      let want = Math.min(left, workers * Math.min(0.95, RL.share * shareMult), from.left);
+      const before = left;
+      let want = Math.min(left, workers * Math.min(0.95, RL.share * shareMult) - byTrain, from.left);
       if (want <= 0) continue;
       const dests = [...from.minutesTo].filter(([i]) => i !== from.i).sort((a, b) => a[1] - b[1]);
       for (const [di, t] of dests) {
@@ -280,6 +285,7 @@ export function trafficSystem(state) {
         regionalJobs -= take; want -= take; left -= take; from.left -= take;
         map.riders[from.i] += take; minutes += take * out; transitRiders += take;
       }
+      byTrain += before - left;
     }
     if (metro.length) {
       for (const from of nearStations(home).sort((a, b) => B[b.k].share - B[a.k].share)) {

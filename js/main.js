@@ -41,6 +41,7 @@ const game = {
 
   setTool(name, arg = this.toolArg) {
     this.tool = name;
+    if (name !== 'bus' && this.activeLine) { this.activeLine = null; this.ui.lines?.render(); }
     this.toolArg = arg;
     this.preview = null;
     this.ui.setActiveTool(name);
@@ -146,6 +147,10 @@ const game = {
       const a = s.map.idx(x, y), b = map.idx(x + dx, y + dy);
       map.traffic[b] = s.map.traffic[a];
     }
+    // Line stops are tile indices: move them with the old land.
+    const W0 = s.map.width;
+    for (const n of s.news ?? []) if (n.tx != null) { n.tx += dx; n.ty += dy; }
+    for (const line of s.lines ?? []) line.stops = line.stops.map((i) => map.idx((i % W0) + dx, ((i / W0) | 0) + dy));
     s.map = map;
     refreshFields(s);
     this.lastUndo = null;
