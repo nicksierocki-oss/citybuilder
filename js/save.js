@@ -10,7 +10,7 @@ import { migrateStops, lineColor } from './transit.js';
 const VERSION = 5;
 const LAYERS = PERSISTENT_LAYERS;
 // Layers added after v1; older saves simply don't have them (defaults to zeros).
-const OPTIONAL_LAYERS = new Set(['roadClass', 'kind', 'part', 'district', 'education', 'rail', 'roadMod']);
+const OPTIONAL_LAYERS = new Set(['roadClass', 'kind', 'part', 'district', 'education', 'rail', 'roadMod', 'elev']);
 
 // Uint8 layer -> base64 string (compact and JSON-safe)
 function encode(arr) {

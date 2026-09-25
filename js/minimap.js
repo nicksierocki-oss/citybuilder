@@ -59,6 +59,7 @@ export class Minimap {
       else if (map.terrain[i] === TERRAIN.WATER) c = COL.water;
       else c = map.hasFlag(i, FLAG.TREES) ? COL.trees : COL.grass;
       const dim = isZone(t) && map.level[i] === 0 ? 0.55 : 1; // vacant lots paler
+      if (map.elev[i] && t === TILE.EMPTY && map.terrain[i] !== TERRAIN.WATER) { const k = 1 - Math.min(0.35, map.elev[i] * 0.06); c = [c[0] * k + 250 * (1 - k), c[1] * k + 244 * (1 - k), c[2] * k + 215 * (1 - k)]; }
       d[i * 4] = 255 - (255 - c[0]) * dim; d[i * 4 + 1] = 255 - (255 - c[1]) * dim; d[i * 4 + 2] = 255 - (255 - c[2]) * dim; d[i * 4 + 3] = 255;
     }
     g.putImageData(img, 0, 0);

@@ -26,7 +26,8 @@ const GROUPS = [
   ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange', 'oneway', 'roundabout', 'parking']],
   ['Zones', ['residential', 'commercial', 'industrial', 'office', 'farm', 'mixed']],
   ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
-  ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
+  ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park']],
+  ['Land', ['raise', 'lower', 'trees']],
   ['Transit', ['bus', 'metro', 'rail', 'railstation']],
   ['Safety', ['police', 'fire']],
   ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'hospital', 'statue']],
@@ -37,7 +38,7 @@ const TOOL_COLOR = {
   road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
   residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a', office: '#5abec8', farm: '#b9c46a', mixed: '#cd9678',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
-  police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', oneway: '#7fa6c9', roundabout: '#8fbf8a', parking: '#8a9bb8', bus: '#e3a35a', metro: '#b38fd6',
+  police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', raise: '#b39a74', lower: '#8fa3b8', oneway: '#7fa6c9', roundabout: '#8fbf8a', parking: '#8a9bb8', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
   townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e', rail: '#9a8f82', railstation: '#c98f6a',
@@ -63,6 +64,8 @@ const TOOL_HELP = {
   recycling: 'Halves pollution around it.',
   park: 'Raises land value, absorbs pollution.',
   trees: 'Plant trees on open land: cheap clean air.',
+  raise: 'Raise open land one level (costs more the higher it goes). On water it fills in new land.',
+  lower: 'Lower open land one level. The lowest land is dug out into water.',
   police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
   lights: 'Add to busy intersections: a small fixed wait, but far less congestion.',
   oneway: 'Drag along a street in the direction traffic should flow: one-way streets carry 60% more, but cars can only drive one way. Click to flip; drag the same way again to make it two-way.',
@@ -106,6 +109,8 @@ const ICONS = {
   plaza: I('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/>'),
   recycling: I('<path d="M7 10 9.5 5.5a2 2 0 0 1 3.4 0L15 9"/><path d="M17 13l2 3.5a2 2 0 0 1-1.7 3H13"/><path d="M9 19.5H6.7a2 2 0 0 1-1.7-3L6.5 14"/>'),
   park: I('<circle cx="12" cy="9" r="5"/><path d="M12 14v7"/>'),
+  raise: I('<path d="M3 20h18"/><path d="m5 20 5-7 3 4 2-3 4 6"/><path d="M12 3v6M9 6l3-3 3 3"/>'),
+  lower: I('<path d="M3 20h18"/><path d="m5 20 5-7 3 4 2-3 4 6"/><path d="M12 3v6M9 6l3 3 3-3"/>'),
   trees: I('<circle cx="8" cy="10" r="4"/><circle cx="16" cy="8" r="3.5"/><path d="M8 14v6M16 11.5V20"/>'),
   inspect: I('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>'),
   oneway: I('<path d="M3 12h15"/><path d="m13 7 5 5-5 5"/>'),
@@ -173,7 +178,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', oneway: 'One-way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', raise: 'Raise', lower: 'Lower', oneway: 'One-way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -666,6 +671,8 @@ export class UI {
     if (type === TILE.EMPTY) title = water ? 'Water' : map.hasFlag(i, FLAG.TREES) ? 'Woodland' : 'Open land';
     if (type === TILE.RAIL) title = water ? 'Rail bridge' : 'Railway';
     const rows = [], notes = [];
+    const slope = map.slope(i);
+    if (!water && (map.elev[i] || slope)) rows.push(['Ground', `height ${map.elev[i]}${slope ? ` · slope ${slope}` : ''}`]);
     const supply = (v) => `<span class="pill ${['none', 'short', 'ok'][v]}">${['none', 'shortage', 'yes'][v]}</span>`;
     if (isZone(type)) {
       const cap = jobCap(map, i);
@@ -869,12 +876,18 @@ export class UI {
     m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first.'
       + '<b class="dlg-h">Free play</b>'
       + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`
+      + `<span class="sizes landforms">${Object.entries(CONFIG.map.landforms).map(([k, name]) => `<button data-landform="${k}" class="${k === (this.game.landform ?? 'plains') ? 'sel' : ''}">${name}<small>${{ plains: 'flat', hills: 'hilltop views', coast: 'sea to the south' }[k]}</small></button>`).join('')}</span>`
       + '<b class="dlg-h">Scenarios</b>'
       + `<span class="scenarios">${SCENARIO_ORDER.map((k) => { const S = SCENARIOS[k], won = this.cityhall.earned.has(`scenario:${k}`);
         return `<button data-scenario="${k}"><b>${S.name}${won ? ' 🏆' : ''}</b><small>${S.blurb} ${S.years} years.</small></button>`; }).join('')}</span>`;
-    let pick = { size: CONFIG.map.defaultSize };
+    let pick = { size: CONFIG.map.defaultSize }, landform = this.game.landform ?? 'plains';
     const sel = (b) => { for (const o of m.querySelectorAll('[data-size],[data-scenario]')) o.classList.toggle('sel', o === b); };
     for (const b of m.querySelectorAll('[data-size]')) b.onclick = () => { pick = { size: Number(b.dataset.size) }; sel(b); };
+    for (const b of m.querySelectorAll('[data-landform]')) b.onclick = () => {
+      landform = b.dataset.landform;
+      for (const o of m.querySelectorAll('[data-landform]')) o.classList.toggle('sel', o === b);
+      if (pick.scenario) { pick = { size: CONFIG.map.defaultSize }; sel(m.querySelector(`[data-size="${pick.size}"]`)); }
+    };
     for (const b of m.querySelectorAll('[data-scenario]')) b.onclick = () => { pick = { scenario: b.dataset.scenario }; sel(b); };
     const ok = $('modalOk'), cancel = $('modalCancel');
     ok.textContent = 'Start';
@@ -882,7 +895,7 @@ export class UI {
     cancel.hidden = false;
     m.hidden = false;
     const close = () => { m.hidden = true; ok.onclick = cancel.onclick = null; };
-    ok.onclick = () => { close(); if (pick.scenario) onScenario(pick.scenario); else onPick(pick.size); };
+    ok.onclick = () => { close(); if (pick.scenario) onScenario(pick.scenario); else { this.game.landform = landform; onPick(pick.size); } };
     cancel.onclick = close;
   }
 

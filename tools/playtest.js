@@ -237,7 +237,7 @@ function garbageCare(state) {
 }
 
 function run(name, strategy, months = 72, seed = 12345) {
-  const state = createGame(seed, SIZE);
+  const state = createGame(seed, SIZE, process.env.LAND ?? 'plains');
   state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
   const step = strategy(state);
   refreshFields(state);

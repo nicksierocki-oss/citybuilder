@@ -17,6 +17,8 @@ export const TOOLS = {
   lights:      { label: 'Traffic lights', shape: 'rect' },
   interchange: { label: 'Interchange', shape: 'single' },
   oneway:      { label: 'One-way street', shape: 'line' },
+  raise:       { label: 'Raise land',  shape: 'rect' },
+  lower:       { label: 'Lower land',  shape: 'rect' },
   roundabout:  { label: 'Roundabout',  shape: 'single' },
   residential: { label: 'Residential', key: '2', shape: 'rect', tile: TILE.RES },
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
@@ -99,6 +101,7 @@ export function toolCost(state, tool, i, arg = 0) {
     if (def.building === 'railstation' && !besideRail(map, i)) return null;
     if (t === TILE.RAIL || water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
     if (isZone(t) && map.level[i] > 0) return null;
+    if (map.slope(i) > CONFIG.terrain.buildingMaxSlope) return null; // too steep: flatten first
     return def.footprint ? trees : CONFIG.buildings[def.building].cost + trees;
   }
   switch (tool) {
@@ -107,7 +110,9 @@ export function toolCost(state, tool, i, arg = 0) {
       if (map.rail[i]) return null;
       if (t === TILE.ROAD) return map.roadClass[i] === 2 || water ? null : R.crossingCost; // highways need a bridge: not yet
       if (t !== TILE.EMPTY && !(isZone(t) && map.level[i] === 0)) return null;
-      return water ? R.bridgeCost : R.cost + trees;
+      const slope = map.slope(i);
+      if (slope > CONFIG.terrain.maxRoadSlope) return null;
+      return water ? R.bridgeCost : Math.round(R.cost * (1 + CONFIG.terrain.roadSlopeCost * slope)) + trees;
     }
     case 'district':
       if (water && t !== TILE.ROAD) return null;
@@ -117,6 +122,15 @@ export function toolCost(state, tool, i, arg = 0) {
       if ((j !== JUNCTION.INTERSECTION && j !== JUNCTION.HIGHWAY) || map.hasFlag(i, FLAG.LIGHTS) || map.hasFlag(i, FLAG.INTERCHANGE)) return null;
       if (map.roadMod[i] & ROADMOD.ROUNDABOUT) return null;
       return C.lights;
+    }
+    case 'raise': case 'lower': {
+      // Terraforming works on open land (or vacant lots); raising water fills it, lowering the
+      // lowest land digs it out to water.
+      const T = CONFIG.terrain, h = map.elev[i];
+      if (t !== TILE.EMPTY && !(isZone(t) && map.level[i] === 0)) return null;
+      if (tool === 'raise') return water ? (t === TILE.EMPTY ? T.fillCost : null) : h < T.maxHeight ? T.raiseCost * (h + 1) : null;
+      if (water) return null;
+      return h > 0 ? T.lowerCost * h : t === TILE.EMPTY ? T.digCost : null;
     }
     case 'roundabout':
       if (map.junctionKind(i) !== JUNCTION.INTERSECTION || map.roadMod[i] & ROADMOD.ROUNDABOUT || water || map.rail[i]) return null;
@@ -138,7 +152,9 @@ export function toolCost(state, tool, i, arg = 0) {
       if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
       if (t === TILE.PARK || t === TILE.SERVICE) return null;
-      return roadCost(cls, water) + (water ? 0 : trees);
+      const slope = map.slope(i);
+      if (slope > CONFIG.terrain.maxRoadSlope) return null; // too steep for a road
+      return Math.round(roadCost(cls, water) * (1 + CONFIG.terrain.roadSlopeCost * slope)) + (water ? 0 : trees);
     }
     case 'residential': case 'commercial': case 'industrial': case 'office': case 'farm': case 'mixed': case 'park': {
       const want = TOOLS[tool].tile;
@@ -229,6 +245,12 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
   } else if (tool === 'oneway') {
     map.roadMod[i] = (map.roadMod[i] & ~ROADMOD.DIR) | arg;
     map.roadsDirty = true;
+  } else if (tool === 'raise' || tool === 'lower') {
+    if (tool === 'raise') { if (map.terrain[i] === TERRAIN.WATER) map.terrain[i] = TERRAIN.GRASS; else map.elev[i]++; }
+    else if (map.elev[i] > 0) map.elev[i]--;
+    else { map.terrain[i] = TERRAIN.WATER; map.type[i] = TILE.EMPTY; map.level[i] = 0; map.setFlag(i, FLAG.TREES, false); }
+    map.heightVersion++;
+    map.waterDirty = true;
   } else if (tool === 'roundabout') {
     map.roadMod[i] |= ROADMOD.ROUNDABOUT;
     map.setFlag(i, FLAG.LIGHTS, false); // the roundabout replaces the lights
@@ -315,6 +337,7 @@ export function applyTool(state, tool, tiles, arg = 0) {
     applied++;
   }
   if (broke) push(state, 'Not enough funds', 'bad');
+  if (map.waterDirty) { map.computeWaterDistance(); map.waterDirty = false; }
   undo.spent = spent;
   return { applied, spent, undo: applied ? undo : null };
 }
@@ -331,6 +354,8 @@ export function undoAction(state, undo) {
   }
   state.funds += undo.spent;
   map.roadsDirty = true;
+  map.heightVersion++;
+  map.computeWaterDistance();
   map.version++;
   return true;
 }

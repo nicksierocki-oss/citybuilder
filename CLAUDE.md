@@ -15,7 +15,7 @@ move it to **Done** with a one-line note.
 
 We're in app-development mode (gameplay first, not distribution).
 
-**Phases A, B and C are done** (see Done; weather and disasters were skipped). Next up: Phase D.
+**Phases A–C and most of D are done** (see Done; weather and disasters were skipped). Left: diagonal roads.
 
 Deferred: **Weather and disasters.** Floods (levee tool), heatwaves, winter storms, rare
 tornadoes; rain and snow particles; Disasters off / mild / full.
@@ -23,9 +23,14 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
 **Phase D: engine-level (own branch each, extra save-compatibility testing)**
 9. **Road tools 2.0.** One-way streets, roundabouts and parking are done; still to do: diagonal
    roads (needs diagonal adjacency in pathfinding, rendering and zoning).
-10. **Terrain.** Height layer, hills and coastline maps, slope costs, terraforming.
 
 ## Done (recent)
+
+- Phase D item 10, terrain: persistent `map.elev` layer (NOT `height`, which is the map's row count),
+  `map.slope(i)`, landforms plains/hills/coast (`generateMap(seed, size, landform)`, plains unchanged),
+  slope costs/limits in `toolCost`, density cap by slope, road time by slope, view land value,
+  Raise/Lower land tools, 3D ground mesh with per-corner heights and `LIFT` in `Batch.add`.
+  `LAND=hills node tools/playtest.js` runs the scripts on other landforms.
 
 - Phase D item 9 (part): `map.roadMod` layer (one-way direction in the low bits, `ROADMOD.ROUNDABOUT`),
   `canDrive(map, a, b)` used by every road search (reverse searches check `canDrive(map, v, u)`),

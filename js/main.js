@@ -132,7 +132,7 @@ const game = {
   },
   newCity(size = CONFIG.map.defaultSize) {
     clearAutosave();
-    this.setState(createGame(undefined, size));
+    this.setState(createGame(undefined, size, this.landform ?? 'plains'));
     this.setSpeed(1);
     this.ui.toast('Welcome! Extend the regional road with streets, then zone next to them.', 'good', 6000);
   },

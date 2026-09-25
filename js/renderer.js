@@ -294,6 +294,7 @@ export class Renderer {
         ctx.fillStyle = ['#f3c6d6', '#f7e3a1', '#ffffff'][v % 3];
         for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(px + 6 + ((v >> k) & 15) * 1.3, py + 7 + ((v >> (k + 2)) & 15) * 1.2, 1.3, 0, Math.PI * 2); ctx.fill(); }
       }
+      if (map.elev[i] || map.slope(i)) this.drawRelief(map, x, y, i);
     }
     if (t === TILE.ROAD) this.drawRoad(map, x, y, map.terrain[i] === TERRAIN.WATER);
     if (map.rail[i]) this.drawRail(map, x, y, t === TILE.ROAD, map.terrain[i] === TERRAIN.WATER);
@@ -457,6 +458,24 @@ export class Renderer {
         if (vert && (cn || k > c) && (cs || k < c)) dash(px + c - 1, py + k, 2, 5);
       });
     }
+  }
+
+  // Hills: higher ground is lighter, and where land steps down to a neighbour there's a lit
+  // edge (north/west, facing the sun) or a shaded bank (south/east).
+  drawRelief(map, x, y, i) {
+    const ctx = this.ctx, px = x * TS, py = y * TS, h = map.elev[i];
+    if (h) { ctx.fillStyle = `rgba(255,250,228,${Math.min(0.42, h * 0.075)})`; ctx.fillRect(px, py, TS + 0.5, TS + 0.5); }
+    const drop = (dx, dy) => {
+      if (!map.inBounds(x + dx, y + dy)) return 0;
+      return Math.max(0, h - map.elev[map.idx(x + dx, y + dy)]);
+    };
+    const s = drop(0, 1), e = drop(1, 0), n = drop(0, -1), w = drop(-1, 0);
+    ctx.fillStyle = 'rgba(60,80,45,0.3)';
+    if (s) ctx.fillRect(px, py + TS - 3 - s, TS + 0.5, 3 + s);
+    if (e) ctx.fillRect(px + TS - 3 - e, py, 3 + e, TS + 0.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    if (n) ctx.fillRect(px, py, TS + 0.5, 2 + n * 0.5);
+    if (w) ctx.fillRect(px, py, 2 + w * 0.5, TS + 0.5);
   }
 
   // Railway track: ballast, sleepers and two rails along each connected direction.

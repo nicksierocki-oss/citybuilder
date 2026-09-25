@@ -5,6 +5,7 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
 import { Renderer, TS, forEachCar } from './renderer.js';
+import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { drawDistricts } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
@@ -75,6 +76,10 @@ function color(hex) {
 }
 
 // One InstancedMesh per geometry; filled from scratch whenever the city changes.
+// Ground height under a point (x, z) on hilly maps, set by Renderer3D.updateTerrain; every batched
+// object is lifted by it so buildings, cars and trees sit on the hills. null on flat maps.
+let LIFT = null;
+
 class Batch {
   constructor(scene, geometry, capacity, { shadows = true, basic = false } = {}) {
     const mat = basic ? new THREE.MeshBasicMaterial() : new THREE.MeshLambertMaterial();
@@ -97,6 +102,7 @@ class Batch {
   // Add an instance from an explicit position/rotation/scale (for non-axis rotations).
   addTRS(p, q, s, hex) {
     if (this.n >= this.capacity) return;
+    if (LIFT) p.y += LIFT(p.x, p.z);
     this.m.compose(p, q, s);
     this.mesh.setMatrixAt(this.n, this.m);
     this.mesh.setColorAt(this.n, color(hex));
@@ -104,6 +110,7 @@ class Batch {
   }
   add(x, y, z, sx, sy, sz, hex, rotY = 0) {
     if (this.n >= this.capacity) return;
+    if (LIFT) y += LIFT(x, z);
     this.q.setFromAxisAngle(this.up, rotY);
     this.m.compose(this.p.set(x, y, z), this.q, this.s.set(sx, sy, sz));
     this.mesh.setMatrixAt(this.n, this.m);
@@ -298,6 +305,7 @@ export class Renderer3D {
     const ndc = new THREE.Vector2((sx / this.viewW) * 2 - 1, -(sy / this.viewH) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = new THREE.Vector3();
+    if (LIFT) { const h = this.raycaster.intersectObject(this.ground)[0]; return h ? h.point : null; }
     return this.raycaster.ray.intersectPlane(this.groundPlane, hit) ? hit : null;
   }
 
@@ -308,11 +316,39 @@ export class Renderer3D {
 
   tileToScreen(x, y) {
     this.updateCamera();
-    const v = new THREE.Vector3(x + 1, 0, y + 1).project(this.camera);
+    const v = new THREE.Vector3(x + 1, LIFT ? LIFT(x + 1, y + 1) : 0, y + 1).project(this.camera);
     return { x: (v.x + 1) / 2 * this.viewW, y: (1 - v.y) / 2 * this.viewH };
   }
 
   // ------------------------------------------------------------ scene building
+  // Hills: the ground mesh gets a vertex per tile corner at the average height of the tiles
+  // around it, and LIFT interpolates those corners for everything placed on top.
+  updateTerrain(map) {
+    if (this.terrainMap === map && this.terrainVer === map.heightVersion) return;
+    this.terrainMap = map; this.terrainVer = map.heightVersion;
+    const w = map.width, h = map.height, S = CONFIG.terrain.step3d;
+    const hilly = map.elev.some((v) => v > 0);
+    this.ground.geometry.dispose();
+    const geo = new THREE.PlaneGeometry(w, h, hilly ? w : 1, hilly ? h : 1).rotateX(-Math.PI / 2).translate(w / 2, 0, h / 2);
+    this.ground.geometry = geo;
+    if (!hilly) { LIFT = null; return; }
+    const W = w + 1, corners = new Float32Array(W * (h + 1));
+    for (let cy = 0; cy <= h; cy++) for (let cx = 0; cx <= w; cx++) {
+      let sum = 0, n = 0;
+      for (const [tx, ty] of [[cx - 1, cy - 1], [cx, cy - 1], [cx - 1, cy], [cx, cy]]) if (tx >= 0 && ty >= 0 && tx < w && ty < h) { sum += map.elev[ty * w + tx]; n++; }
+      corners[cy * W + cx] = (sum / n) * S;
+    }
+    const pos = geo.attributes.position;
+    for (let k = 0; k < pos.count; k++) pos.setY(k, corners[Math.round(pos.getZ(k)) * W + Math.round(pos.getX(k))]);
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    LIFT = (x, z) => {
+      const fx = Math.max(0, Math.min(w - 1e-6, x)), fz = Math.max(0, Math.min(h - 1e-6, z));
+      const x0 = Math.floor(fx), z0 = Math.floor(fz), tx = fx - x0, tz = fz - z0, c = (a, b) => corners[(z0 + b) * W + x0 + a];
+      return (c(0, 0) * (1 - tx) + c(1, 0) * tx) * (1 - tz) + (c(0, 1) * (1 - tx) + c(1, 1) * tx) * tz;
+    };
+  }
+
   fitMap(map) {
     const w = map.width, h = map.height;
     if (w * h > this.batchTiles) this.makeBatches(w * h);
@@ -330,6 +366,7 @@ export class Renderer3D {
     this.groundTex.image = this.groundCanvas;
     this.ground.geometry.dispose();
     this.ground.geometry = new THREE.PlaneGeometry(w, h).rotateX(-Math.PI / 2).translate(w / 2, 0, h / 2);
+    this.terrainMap = null; // rebuilt with heights by updateTerrain
     this.slab.scale.set(w + 0.6, 1.2, h + 0.6);
     this.slab.position.set(w / 2, -1.28, h / 2); // top 8cm below the ground: no z-fighting
     const s = this.sun;
@@ -922,6 +959,7 @@ export class Renderer3D {
       this.fitMap(map);
       c.map = map; c.version = -1; c.tick = -1; c.overlay = undefined;
     }
+    this.updateTerrain(map);
     const edited = c.version !== map.version;
     const ticked = c.tick !== state.tick;
     const groundEvery = GROUND_THROTTLE_MS * (map.size > 5000 ? 2.5 : 1);
@@ -958,7 +996,7 @@ export class Renderer3D {
 
     if (hover && map.inBounds(hover.x, hover.y)) {
       this.hoverMesh.visible = true;
-      this.hoverMesh.position.set(hover.x, 0.03, hover.y);
+      this.hoverMesh.position.set(hover.x, 0.03 + (LIFT ? LIFT(hover.x + 0.5, hover.y + 0.5) : 0), hover.y);
     } else this.hoverMesh.visible = false;
 
     this.preview.begin();

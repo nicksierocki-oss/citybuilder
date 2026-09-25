@@ -56,7 +56,8 @@ export function roadCapacity(map, i) {
 export function roadTime(map, i) {
   const T = CONFIG.traffic, c = map.roadClass[i];
   const load = map.traffic[i] / roadCapacity(map, i);
-  return T.minutesPerTile[c] * Math.min(T.maxCongestion, 1 + T.congestionK * load * load) + junctionDelay(map, i, load);
+  const slope = map.slope(i); // hills slow traffic a little
+  return T.minutesPerTile[c] * (1 + CONFIG.terrain.slopeTime * slope) * Math.min(T.maxCongestion, 1 + T.congestionK * load * load) + junctionDelay(map, i, load);
 }
 
 // Extra minutes spent crossing a junction tile (0 on plain road).

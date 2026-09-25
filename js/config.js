@@ -11,6 +11,25 @@ export const CONFIG = {
     // Pre-built regional highway entering from the west edge, as a share of map size
     highwayRowShare: 0.45,
     highwayLengthShare: 0.27,
+    landforms: { plains: 'Plains', hills: 'Hills', coast: 'Coast' }, // new-map terrain styles
+  },
+
+  // Terrain height (0 = the flat base level; plains maps are all 0). Slope = biggest height
+  // step to a neighbouring land tile.
+  terrain: {
+    maxHeight: 6,
+    roadSlopeCost: 0.6,      // road/rail cost × (1 + this × slope)
+    maxRoadSlope: 2,         // steeper than this: no new roads or track
+    buildingMaxSlope: 1,     // public buildings and landmarks need flattish ground
+    zoneMaxLevel: [3, 2, 1], // tallest growth by slope 0 / 1 / 2+
+    slopeTime: 0.25,         // road travel time × (1 + this × slope)
+    viewValue: 1.5,          // land value per height level (views)
+    viewValueMax: 8,
+    raiseCost: 30,           // per tile per level
+    lowerCost: 30,
+    fillCost: 150,           // water to land
+    digCost: 80,             // lowest land to water
+    step3d: 0.4,             // 3D units per height level
   },
 
   time: {

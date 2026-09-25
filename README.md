@@ -48,6 +48,11 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **Plaza** (radius 4) adds happiness, land value and busier shops.
    - **Recycling center** halves pollution around it.
    - **Park** and **Plant trees** clean the air.
+   - **Terrain** (Hills and Coast maps): higher ground has better views (land value), but
+     slopes make roads and track dearer and a little slower, keep hillside buildings low
+     (one level of slope: up to medium density; steeper: low), and public buildings need
+     flattish ground. **Raise land** / **Lower land** reshape open land; raising water fills
+     it in, lowering the lowest land digs a pond or canal.
 
    Happiness (0–100) comes from those services, land value, pollution, commute and utilities.
    Happy neighbourhoods grow faster, and unhappy ones decline.
@@ -185,7 +190,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
 | Mini-map | Top-right. Click or drag to move the camera; hide it from the **City** menu |
 | Pan | `WASD` / arrow keys, **`Shift` + drag** (any button) or **`Shift` + scroll**, middle-drag, right-drag (2D), or left-drag with the Inspect tool |
 | 2D / 3D | `V` or the **3D** button. The game remembers your choice. In 3D, right-drag orbits and `Q`/`E` rotate |
-| Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96. **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
+| Map size | **New** offers Small 40×40, Medium 64×64 (default) or Large 96×96, on **Plains**, **Hills** or **Coast** (sea to the south). **Expand** grows your current city to the next size: new land on every side, the river continues, and edge roads are extended so the city stays connected. Free by default; set `map.expansionCost` in the config to charge for land |
 | Zoom | Mouse wheel, `+` / `-` |
 | Time | `Space` pause/resume · `,` `.` slower/faster · buttons in the top bar |
 | Overlays | `L` land value · `P` pollution · `H` happiness · `N` education · `M` transit · `C` crime · `F` fire risk · `T` traffic · `O` cycles through all, including services, power and water. The legend shows the value under the cursor; in 3D, buildings turn see-through |

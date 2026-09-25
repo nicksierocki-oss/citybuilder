@@ -107,6 +107,8 @@ export class GameMap {
     this.district = new Uint8Array(n);  // district id, 0 = none
     this.rail = new Uint8Array(n);      // 1 = railway track (TILE.RAIL, or a road with a level crossing)
     this.roadMod = new Uint8Array(n);   // ROADMOD: one-way direction, roundabout
+    this.elev = new Uint8Array(n);      // terrain height, 0 = base level (water is always 0)
+    this.heightVersion = 0;             // bumped when heights change (3D ground rebuild)
     this.education = new Uint8Array(n); // homes: skilled share of residents × 255 (changes slowly)
     this.educationReady = false;        // false until education has been seeded (new maps, old saves)
     // Derived layers (recomputed by the simulation)
@@ -235,6 +237,19 @@ export class GameMap {
     return best;
   }
 
+  // Biggest height step from land tile i to a neighbouring land tile.
+  slope(i) {
+    if (this.terrain[i] === TERRAIN.WATER) return 0;
+    const x = i % this.width, y = (i / this.width) | 0, h = this.elev[i];
+    let s = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!this.inBounds(x + dx, y + dy)) continue;
+      const j = this.idx(x + dx, y + dy);
+      if (this.terrain[j] !== TERRAIN.WATER) s = Math.max(s, Math.abs(this.elev[j] - h));
+    }
+    return s;
+  }
+
   computeWaterDistance() {
     // Multi-source BFS (Chebyshev) from water tiles.
     const { width: w, height: h } = this;
@@ -282,7 +297,60 @@ function growTrees(map, rng, mask = () => true) {
   }
 }
 
-export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.defaultSize) {
+// Smooth value noise in 0..1: random values on a coarse grid, bilinear in between.
+function valueNoise(w, h, cell, rng) {
+  const gw = Math.ceil(w / cell) + 2, gh = Math.ceil(h / cell) + 2, g = new Float32Array(gw * gh).map(() => rng());
+  const out = new Float32Array(w * h), ease = (t) => t * t * (3 - 2 * t);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const gx = x / cell, gy = y / cell, x0 = Math.floor(gx), y0 = Math.floor(gy), fx = ease(gx - x0), fy = ease(gy - y0);
+    const v = (a, b) => g[(y0 + b) * gw + x0 + a];
+    out[y * w + x] = (v(0, 0) * (1 - fx) + v(1, 0) * fx) * (1 - fy) + (v(0, 1) * (1 - fx) + v(1, 1) * fx) * fy;
+  }
+  return out;
+}
+
+// Keep neighbouring land within `step` levels of each other (lowers the higher side).
+export function limitSlopes(map, step = 1) {
+  for (let pass = 0; pass < CONFIG.terrain.maxHeight + 1; pass++) {
+    let changed = false;
+    for (let i = 0; i < map.size; i++) {
+      if (map.terrain[i] === TERRAIN.WATER) { map.elev[i] = 0; continue; }
+      const x = i % map.width, y = (i / map.width) | 0;
+      let lo = 255;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (map.inBounds(x + dx, y + dy)) lo = Math.min(lo, map.elev[map.idx(x + dx, y + dy)]);
+      if (map.elev[i] > lo + step) { map.elev[i] = lo + step; changed = true; }
+    }
+    if (!changed) break;
+  }
+}
+
+// Hills and coastlines for non-plains maps. Own random numbers, so the rest of the map (and
+// plains maps) come out exactly as before.
+function shapeLand(map, seed, landform) {
+  const T = CONFIG.terrain, { width: w, height: h } = map, rng = makeRng(seed * 7 + 13);
+  const { row, length } = highwayEntry(w, h);
+  if (landform === 'coast') {
+    // Sea along the south edge with a wavy shore; land rises gently inland.
+    const wave = valueNoise(w, 1, 7, rng);
+    for (let x = 0; x < w; x++) {
+      const shore = Math.round(h * (0.8 + wave[x] * 0.1));
+      for (let y = shore; y < h; y++) { const i = map.idx(x, y); map.terrain[i] = TERRAIN.WATER; map.type[i] = TILE.EMPTY; map.flags[i] = 0; }
+    }
+  }
+  const a = valueNoise(w, h, Math.max(6, Math.round(w / 6)), rng), b = valueNoise(w, h, 4, rng);
+  for (let i = 0; i < map.size; i++) {
+    if (map.terrain[i] === TERRAIN.WATER) continue;
+    const x = i % w, y = (i / w) | 0;
+    let v = landform === 'hills' ? (a[i] * 0.8 + b[i] * 0.2) * (T.maxHeight + 2) - 2 : (a[i] * 0.7 + b[i] * 0.3) * 3.2 - 0.6;
+    if (landform === 'coast') v += (y / h) < 0.8 ? (0.8 - y / h) * 4 : 0; // higher inland
+    if (Math.abs(y - row) <= 3 && x < length + 4) v = 0;                 // flat start by the regional road
+    map.elev[i] = Math.max(0, Math.min(T.maxHeight, Math.round(v)));
+  }
+  limitSlopes(map, 1);
+  map.heightVersion++;
+}
+
+export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.defaultSize, landform = 'plains') {
   const width = size, height = size;
   const riverWidth = Math.max(2, Math.round(size / 32));
   const { row: highwayRow, length: highwayLength } = highwayEntry(width, height);
@@ -318,12 +386,13 @@ export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.
     }
   }
 
+  if (landform !== 'plains') shapeLand(map, seed, landform);
   map.computeWaterDistance();
   map.roadsDirty = true;
   return map;
 }
 
-export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education', 'rail', 'roadMod'];
+export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education', 'rail', 'roadMod', 'elev'];
 
 // Grow a city's map to newSize x newSize, adding land evenly on every side.
 // The river keeps meandering into the new land and every road that ran off the old
@@ -341,6 +410,12 @@ export function expandMap(old, newSize, seed = (Math.random() * 1e9) | 0) {
     const a = old.idx(x, y), b = map.idx(x + dx, y + dy);
     for (const k of PERSISTENT_LAYERS) map[k][b] = old[k][a];
   }
+  // New land continues the height of the nearest old edge (water is reset to 0 below).
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ox = Math.max(0, Math.min(old.width - 1, x - dx)), oy = Math.max(0, Math.min(old.height - 1, y - dy));
+    if (ox !== x - dx || oy !== y - dy) map.elev[map.idx(x, y)] = old.elev[old.idx(ox, oy)];
+  }
+  map.heightVersion = 1;
   const inOld = (x, y) => x >= dx && y >= dy && x < dx + old.width && y < dy + old.height;
 
   // Rivers: continue each run of water on the old top/bottom (and left/right) edge.
@@ -368,6 +443,7 @@ export function expandMap(old, newSize, seed = (Math.random() * 1e9) | 0) {
   extendWater(edgeRuns(old.height, (k) => old.terrain[old.idx(0, k)] === W1), dx, (k, s) => setWater(dx - s, k + dy));
   extendWater(edgeRuns(old.height, (k) => old.terrain[old.idx(old.width - 1, k)] === W1), W - dx - old.width, (k, s) => setWater(dx + old.width - 1 + s, k + dy));
 
+  for (let i = 0; i < map.size; i++) if (map.terrain[i] === TERRAIN.WATER) map.elev[i] = 0;
   growTrees(map, rng, (i) => !inOld(i % W, (i / W) | 0));
 
   // Roads that ran off the old edge continue straight to the new edge (free).

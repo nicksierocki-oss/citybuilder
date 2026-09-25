@@ -22,8 +22,8 @@ export function emptyHistory() {
   return { samples: [] };
 }
 
-export function createGame(seed, size = CONFIG.map.defaultSize) {
-  const map = generateMap(seed, size);
+export function createGame(seed, size = CONFIG.map.defaultSize, landform = 'plains') {
+  const map = generateMap(seed, size, landform);
   const state = {
     map,
     tick: 0,
@@ -227,6 +227,7 @@ export function landValueSystem(state) {
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight + map.trash[i] * CONFIG.garbage.landValueWeight;
     if (tramNear[i]) v += CONFIG.transit.modes.tram.landValue;
+    if (map.elev[i]) v += Math.min(CONFIG.terrain.viewValueMax, map.elev[i] * CONFIG.terrain.viewValue); // hillside views
     lv[i] = Math.max(0, Math.min(100, v));
   }
 }
@@ -455,6 +456,9 @@ export function evaluateTile(state, i) {
       reasons.push(`${need}. Required in ${state.utilityGrace} month${state.utilityGrace === 1 ? '' : 's'}`);
     }
   }
+  // Hillsides: steep lots can't take tall buildings.
+  const slope = map.slope(i), slopeCap = CONFIG.terrain.zoneMaxLevel[Math.min(2, slope)];
+  if (slopeCap < maxLevel) { maxLevel = slopeCap; reasons.push(`Sloping ground (${slope} level${slope > 1 ? 's' : ''}) caps density at ${levelName(slopeCap)}: flatten it with Lower/Raise land`); }
   // District policies
   const district = districtAt(state, i);
   if (district) {
