@@ -65,7 +65,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
 9. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
    it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
    repaid at $105/month for 10 years), and an **advisor** that spots the usual money
-   drains. Bulldozing a public building refunds half its price. Twelve months in debt
+   drains. Bulldozing a public building refunds half its price, and demolition works even while in debt. Twelve months in debt
    and the council takes over.
 
 ### Strategy: staying solvent

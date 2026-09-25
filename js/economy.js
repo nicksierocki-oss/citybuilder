@@ -141,7 +141,8 @@ export function applyTool(state, tool, tiles) {
   for (const i of tiles) {
     const cost = toolCost(state, tool, i);
     if (cost == null) continue;
-    if (cost > state.funds) { broke = true; break; }
+    // Demolition is always allowed (even in debt) so players can cut upkeep to recover.
+    if (tool !== 'bulldoze' && cost > state.funds) { broke = true; break; }
     state.funds -= cost;
     spent += cost;
     applyOne(state, tool, i);
@@ -258,21 +259,21 @@ export function budgetAdvice(state) {
   const map = state.map, s = state.stats, b = monthlyBudget(state), E = CONFIG.economy, out = [];
   const net = b.totalIncome - b.totalExpenses;
   // Roads nobody uses: no traffic and no building or public building beside them.
-  let idle = 0;
+  const upkeep = [E.roadMaintenance, E.avenueMaintenance, E.highwayMaintenance];
+  let idle = 0, idleCost = 0;
   for (let i = 0; i < map.size; i++) {
     if (map.type[i] !== TILE.ROAD || map.traffic[i] > 1) continue;
     const x = i % map.width, y = (i / map.width) | 0;
-    const x0 = x === 0 || y === 0 || x === map.width - 1 || y === map.height - 1;
-    if (x0) continue; // keep the link to the region
+    if (x === 0 || y === 0 || x === map.width - 1 || y === map.height - 1) continue; // keep the link to the region
     let used = false;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (!map.inBounds(x + dx, y + dy)) continue;
       const j = map.idx(x + dx, y + dy), t = map.type[j];
       if ((isZone(t) && map.level[j] > 0) || t === TILE.SERVICE) used = true;
     }
-    if (!used) idle++;
+    if (!used) { idle++; idleCost += map.terrain[i] === TERRAIN.WATER ? E.bridgeMaintenance : upkeep[map.roadClass[i]]; }
   }
-  if (idle >= 8) out.push(`${idle} road tiles carry no traffic and serve no buildings: that's $${Math.round(idle * E.roadMaintenance)}/month. Bulldoze the ones you don't need yet.`);
+  if (idle >= 8) out.push(`${idle} road tiles carry no traffic and serve no buildings: that's $${Math.round(idleCost)}/month. Bulldoze the ones you don't need yet.`);
   if (b.expenses.services > b.totalIncome * 0.35 && s.population < 1500) {
     out.push(`Public services cost $${Math.round(b.expenses.services)}/month, a lot for ${s.population.toLocaleString()} residents. Add them as the city grows (one school/clinic per neighbourhood); bulldozing refunds half their price.`);
   }

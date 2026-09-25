@@ -83,7 +83,7 @@ export function trafficSystem(state) {
   const jobsAt = new Map(); // road index -> [job tile indices]
   for (let i = 0; i < size; i++) {
     const t = map.type[i];
-    if ((t !== TILE.COM && t !== TILE.IND) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED)) continue;
+    if ((t !== TILE.COM && t !== TILE.IND) || map.level[i] === 0 || map.hasFlag(i, FLAG.ABANDONED) || map.hasFlag(i, FLAG.FIRE)) continue;
     remaining[i] = (t === TILE.COM ? CAP.commercial : CAP.industrial)[map.level[i]];
     for (const r of accessRoads(i)) {
       if (!jobsAt.has(r)) jobsAt.set(r, []);
@@ -122,13 +122,12 @@ export function trafficSystem(state) {
   const homes = [];
   for (let i = 0; i < size; i++) {
     if (map.type[i] !== TILE.RES) continue;
-    map.commute[i] = Infinity;
     map.employed[i] = 1;
     const roads = accessRoads(i);
     let best = Infinity;
     for (const r of roads) best = Math.min(best, access[r]);
     map.commute[i] = best;
-    if (map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED) && roads.length) homes.push(i);
+    if (map.level[i] > 0 && !map.hasFlag(i, FLAG.ABANDONED) && !map.hasFlag(i, FLAG.FIRE) && roads.length) homes.push(i);
   }
   const rng = state.rng;
   for (let k = homes.length - 1; k > 0; k--) {

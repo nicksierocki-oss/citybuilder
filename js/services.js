@@ -247,7 +247,7 @@ export function fireSystem(state) {
       // Burned down: the zone stays, the building is gone.
       map.setFlag(i, FLAG.FIRE, false);
       map.burn[i] = 0;
-      if (map.type[i] === TILE.SERVICE) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; map.roadsDirty = true; }
+      if (map.type[i] === TILE.SERVICE) { map.type[i] = TILE.EMPTY; map.kind[i] = 0; }
       else { map.level[i] = 0; map.setFlag(i, FLAG.ABANDONED, false); }
       map.version++;
       state.events.push({ text: `A building burned down at ${x0}, ${y0}. A fire station would have saved it.`, kind: 'bad', x: x0, y: y0 });

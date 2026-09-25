@@ -3,11 +3,10 @@
 // services) plug into SYSTEMS without touching rendering.
 
 import { CONFIG } from './config.js';
-import { GameMap, generateMap, TILE, TERRAIN, FLAG, isZone } from './map.js';
+import { generateMap, TILE, TERRAIN, FLAG, SUPPLY, isZone } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
 import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf, safetySystem, fireSystem } from './services.js';
-import { SUPPLY } from './map.js';
 
 export function createGame(seed, size = CONFIG.map.defaultSize) {
   const map = generateMap(seed, size);
@@ -29,8 +28,8 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     happiness: 0,
     crime: 0,                 // population-weighted average crime in homes
     fires: 0,                 // buildings burning right now
-    utilityGrace: 0,
-    loans: [],                // [{ monthsLeft, payment }]          // months left before utilities are enforced (older saves)
+    utilityGrace: 0,          // months left before utilities are enforced (older saves)
+    loans: [],                // [{ monthsLeft, payment }]
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
   };
@@ -203,7 +202,8 @@ export function computeStats(state) {
   const s = emptyStats();
   for (let i = 0; i < map.size; i++) {
     const t = map.type[i], lv = map.level[i];
-    const alive = !map.hasFlag(i, FLAG.ABANDONED) && !map.hasFlag(i, FLAG.FIRE);
+    const abandoned = map.hasFlag(i, FLAG.ABANDONED);
+    const alive = !abandoned && !map.hasFlag(i, FLAG.FIRE); // burning buildings are empty for now
     if (t === TILE.RES) { s.zoned.r++; if (alive) s.population += cap.residential[lv]; }
     else if (t === TILE.COM) { s.zoned.c++; if (alive) s.comJobs += cap.commercial[lv]; }
     else if (t === TILE.IND) { s.zoned.i++; if (alive) s.indJobs += cap.industrial[lv]; }
@@ -215,7 +215,7 @@ export function computeStats(state) {
     }
     else if (t === TILE.PARK) s.parks++;
     else if (t === TILE.SERVICE) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }
-    if (isZone(t) && !alive) s.abandoned++;
+    if (isZone(t) && abandoned) s.abandoned++;
   }
   s.jobs = s.comJobs + s.indJobs;
   s.workers = s.population * CONFIG.demand.workforceRatio;
@@ -357,10 +357,9 @@ export function growthSystem(state) {
   const map = state.map, G = CONFIG.growth, rng = state.rng;
   for (let i = 0; i < map.size; i++) {
     const t = map.type[i];
-    if (!isZone(t)) continue;
+    if (!isZone(t) || map.hasFlag(i, FLAG.FIRE)) continue; // nothing grows while it burns
     const ev = evaluateTile(state, i);
     const level = map.level[i];
-    if (map.hasFlag(i, FLAG.FIRE)) continue; // nothing grows while it burns
     const abandoned = map.hasFlag(i, FLAG.ABANDONED);
     if (abandoned) {
       if (ev.score > 0.1 && rng() < G.recoverChance) map.setFlag(i, FLAG.ABANDONED, false);
@@ -446,4 +445,3 @@ export function refreshFields(state) {
   computeStats(state);
 }
 
-export { GameMap };

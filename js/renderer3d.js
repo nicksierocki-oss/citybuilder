@@ -66,6 +66,14 @@ class Batch {
     scene.add(this.mesh);
   }
   begin() { this.n = 0; }
+  // Add an instance from an explicit position/rotation/scale (for non-axis rotations).
+  addTRS(p, q, s, hex) {
+    if (this.n >= this.capacity) return;
+    this.m.compose(p, q, s);
+    this.mesh.setMatrixAt(this.n, this.m);
+    this.mesh.setColorAt(this.n, color(hex));
+    this.n++;
+  }
   add(x, y, z, sx, sy, sz, hex, rotY = 0) {
     if (this.n >= this.capacity) return;
     this.q.setFromAxisAngle(this.up, rotY);
@@ -273,6 +281,7 @@ export class Renderer3D {
     this.groundCanvas.width = w * this.texPx;
     this.groundCanvas.height = h * this.texPx;
     this.maxDist = Math.max(w, h) * 2.2;
+    this.orbit.dist = Math.min(this.orbit.dist, this.maxDist); // a smaller map shouldn't start zoomed far out
     this.groundTex.dispose();
     this.groundTex.image = this.groundCanvas;
     this.ground.geometry.dispose();
@@ -572,19 +581,15 @@ export class Renderer3D {
   }
 
   buildBlades() {
-    const b = this.blades;
+    const b = this.blades, p = new THREE.Vector3(), q = new THREE.Quaternion();
+    const axis = new THREE.Vector3(0, 0, 1), size = new THREE.Vector3(0.42, 0.035, 0.015);
     b.begin();
     for (const t of this.turbines ?? []) {
       const a0 = this.time * 2.2 + t.ph;
       for (let n = 0; n < 3; n++) {
-        const a = a0 + n * (Math.PI * 2 / 3);
         // A blade is a thin box rotated about the hub, facing +z.
-        b.mesh.setMatrixAt(b.n, new THREE.Matrix4().compose(
-          new THREE.Vector3(t.x + Math.cos(a) * 0.2, t.y + Math.sin(a) * 0.2, t.z + 0.08),
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a),
-          new THREE.Vector3(0.42, 0.035, 0.015)));
-        b.mesh.setColorAt(b.n, color('#ffffff'));
-        b.n++;
+        const a = a0 + n * (Math.PI * 2 / 3);
+        b.addTRS(p.set(t.x + Math.cos(a) * 0.2, t.y + Math.sin(a) * 0.2, t.z + 0.08), q.setFromAxisAngle(axis, a), size, '#ffffff');
       }
     }
     b.end();

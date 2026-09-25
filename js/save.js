@@ -56,7 +56,8 @@ export function deserialize(data) {
   const state = {
     map,
     tick: data.tick | 0, month: data.month | 0, year: data.year | 0,
-    funds: Number(data.funds) || 0, taxRate: Number(data.taxRate) || 0,
+    funds: Number(data.funds) || 0,
+    taxRate: Number.isFinite(Number(data.taxRate)) && data.taxRate != null ? Number(data.taxRate) : CONFIG.economy.taxRate,
     demand: { r: 0, c: 0, i: 0, ...data.demand },
     stats: null, lastMonth: data.lastMonth ?? null,
     negativeMonths: data.negativeMonths | 0, bankrupt: false,

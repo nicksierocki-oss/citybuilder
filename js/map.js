@@ -53,8 +53,7 @@ export class GameMap {
     this.shoppers = new Float32Array(n);// residents within shopping radius
     this.waterDist = new Float32Array(n);
     // Traffic (derived, see traffic.js)
-    this.traffic = new Float32Array(n);   // trips per month through a road tile
-    this.trafficSmooth = new Float32Array(n); // smoothed volume used for route costs
+    this.traffic = new Float32Array(n);   // trips per month through a road tile (smoothed; also sets route costs)
     this.commute = new Float32Array(n);   // residential: avg commute minutes (Infinity = no job reachable)
     this.employed = new Float32Array(n);  // residential: share of workers who found a job (1 if vacant)
     this.passing = new Float32Array(n);   // trips on roads next to this tile

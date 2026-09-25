@@ -14,10 +14,7 @@ export function tilesForDrag(map, shape, a, b) {
   const out = [];
   const clampX = (v) => Math.max(0, Math.min(map.width - 1, v));
   const clampY = (v) => Math.max(0, Math.min(map.height - 1, v));
-  if (shape === 'single') {
-    const x = Math.max(0, Math.min(map.width - 1, b.x)), y = Math.max(0, Math.min(map.height - 1, b.y));
-    return [map.idx(x, y)];
-  }
+  if (shape === 'single') return [map.idx(clampX(b.x), clampY(b.y))];
   if (shape === 'line') {
     // L-shaped: along the longer axis first, then the other.
     const ax = clampX(a.x), ay = clampY(a.y), bx = clampX(b.x), by = clampY(b.y);
@@ -45,7 +42,7 @@ export class Input {
     this.canvases = canvases;
     this.keys = new Set();
     this.drag = null;   // { start: {x,y}, end: {x,y} }
-    this.pan = null;    // { sx, sy, cx, cy }
+    this.pan = null;    // { sx, sy, lx, ly, moved, orbit }
     this.bind();
   }
 
@@ -145,7 +142,7 @@ export class Input {
     const cost = previewCost(this.game.state, tool, tiles);
     this.game.preview = {
       tiles: new Set(tiles),
-      ok: cost.count > 0 && cost.total <= this.game.state.funds,
+      ok: cost.count > 0 && (tool === 'bulldoze' || cost.total <= this.game.state.funds),
       cost,
     };
   }

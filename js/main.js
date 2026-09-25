@@ -95,7 +95,7 @@ const game = {
     const view = this.renderer.viewCenterTile();
     const { map, dx, dy } = expandMap(s.map, size);
     s.funds -= cost;
-    // Carry per-tile traffic and pollution over so nothing flickers on the first frame.
+    // Carry traffic volumes over so routes and congestion don't reset on expansion.
     for (let y = 0; y < s.map.height; y++) for (let x = 0; x < s.map.width; x++) {
       const a = s.map.idx(x, y), b = map.idx(x + dx, y + dy);
       map.traffic[b] = s.map.traffic[a];
