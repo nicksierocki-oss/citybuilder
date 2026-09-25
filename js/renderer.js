@@ -8,30 +8,30 @@ export const TS = 32; // tile size in world units
 
 // Light, soft palette.
 export const PAL = {
-  bg: '#e6edf2',
-  grass: ['#d0e7b8', '#cce4b3', '#d4eabd', '#c9e2af'],
+  bg: '#e9eff3',
+  grass: ['#e2f0d3', '#deedcd', '#e5f2d8', '#dbebc9'],
   water: '#a6d6ee', waterLight: '#c9e8f7',
-  tree: ['#8fc47c', '#83bb70', '#9bcd88'], treeShadow: 'rgba(70,100,70,0.16)',
-  asphalt: ['#a3aab4', '#959da8', '#8a929e'], laneMark: '#fff1bf', laneWhite: 'rgba(255,255,255,0.85)',
-  median: '#b9dca4', barrier: '#eeebe4', bridgeRail: '#c9ad8e',
-  park: '#b6dd9f', parkPath: '#f4ecd2',
-  lot: { 2: '#e4f2d8', 3: '#dce9f7', 4: '#f7edd3' },
-  lotEdge: { 2: '#a6d38f', 3: '#94bde6', 4: '#e2c27d' },
-  wall: { 2: '#fbf1e6', 3: '#eef4fb', 4: '#f6eedc' },
+  tree: ['#a9d39a', '#9ecc8e', '#b3daa5'], treeShadow: 'rgba(70,100,70,0.12)',
+  asphalt: ['#b3b9c1', '#a8aeb7', '#9ea5ae'], laneMark: '#fbf0cc', laneWhite: 'rgba(255,255,255,0.85)',
+  median: '#c6e1b6', barrier: '#eeebe4', bridgeRail: '#cfbba5',
+  park: '#c9e6b8', parkPath: '#f5efdc',
+  lot: { 2: '#ecf3e6', 3: '#e8eef5', 4: '#f5f1e6' },
+  lotEdge: { 2: '#bad6ac', 3: '#b2c8df', 4: '#dccaa2' },
+  wall: { 2: '#faf4ec', 3: '#f1f5f9', 4: '#f6f1e6' },
   // roofs per zone per level (1..3): light -> deeper = small -> large
   roof: {
-    2: [null, '#f5bea4', '#eda386', '#de8b72'],
-    3: [null, '#b2d3f1', '#90bbe8', '#73a6dc'],
-    4: [null, '#f2da9c', '#e6c682', '#d2ae6c'],
+    2: [null, '#efcdbe', '#e6bba8', '#d9aa97'],
+    3: [null, '#c6d9ec', '#b1cae3', '#9fbad8'],
+    4: [null, '#ede0bd', '#e2d2aa', '#d3c197'],
   },
-  cars: ['#f08c80', '#ffffff', '#86b8e8', '#f6d27a', '#7d8794', '#9fd8b4', '#cdb0e2'],
-  abandoned: '#c9c6c1', abandonedDark: '#a8a5a0',
-  shadow: 'rgba(70,80,100,0.16)',
+  cars: ['#e9a59c', '#ffffff', '#a6c4e2', '#eed7a0', '#9098a3', '#b4d8c3', '#d3c1e0'],
+  abandoned: '#d2cfca', abandonedDark: '#b3b0ab',
+  shadow: 'rgba(70,80,100,0.12)',
   svc: {
-    coal: '#bdb3aa', coalTower: '#d9d4ce', wind: '#ffffff', pump: '#9ccfee', pumpTank: '#d6ecf8',
-    school: '#f6d98c', schoolRoof: '#ec9f7e', yard: '#c8e4b2', clinic: '#ffffff', cross: '#ef7f86',
-    plaza: '#efe6d6', fountain: '#a6d6ee', recycling: '#a9d6a0', bins: ['#86b8e8', '#f6d27a', '#9fd8b4'],
-    police: '#b7c9ef', policeRoof: '#7f9ee0', fire: '#f3a58f', fireRoof: '#e0705c', door: '#fbf6ee',
+    coal: '#ccc5be', coalTower: '#e2ded9', wind: '#ffffff', pump: '#bcd9ea', pumpTank: '#e0eef6',
+    school: '#efdfb4', schoolRoof: '#e2b6a4', yard: '#d4e8c4', clinic: '#ffffff', cross: '#e4a0a4',
+    plaza: '#f0eadf', fountain: '#b5dcee', recycling: '#c1ddba', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'],
+    police: '#cdd7ee', policeRoof: '#a3b5da', fire: '#edc2b6', fireRoof: '#d9998b', door: '#fbf7f0',
   },
 };
 
@@ -318,7 +318,7 @@ export class Renderer {
       ctx.beginPath();
       for (let a = 8; a < TS; a += 8) { ctx.moveTo(px + a, py + 3); ctx.lineTo(px + a, py + TS - 3); ctx.moveTo(px + 3, py + a); ctx.lineTo(px + TS - 3, py + a); }
       ctx.stroke();
-      ctx.fillStyle = '#d8ccb6';
+      ctx.fillStyle = '#e0d6c4';
       ctx.beginPath(); ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = S.fountain;
       ctx.beginPath(); ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2); ctx.fill();
@@ -429,7 +429,7 @@ export class Renderer {
       ctx.fillStyle = ab ? PAL.abandonedDark : 'rgba(255,255,255,0.22)';
       roundRect(ctx, px + 6, py + 6, 20, 20, 4); ctx.fill();
       this.windows(px + 3, py + 3, 26, 26, 4, ab);
-      ctx.fillStyle = ab ? '#aaa' : '#c97a66';
+      ctx.fillStyle = ab ? '#bbb' : '#cfa292';
       roundRect(ctx, px + 12, py + 12, 8, 8, 2); ctx.fill();
       if (ab) this.cracks(px + 3, py + 3, 26, 26);
     }
@@ -439,13 +439,13 @@ export class Renderer {
     const roof = PAL.roof[TILE.COM][lv], ctx = this.ctx;
     if (lv === 1) {
       this.box(px + 5, py + 8, 22, 14, 2, roof, ab, 3);
-      ctx.fillStyle = ab ? PAL.abandonedDark : ['#f4a39a', '#f6d27a', '#9fd8b4'][v % 3];
+      ctx.fillStyle = ab ? PAL.abandonedDark : ['#e9b8b0', '#ecd9a6', '#b8dac6'][v % 3];
       roundRect(ctx, px + 4, py + 20, 24, 3.5, 1.5); ctx.fill(); // awning
       if (ab) this.cracks(px + 5, py + 8, 22, 14);
     } else if (lv === 2) {
       this.box(px + 3, py + 4, 26, 22, 4, roof, ab, 4);
       this.windows(px + 3, py + 4, 26, 22, 4, ab);
-      ctx.fillStyle = ab ? PAL.abandonedDark : '#f6d27a';
+      ctx.fillStyle = ab ? PAL.abandonedDark : '#ecd9a6';
       roundRect(ctx, px + 3, py + 23, 26, 3, 1.5); ctx.fill();
       if (ab) this.cracks(px + 3, py + 4, 26, 22);
     } else {
@@ -455,7 +455,7 @@ export class Renderer {
       ctx.beginPath();
       for (let k = 8; k < 28; k += 5) { ctx.moveTo(px + k, py + 5); ctx.lineTo(px + k, py + 27); ctx.moveTo(px + 5, py + k); ctx.lineTo(px + 27, py + k); }
       ctx.stroke();
-      ctx.fillStyle = ab ? '#aaa' : '#5f93cc';
+      ctx.fillStyle = ab ? '#bbb' : '#8eaed2';
       roundRect(ctx, px + 11, py + 11, 10, 10, 3); ctx.fill();
       if (ab) this.cracks(px + 3, py + 3, 26, 26);
     }
@@ -465,7 +465,7 @@ export class Renderer {
     const roof = PAL.roof[TILE.IND][lv], ctx = this.ctx;
     if (lv === 1) {
       this.box(px + 4, py + 6, 16, 18, 2, roof, ab, 3);
-      ctx.fillStyle = ab ? PAL.abandonedDark : '#d9b27a';
+      ctx.fillStyle = ab ? PAL.abandonedDark : '#dcc3a0';
       roundRect(ctx, px + 22, py + 16, 6, 8, 1.5); ctx.fill(); // crates
       if (ab) this.cracks(px + 4, py + 6, 16, 18);
     } else if (lv === 2) {
@@ -478,8 +478,8 @@ export class Renderer {
       ctx.fillStyle = ab ? PAL.abandonedDark : 'rgba(0,0,0,0.09)';
       for (let k = 0; k < 4; k++) ctx.fillRect(px + 3, py + 8 + k * 6, 20, 2);
       // smokestacks
-      this.round(px + 27, py + 6, 3.5, ab ? PAL.abandoned : '#a89d94', 6);
-      this.round(px + 26.5, py + 16, 3, ab ? PAL.abandoned : '#a89d94', 5);
+      this.round(px + 27, py + 6, 3.5, ab ? PAL.abandoned : '#bdb5ad', 6);
+      this.round(px + 26.5, py + 16, 3, ab ? PAL.abandoned : '#bdb5ad', 5);
       if (!ab) {
         ctx.fillStyle = 'rgba(160,160,160,0.28)';
         ctx.beginPath(); ctx.arc(px + 29, py + 2, 4 + (v & 3), 0, Math.PI * 2); ctx.fill();
@@ -502,11 +502,11 @@ export class Renderer {
       case 'coal':
         this.box(px + 3, py + 15, 16, 13, 4, S.coal, false, 3);
         this.round(px + 22, py + 10, 7, S.coalTower, 8);
-        ctx.fillStyle = '#bfb8b0';
+        ctx.fillStyle = '#cdc7c0';
         ctx.beginPath(); ctx.arc(px + 22, py + 10, 4.5, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.beginPath(); ctx.arc(px + 24, py + 5, 4 + Math.sin(this.time * 2 + v) * 0.8, 0, Math.PI * 2); ctx.fill();
-        this.round(px + 8, py + 8, 2.5, '#a89d94', 7);
+        this.round(px + 8, py + 8, 2.5, '#bdb5ad', 7);
         break;
       case 'wind':
         for (const [cx, cy, ph] of [[10, 11, 0], [22, 22, 1.3]]) {
@@ -526,9 +526,9 @@ export class Renderer {
       case 'pump':
         this.box(px + 4, py + 6, 13, 12, 3, S.pump, false, 3);
         this.round(px + 22, py + 21, 6.5, S.pumpTank, 5);
-        ctx.fillStyle = '#b8dcf2';
+        ctx.fillStyle = '#cbe4f2';
         ctx.beginPath(); ctx.arc(px + 22, py + 21, 3.5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#9fb4c4';
+        ctx.fillStyle = '#b4c3cf';
         roundRect(ctx, px + 10, py + 19, 8, 2.5, 1.2); ctx.fill();
         break;
       case 'school':
@@ -536,7 +536,7 @@ export class Renderer {
         this.box(px + 3, py + 3, 11, 25, 4, S.school, false, 3);
         ctx.fillStyle = S.schoolRoof;
         roundRect(ctx, px + 5, py + 5, 7, 7, 2); ctx.fill();
-        ctx.fillStyle = '#ef7f86';
+        ctx.fillStyle = '#e4a0a4';
         ctx.fillRect(px + 25, py + 17, 4, 3);
         ctx.fillStyle = '#9aa4b2';
         ctx.fillRect(px + 24.5, py + 17, 0.8, 8);
@@ -557,8 +557,8 @@ export class Renderer {
         this.box(px + 4, py + 5, 24, 20, 4, S.police, false, 4);
         ctx.fillStyle = S.policeRoof;
         roundRect(ctx, px + 7, py + 8, 18, 5, 2); ctx.fill();
-        ctx.fillStyle = '#ef7f86'; roundRect(ctx, px + 11, py + 16, 4, 3, 1); ctx.fill();
-        ctx.fillStyle = '#6f9ee8'; roundRect(ctx, px + 17, py + 16, 4, 3, 1); ctx.fill();
+        ctx.fillStyle = '#e4a0a4'; roundRect(ctx, px + 11, py + 16, 4, 3, 1); ctx.fill();
+        ctx.fillStyle = '#9fb6e0'; roundRect(ctx, px + 17, py + 16, 4, 3, 1); ctx.fill();
         ctx.fillStyle = '#ffffff';
         roundRect(ctx, px + 8, py + 26, 6, 3, 1.2); ctx.fill(); // patrol car
         break;
@@ -567,7 +567,7 @@ export class Renderer {
         ctx.fillStyle = S.door;
         for (let k = 0; k < 2; k++) { roundRect(ctx, px + 5 + k * 9, py + 21, 7, 6, 1.2); ctx.fill(); }
         this.box(px + 23, py + 4, 6, 8, 7, S.fireRoof, false, 2); // hose tower
-        ctx.fillStyle = '#e0705c';
+        ctx.fillStyle = '#d9998b';
         roundRect(ctx, px + 24, py + 23, 5, 7, 1.5); ctx.fill(); // engine
         break;
       case 'recycling':

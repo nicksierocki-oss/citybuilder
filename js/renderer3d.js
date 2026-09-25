@@ -25,18 +25,18 @@ const GEO = {
 
 // Soft pastel palette matching the 2D view.
 const COL = {
-  resWall: '#fbf1e6', resWall2: '#f3e7f0', resRoof: [null, '#eda386', '#e3957a', '#d98a72'], resRoof2: ['#f0b7a0', '#c9b3dd', '#9fcdb9'],
-  comWall: '#eef4fb', comRoof: [null, '#90bbe8', '#7fb0e2', '#73a6dc'], glass: '#a9cdef', glassBand: '#f3f8fd', glass2: '#bfe0dc',
-  indWall: '#f6eedc', indRoof: [null, '#e6c682', '#dcbc78', '#d2ae6c'], stack: '#c9c0b7', crate: '#dcb98a', tank: '#e9e4dc',
-  band: '#e3d7c8', awnings: ['#f4a39a', '#f6d27a', '#9fd8b4'],
-  abandoned: '#d4d0ca', abandonedRoof: '#bdb8b1',
-  trunk: '#b39478', leaves: ['#8fc47c', '#83bb70', '#9bcd88'], hedge: '#a3d18c', garden: '#b6dd9f',
-  slab: '#dccfbf', bg: '#e6edf2',
+  resWall: '#faf4ec', resWall2: '#f4ecf1', resRoof: [null, '#e6bba8', '#ddae9b', '#d3a390'], resRoof2: ['#ebc6b7', '#d6cbe3', '#bcd9cb'],
+  comWall: '#f1f5f9', comRoof: [null, '#b1cae3', '#a4c0de', '#98b6d6'], glass: '#c3d8ec', glassBand: '#f5f8fb', glass2: '#d0e4e1',
+  indWall: '#f6f1e6', indRoof: [null, '#e2d2aa', '#daca9f', '#d0bf93'], stack: '#d0cac3', crate: '#dcc3a0', tank: '#ece8e1',
+  band: '#e7dfd4', awnings: ['#e9b8b0', '#ecd9a6', '#b8dac6'],
+  abandoned: '#d8d5cf', abandonedRoof: '#c4c0ba',
+  trunk: '#bea58d', leaves: ['#a9d39a', '#9ecc8e', '#b3daa5'], hedge: '#b9daa7', garden: '#c9e6b8',
+  slab: '#e2d8cb', bg: '#e9eff3',
   svc: {
-    coal: '#cfc6bd', coalTower: '#ebe7e1', steam: '#ffffff', wind: '#ffffff', pump: '#bfe0f4', tank: '#e1f0f9',
-    school: '#f8e2a4', schoolRoof: '#ee9f86', clinic: '#ffffff', cross: '#ef7f86', plaza: '#efe6d6', fountain: '#a6d6ee',
-    recycling: '#b7deb0', bins: ['#86b8e8', '#f6d27a', '#9fd8b4'], flag: '#ef7f86',
-    police: '#dbe5f8', policeTrim: '#7f9ee0', fire: '#f5b3a2', fireTrim: '#e0705c', door: '#fbf6ee',
+    coal: '#d4cdc6', coalTower: '#ece9e4', steam: '#ffffff', wind: '#ffffff', pump: '#cce3f0', tank: '#e6f1f7',
+    school: '#f1e4c0', schoolRoof: '#e2b6a4', clinic: '#ffffff', cross: '#e4a0a4', plaza: '#f0eadf', fountain: '#b5dcee',
+    recycling: '#c8e2c2', bins: ['#aac6e2', '#ecd9a6', '#b8dac6'], flag: '#e4a0a4',
+    police: '#dfe6f4', policeTrim: '#a3b5da', fire: '#efc6ba', fireTrim: '#d9998b', door: '#fbf7f0',
   },
 };
 const colorCache = new Map();
@@ -383,7 +383,7 @@ export class Renderer3D {
         P(this.rboxes, 0, 0, 0.8, 0.8, 0, h, wall(COL.resWall));
         bands(0, 0, 0.8, 0.8, h, 0.3, roof(COL.band));
         P(this.rboxes, 0, 0, 0.84, 0.84, h, 0.07, r);
-        P(this.rboxes, 0, 0, 0.26, 0.26, h + 0.07, 0.18, roof('#c9a08c'));
+        P(this.rboxes, 0, 0, 0.26, 0.26, h + 0.07, 0.18, roof('#d6b7a8'));
       } else {                       // terraced tower with roof gardens
         const steps = [[0.84, 0.8], [0.66, 0.75], [0.48, 0.7]];
         let y0 = 0;
@@ -410,7 +410,7 @@ export class Renderer3D {
         }
       } else if (lv === 2 && !alt) { // office block
         const h = 1.0 + (v & 3) * 0.08;
-        P(this.rboxes, 0, -0.03, 0.82, 0.7, 0, h, wall('#d4e5f5'));
+        P(this.rboxes, 0, -0.03, 0.82, 0.7, 0, h, wall('#e1ebf5'));
         bands(0, -0.03, 0.82, 0.7, h, 0.22, roof(COL.glassBand));
         P(this.rboxes, 0, -0.03, 0.85, 0.73, h, 0.05, r);
       } else if (lv === 2) {         // low mall with a glass atrium
@@ -474,7 +474,7 @@ export class Renderer3D {
       case 'coal':
         P(this.rboxes, -0.2, 0.18, 0.5, 0.4, 0, 0.45, S.coal);
         P(this.towers, 0.18, -0.15, 0.5, 0.5, 0, 0.95, S.coalTower);
-        P(this.cylinders, -0.3, -0.25, 0.1, 0.1, 0, 1.3, '#bdb3aa');
+        P(this.cylinders, -0.3, -0.25, 0.1, 0.1, 0, 1.3, '#cdc6bf');
         P(this.blobs, 0.2, -0.18, 0.4, 0.4, 0.95, 0.3, S.steam);
         break;
       case 'wind':
@@ -487,8 +487,8 @@ export class Renderer3D {
       case 'pump':
         P(this.rboxes, -0.18, -0.15, 0.42, 0.4, 0, 0.32, S.pump);
         P(this.cylinders, 0.2, 0.18, 0.4, 0.4, 0, 0.5, S.tank);
-        P(this.cylinders, 0.2, 0.18, 0.42, 0.42, 0.5, 0.04, '#9fc3dc');
-        P(this.boxes, 0.02, 0.05, 0.3, 0.06, 0.12, 0.06, '#9fb4c4');
+        P(this.cylinders, 0.2, 0.18, 0.42, 0.42, 0.5, 0.04, '#bcd3e3');
+        P(this.boxes, 0.02, 0.05, 0.3, 0.06, 0.12, 0.06, '#b4c3cf');
         break;
       case 'school':
         P(this.rboxes, 0, -0.28, 0.86, 0.3, 0, 0.5, S.school);
@@ -505,9 +505,9 @@ export class Renderer3D {
         P(this.boxes, 0, 0.36, 0.36, 0.03, 0.18, 0.18, S.cross);
         break;
       case 'plaza':
-        P(this.cylinders, 0, 0, 0.5, 0.5, 0, 0.07, '#e2d6c2');
+        P(this.cylinders, 0, 0, 0.5, 0.5, 0, 0.07, '#e9e1d2');
         P(this.cylinders, 0, 0, 0.42, 0.42, 0.02, 0.06, S.fountain);
-        P(this.cylinders, 0, 0, 0.06, 0.06, 0, 0.26, '#e2d6c2');
+        P(this.cylinders, 0, 0, 0.06, 0.06, 0, 0.26, '#e9e1d2');
         P(this.blobs, 0, 0, 0.12, 0.12, 0.24, 0.1, S.fountain);
         for (const [u, w] of [[-0.36, -0.36], [0.36, 0.36], [0.36, -0.36], [-0.36, 0.36]]) {
           P(this.cylinders, u, w, 0.04, 0.04, 0, 0.12, COL.trunk);
@@ -517,8 +517,8 @@ export class Renderer3D {
       case 'police':
         P(this.rboxes, 0, -0.08, 0.8, 0.58, 0, 0.5, S.police);
         P(this.boxes, 0, -0.08, 0.84, 0.62, 0.5, 0.05, S.policeTrim);
-        P(this.boxes, -0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#ef7f86');
-        P(this.boxes, 0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#6f9ee8');
+        P(this.boxes, -0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#e4a0a4');
+        P(this.boxes, 0.06, -0.08, 0.1, 0.08, 0.55, 0.06, '#9fb6e0');
         P(this.rboxes, -0.2, 0.36, 0.14, 0.24, 0, 0.1, '#ffffff'); // patrol car
         P(this.boxes, -0.2, 0.36, 0.1, 0.05, 0.1, 0.03, S.policeTrim);
         break;
@@ -531,7 +531,7 @@ export class Renderer3D {
         break;
       case 'recycling':
         P(this.rboxes, -0.08, -0.12, 0.66, 0.5, 0, 0.42, S.recycling);
-        P(this.roofs, -0.08, -0.12, 0.7, 0.54, 0.42, 0.12, '#93c98a');
+        P(this.roofs, -0.08, -0.12, 0.7, 0.54, 0.42, 0.12, '#b3d6aa');
         S.bins.forEach((c, n) => P(this.rboxes, -0.25 + n * 0.22, 0.32, 0.16, 0.16, 0, 0.18, c));
         break;
       default:
