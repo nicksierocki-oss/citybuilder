@@ -13,6 +13,10 @@ export function tilesForDrag(map, shape, a, b) {
   const out = [];
   const clampX = (v) => Math.max(0, Math.min(map.width - 1, v));
   const clampY = (v) => Math.max(0, Math.min(map.height - 1, v));
+  if (shape === 'single') {
+    const x = Math.max(0, Math.min(map.width - 1, b.x)), y = Math.max(0, Math.min(map.height - 1, b.y));
+    return [map.idx(x, y)];
+  }
   if (shape === 'line') {
     // L-shaped: along the longer axis first, then the other.
     const ax = clampX(a.x), ay = clampY(a.y), bx = clampX(b.x), by = clampY(b.y);

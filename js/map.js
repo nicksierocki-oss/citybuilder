@@ -4,8 +4,13 @@
 import { CONFIG } from './config.js';
 
 export const TERRAIN = { GRASS: 0, WATER: 1 };
-export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5 };
-export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park'];
+export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6 };
+export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building'];
+// Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
+export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling'];
+export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
+// Utility service status per tile (map.power / map.water)
+export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
 export const FLAG = { TREES: 1, ABANDONED: 2 };
 
 export const ROAD_CLASS = { STREET: 0, AVENUE: 1, HIGHWAY: 2 };
@@ -40,6 +45,7 @@ export class GameMap {
     this.flags = new Uint8Array(n);
     this.variant = new Uint8Array(n);   // cosmetic randomness per tile
     this.roadClass = new Uint8Array(n); // ROAD_CLASS for road tiles
+    this.kind = new Uint8Array(n);      // KINDS index for public buildings
     // Derived layers (recomputed by the simulation)
     this.pollution = new Float32Array(n);
     this.landValue = new Float32Array(n);
@@ -53,6 +59,14 @@ export class GameMap {
     this.employed = new Float32Array(n);  // residential: share of workers who found a job (1 if vacant)
     this.passing = new Float32Array(n);   // trips on roads next to this tile
     this.employed.fill(1);
+    // Utilities & services (derived, see services.js)
+    this.power = new Uint8Array(n);       // SUPPLY status
+    this.water = new Uint8Array(n);
+    this.coverage = {                     // 0..1 service coverage per tile
+      school: new Float32Array(n), clinic: new Float32Array(n),
+      plaza: new Float32Array(n), recycling: new Float32Array(n),
+    };
+    this.happiness = new Float32Array(n);
     this.roadsDirty = true;
     this.version = 0;                   // bumped on every player edit (renderers cache on it)
   }
@@ -184,7 +198,7 @@ export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.
   return map;
 }
 
-const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass'];
+const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind'];
 
 // Grow a city's map to newSize x newSize, adding land evenly on every side.
 // The river keeps meandering into the new land and every road that ran off the old

@@ -48,6 +48,19 @@ function sensible(state, avenues = false) {
   let stage = 0;
   return (month) => {
     const s = state.stats;
+    // Utilities as demand appears: wind first, coal once the city can afford it.
+    const u = state.utilities;
+    if (month === 3) applyTool(state, 'wind', [state.map.idx(12, H + 2)]);
+    if (month === 6) applyTool(state, 'pump', [state.map.idx(rx, H + 1)]);
+    if (month > 6 && u.power.demand > 0.85 * u.power.supply && state.funds > 3500) {
+      const spots = [[10, H + 1], [11, H + 1], [10, H - 1], [11, H - 1]];
+      for (const [x, y] of spots) if (applyTool(state, 'coal', [state.map.idx(x, y)]).applied) break;
+    }
+    if (month > 6 && u.water.demand > 0.85 * u.water.supply && state.funds > 1500) {
+      for (const [x, y] of [[rx - 1, H + 1], [rx + 1, H - 1], [rx - 1, H - 1]]) if (applyTool(state, 'pump', [state.map.idx(x, y)]).applied) break;
+    }
+    if (month === 16) applyTool(state, 'school', [state.map.idx(12, H - 4)]);
+    if (month === 36) applyTool(state, 'clinic', [state.map.idx(12, H + 8)]);
     if (stage === 0 && month >= 14) {
       stage++;
       if (avenues) {
@@ -129,6 +142,8 @@ function run(name, strategy, months = 72, seed = 12345) {
     }
     let maxLoad = 0; for (let i = 0; i < state.map.size; i++) if (state.map.type[i] === TILE.ROAD) maxLoad = Math.max(maxLoad, state.map.traffic[i]);
     console.log('traffic', JSON.stringify(state.traffic), 'maxVolume', maxLoad.toFixed(0), reasons);
+    console.log('services', JSON.stringify(state.stats.services), 'utilities', JSON.stringify(state.utilities), 'happiness', state.happiness.toFixed(0));
+    console.log('budget', JSON.stringify(state.lastMonth?.breakdown));
   }
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';
   const secs2x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[2] / 1000).toFixed(0) : '-';

@@ -1,7 +1,7 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, isZone } from './map.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -13,8 +13,24 @@ export const TOOLS = {
   commercial:  { label: 'Commercial',  key: '3', shape: 'rect', tile: TILE.COM },
   industrial:  { label: 'Industrial',  key: '4', shape: 'rect', tile: TILE.IND },
   park:        { label: 'Park',        key: '5', shape: 'rect', tile: TILE.PARK },
+  trees:       { label: 'Plant trees', shape: 'rect' },
   bulldoze:    { label: 'Bulldoze',    key: '6', shape: 'rect' },
+  // Public buildings: one per click
+  coal:        { label: 'Coal plant',  shape: 'single', building: 'coal' },
+  wind:        { label: 'Wind farm',   shape: 'single', building: 'wind' },
+  pump:        { label: 'Water pump',  shape: 'single', building: 'pump' },
+  school:      { label: 'School',      shape: 'single', building: 'school' },
+  clinic:      { label: 'Clinic',      shape: 'single', building: 'clinic' },
+  plaza:       { label: 'Plaza',       shape: 'single', building: 'plaza' },
+  recycling:   { label: 'Recycling',   shape: 'single', building: 'recycling' },
 };
+
+export function toolPrice(tool) {
+  const def = TOOLS[tool];
+  if (def.building) return CONFIG.buildings[def.building].cost;
+  if (tool === 'trees') return CONFIG.costs.plantTrees;
+  return CONFIG.costs[tool];
+}
 
 function push(state, text, kind = 'info') { state.events.push({ text, kind }); }
 
@@ -37,18 +53,25 @@ export function toolCost(state, tool, i) {
   const map = state.map, C = CONFIG.costs;
   const t = map.type[i], water = map.terrain[i] === TERRAIN.WATER;
   const trees = map.hasFlag(i, FLAG.TREES) ? C.clearTrees : 0;
+  if (TOOLS[tool]?.building) {
+    if (water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
+    if (isZone(t) && map.level[i] > 0) return null;
+    return CONFIG.buildings[TOOLS[tool].building].cost + trees;
+  }
   switch (tool) {
+    case 'trees':
+      return t === TILE.EMPTY && !water && !map.hasFlag(i, FLAG.TREES) ? C.plantTrees : null;
     case 'road': case 'avenue': case 'highway': case 'upgrade': {
       const cls = targetRoadClass(map, tool, i);
       if (cls == null) return null;
       if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
-      if (t === TILE.PARK) return null;
+      if (t === TILE.PARK || t === TILE.SERVICE) return null;
       return roadCost(cls, water) + (water ? 0 : trees);
     }
     case 'residential': case 'commercial': case 'industrial': case 'park': {
       const want = TOOLS[tool].tile;
-      if (water || t === TILE.ROAD || t === want) return null;
+      if (water || t === TILE.ROAD || t === want || t === TILE.SERVICE) return null;
       if (isZone(t) && map.level[i] > 0) return null;
       if (t === TILE.PARK && want !== TILE.PARK) return null;
       return C[tool] + trees;
@@ -65,22 +88,34 @@ export function toolCost(state, tool, i) {
 function applyOne(state, tool, i) {
   const map = state.map;
   const wasRoad = map.type[i] === TILE.ROAD;
-  if (tool === 'bulldoze') {
+  if (tool === 'trees') {
+    map.setFlag(i, FLAG.TREES, true);
+  } else if (TOOLS[tool]?.building) {
+    map.type[i] = TILE.SERVICE;
+    map.kind[i] = KIND_ID[TOOLS[tool].building];
+    map.level[i] = 0;
+    map.roadClass[i] = 0;
+    map.setFlag(i, FLAG.TREES, false);
+    map.setFlag(i, FLAG.ABANDONED, false);
+  } else if (tool === 'bulldoze') {
     if (map.type[i] === TILE.EMPTY) map.setFlag(i, FLAG.TREES, false);
     map.type[i] = TILE.EMPTY;
     map.level[i] = 0;
+    map.kind[i] = 0;
     map.roadClass[i] = 0;
     map.traffic[i] = 0;
     map.setFlag(i, FLAG.ABANDONED, false);
   } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {
     map.roadClass[i] = targetRoadClass(map, tool, i);
     map.type[i] = TILE.ROAD;
+    map.kind[i] = 0;
     map.level[i] = 0;
     map.setFlag(i, FLAG.TREES, false);
     map.setFlag(i, FLAG.ABANDONED, false);
   } else {
     map.type[i] = TOOLS[tool].tile;
     map.roadClass[i] = 0;
+    map.kind[i] = 0;
     map.level[i] = 0;
     map.setFlag(i, FLAG.TREES, false);
     map.setFlag(i, FLAG.ABANDONED, false);
@@ -130,7 +165,13 @@ export function monthlyBudget(state) {
     highways: s.highways * E.highwayMaintenance,
     bridges: s.bridges * E.bridgeMaintenance,
     parks: s.parks * E.parkMaintenance,
+    utilities: 0,
+    services: 0,
   };
+  for (const [k, n] of Object.entries(s.services || {})) {
+    const upkeep = n * CONFIG.buildings[k].upkeep;
+    if (k === 'coal' || k === 'wind' || k === 'pump') expenses.utilities += upkeep; else expenses.services += upkeep;
+  }
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
   return { income, expenses, totalIncome: sum(income), totalExpenses: sum(expenses) };
 }
@@ -144,6 +185,13 @@ export function economySystem(state) {
   state.lastMonth = { income: Math.round(b.totalIncome), expenses: Math.round(b.totalExpenses), net, breakdown: b };
   state.month++;
   if (state.month >= 12) { state.month = 0; state.year++; }
+
+  if (state.utilityGrace > 0) {
+    state.utilityGrace--;
+    const g = state.utilityGrace;
+    if (g === 6 || g === 3 || g === 1) push(state, `Utilities required in ${g} month${g === 1 ? '' : 's'}: build power plants and water pumps`, 'bad');
+    if (g === 0) push(state, 'Utilities are now required for medium and high density', 'bad');
+  }
 
   if (state.funds < 0) {
     state.negativeMonths++;

@@ -1,12 +1,13 @@
 // Save / load: serialise persistent state to JSON. Derived layers are recomputed on load.
 
 import { GameMap, TILE, highwayEntry } from './map.js';
+import { CONFIG } from './config.js';
 import { refreshFields } from './simulation.js';
 
-const VERSION = 2;
-const LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass'];
+const VERSION = 3;
+const LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind'];
 // Layers added after v1; older saves simply don't have them (defaults to zeros).
-const OPTIONAL_LAYERS = new Set(['roadClass']);
+const OPTIONAL_LAYERS = new Set(['roadClass', 'kind']);
 
 // Uint8 layer -> base64 string (compact and JSON-safe)
 function encode(arr) {
@@ -34,6 +35,7 @@ export function serialize(state) {
     funds: state.funds, taxRate: state.taxRate,
     demand: state.demand, negativeMonths: state.negativeMonths,
     milestones: state.milestones, lastMonth: state.lastMonth,
+    utilityGrace: state.utilityGrace,
   };
 }
 
@@ -59,7 +61,20 @@ export function deserialize(data) {
     negativeMonths: data.negativeMonths | 0, bankrupt: false,
     milestones: Array.isArray(data.milestones) ? data.milestones : [],
     events: [], rng: Math.random,
+    utilityGrace: data.utilityGrace | 0,
+    traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
+    utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
+    happiness: 0,
   };
+  // Cities from before utilities existed get time to build power and water.
+  if ((data.version | 0) < 3) {
+    let dense = false;
+    for (let i = 0; i < map.size && !dense; i++) if (map.level[i] >= 2) dense = true;
+    if (dense) {
+      state.utilityGrace = CONFIG.utilities.graceMonths;
+      state.events.push({ text: `New: power & water! You have ${state.utilityGrace} months to supply your denser buildings.`, kind: 'bad' });
+    }
+  }
   refreshFields(state);
   return state;
 }

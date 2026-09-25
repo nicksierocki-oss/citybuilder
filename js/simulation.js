@@ -6,6 +6,8 @@ import { CONFIG } from './config.js';
 import { GameMap, generateMap, TILE, TERRAIN, FLAG, isZone } from './map.js';
 import { economySystem } from './economy.js';
 import { trafficSystem } from './traffic.js';
+import { utilitySystem, coverageSystem, happinessSystem, happinessReasons, utilitiesEnforced, kindOf } from './services.js';
+import { SUPPLY } from './map.js';
 
 export function createGame(seed, size = CONFIG.map.defaultSize) {
   const map = generateMap(seed, size);
@@ -23,6 +25,9 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     bankrupt: false,
     milestones: [],
     traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
+    utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
+    happiness: 0,
+    utilityGrace: 0,          // months left before utilities are enforced (older saves)
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
   };
@@ -36,6 +41,7 @@ function emptyStats() {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
     roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0,
     zoned: { r: 0, c: 0, i: 0 }, abandoned: 0,
+    services: {},             // count per public building kind
   };
 }
 
@@ -78,9 +84,10 @@ export function pollutionSystem(state) {
   pol.fill(0);
   for (let i = 0; i < map.size; i++) {
     const t = map.type[i], lv = map.level[i];
-    if (lv === 0 || map.hasFlag(i, FLAG.ABANDONED)) continue;
+    if ((lv === 0 && t !== TILE.SERVICE) || map.hasFlag(i, FLAG.ABANDONED)) continue;
     let e = 0, r = 0;
-    if (t === TILE.IND) { e = P.industryEmission[lv]; r = P.industryRadius[lv]; }
+    if (t === TILE.SERVICE && kindOf(map, i) === 'coal') { e = CONFIG.buildings.coal.pollution; r = CONFIG.buildings.coal.pollutionRadius; }
+    else if (t === TILE.IND) { e = P.industryEmission[lv]; r = P.industryRadius[lv]; }
     else if (t === TILE.COM) { e = P.commercialEmission[lv]; r = P.commercialRadius[lv]; }
     if (e <= 0) continue;
     const x0 = i % w, y0 = (i / w) | 0;
@@ -104,6 +111,9 @@ export function pollutionSystem(state) {
       pol[y * w + x] += dx === 0 && dy === 0 ? e : e * 0.5;
     }
   }
+  // Recycling centres cut pollution across their catchment.
+  const cut = CONFIG.buildings.recycling.pollutionCut, rec = map.coverage.recycling;
+  for (let i = 0; i < map.size; i++) if (rec[i] > 0) pol[i] *= 1 - cut * Math.min(1, rec[i] * 1.5);
   for (let i = 0; i < map.size; i++) {
     if (pol[i] <= 0) continue;
     let absorb = 0;
@@ -154,6 +164,8 @@ export function landValueSystem(state) {
     v += Math.min(L.treeCap, treeB[i]);
     v += Math.min(L.commercialCap, comB[i]);
     v -= abB[i];
+    const B = CONFIG.buildings, cov = map.coverage;
+    v += cov.school[i] * B.school.landValue + cov.clinic[i] * B.clinic.landValue + cov.plaza[i] * B.plaza.landValue;
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight;
     lv[i] = Math.max(0, Math.min(100, v));
@@ -198,6 +210,7 @@ export function computeStats(state) {
       else s.roads++;
     }
     else if (t === TILE.PARK) s.parks++;
+    else if (t === TILE.SERVICE) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }
     if (isZone(t) && !alive) s.abandoned++;
   }
   s.jobs = s.comJobs + s.indJobs;
@@ -253,7 +266,12 @@ export function evaluateTile(state, i) {
   const lv = map.landValue[i];
   let score, maxLevel = 3;
   if (t === TILE.RES) {
-    score = state.demand.r + (lv - 40) / 60 * G.landValueWeight;
+    const hp = map.happiness[i];
+    score = state.demand.r + (lv - 40) / 60 * G.landValueWeight + (hp - 50) / 50 * CONFIG.happiness.scoreWeight;
+    if (hp < 40 && map.level[i] > 0) {
+      const why = happinessReasons(state, i);
+      reasons.push(`Unhappy residents (${Math.round(hp)})${why.length ? ': ' + why.join(', ') : ''}`);
+    }
     while (maxLevel > 1 && lv < G.residentialLevelLV[maxLevel]) maxLevel--;
     if (state.demand.r <= 0) reasons.push('No residential demand — the city needs more jobs');
     if (maxLevel < 3) reasons.push(`Land value ${lv.toFixed(0)} caps density at ${levelName(maxLevel)} (needs ${G.residentialLevelLV[maxLevel + 1]})`);
@@ -275,6 +293,7 @@ export function evaluateTile(state, i) {
     const shoppers = map.shoppers[i];
     const TR = CONFIG.traffic;
     score = state.demand.c + (lv - 40) / 60 * 0.3 + Math.min(0.3, shoppers / 400) - 0.1
+      + map.coverage.plaza[i] * CONFIG.buildings.plaza.shopBonus
       + Math.min(TR.passingBonusCap, map.passing[i] / TR.passingBonusPer * 0.1);
     while (maxLevel > 1 && (lv < G.commercialLevelLV[maxLevel] || shoppers < G.commercialLevelShoppers[maxLevel])) maxLevel--;
     if (state.demand.c <= 0) reasons.push('No commercial demand — needs more residents (or workers)');
@@ -288,6 +307,23 @@ export function evaluateTile(state, i) {
     if (rd <= G.freightNear) score += G.freightBonus;
     else if (rd > G.freightFar) { score -= G.freightPenalty; reasons.push(`Long freight trip: ${rd} road tiles to the highway`); }
     if (state.demand.i <= 0) reasons.push('No industrial demand — needs more residents (or workers)');
+  }
+  // Utilities cap density: power for medium, power + water for high.
+  const U = CONFIG.utilities;
+  const enforce = utilitiesEnforced(state);
+  const hasPower = map.power[i] === SUPPLY.OK, hasWater = map.water[i] === SUPPLY.OK;
+  let utilCap = 3;
+  if (!hasPower) utilCap = U.powerForLevel - 1;
+  else if (!hasWater) utilCap = U.waterForLevel - 1;
+  if (utilCap < maxLevel) {
+    const need = !hasPower ? (map.power[i] === SUPPLY.SHORT ? 'Power shortage: build another plant' : 'No power: build a power plant beside a connected road')
+      : (map.water[i] === SUPPLY.SHORT ? 'Water shortage: build another pump' : 'No water: build a water pump beside a connected road');
+    if (enforce) {
+      maxLevel = Math.max(1, utilCap);
+      reasons.push(`${need} (caps density at ${levelName(maxLevel)})`);
+    } else {
+      reasons.push(`${need}. Required in ${state.utilityGrace} month${state.utilityGrace === 1 ? '' : 's'}`);
+    }
   }
   if (map.hasFlag(i, FLAG.ABANDONED) && score > 0) reasons.push('Conditions improving — may be reoccupied');
   return { score, maxLevel, reasons, connected: true };
@@ -342,9 +378,12 @@ export function growthSystem(state) {
 function runFieldSystems(state) {
   roadSystem(state);
   trafficSystem(state);
+  coverageSystem(state);
+  utilitySystem(state);
   pollutionSystem(state);
   landValueSystem(state);
   shopperSystem(state);
+  happinessSystem(state);
 }
 
 const MILESTONES = [100, 500, 1000, 2500, 5000, 10000, 20000];
@@ -363,9 +402,12 @@ function milestoneSystem(state) {
 export const SYSTEMS = [
   { name: 'roads', run: roadSystem },
   { name: 'traffic', run: trafficSystem, every: CONFIG.traffic.everyTicks },
+  { name: 'coverage', run: coverageSystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'utilities', run: utilitySystem, every: CONFIG.utilities.everyTicks },
   { name: 'pollution', run: pollutionSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'landValue', run: landValueSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'shoppers', run: shopperSystem, every: CONFIG.sim.fieldsEveryTicks },
+  { name: 'happiness', run: happinessSystem, every: CONFIG.sim.fieldsEveryTicks },
   { name: 'stats', run: computeStats },
   { name: 'demand', run: demandSystem },
   { name: 'growth', run: growthSystem },

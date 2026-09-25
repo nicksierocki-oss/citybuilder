@@ -25,11 +25,11 @@ export const CONFIG = {
     taxRateMin: 0,
     taxRateMax: 20,
     // monthly tax base at 100% rate (multiplied by taxRate/100)
-    taxPerResident: 2.2,
-    taxPerCommercialJob: 3,
-    taxPerIndustrialJob: 3,
+    taxPerResident: 3,
+    taxPerCommercialJob: 4,
+    taxPerIndustrialJob: 4,
     // monthly upkeep
-    roadMaintenance: 1.5,
+    roadMaintenance: 1.25,
     bridgeMaintenance: 5,
     avenueMaintenance: 3,
     highwayMaintenance: 8,
@@ -51,6 +51,7 @@ export const CONFIG = {
     industrial: 10,
     park: 40,
     clearTrees: 5,           // extra charge when building on trees
+    plantTrees: 15,
     bulldoze: 5,
     bulldozePerLevel: 10,    // extra per building density level
   },
@@ -136,6 +137,39 @@ export const CONFIG = {
     noiseCap: 14,
     pollutionPerTrip: 0.025,    // road tile pollution per trip (radius 1)
     pollutionCap: 18,
+  },
+
+  // Public buildings (one tile each). Utilities must touch a road: power and water
+  // travel through the road network (lines and pipes run under the streets).
+  buildings: {
+    coal:      { label: 'Coal plant',   cost: 2500, upkeep: 40, power: 600, pollution: 55, pollutionRadius: 5 },
+    wind:      { label: 'Wind farm',    cost: 1000, upkeep: 15, power: 150 },
+    pump:      { label: 'Water pump',   cost: 800,  upkeep: 20, water: 400, dryWater: 130, nearWaterRange: 2 },
+    school:    { label: 'School',       cost: 1200, upkeep: 30, radius: 9, happiness: 14, landValue: 8 },
+    clinic:    { label: 'Clinic',       cost: 1200, upkeep: 30, radius: 9, happiness: 14, landValue: 5 },
+    plaza:     { label: 'Plaza',        cost: 250,  upkeep: 6,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
+    recycling: { label: 'Recycling center', cost: 1800, upkeep: 35, radius: 7, pollutionCut: 0.5 },
+  },
+
+  utilities: {
+    // Units consumed per building by density level [vacant, low, medium, high]
+    powerUse: { residential: [0, 1, 3, 7], commercial: [0, 2, 4, 9], industrial: [0, 3, 6, 12] },
+    waterUse: { residential: [0, 1, 3, 7], commercial: [0, 1, 3, 6], industrial: [0, 3, 6, 10] },
+    serviceUse: 4,           // power and water used by schools, clinics, etc.
+    powerForLevel: 2,        // buildings need power to grow to this density or higher...
+    waterForLevel: 3,        // ...and water for this one
+    graceMonths: 12,         // cities from older versions get this long to build utilities
+    everyTicks: 4,
+  },
+
+  happiness: {
+    base: 50,
+    landValueWeight: 0.3,    // per point of land value above/below 40
+    pollutionWeight: 0.35,
+    commuteWeight: 0.8,      // per minute over the comfortable commute
+    noPower: 15,
+    noWater: 10,
+    scoreWeight: 0.25,       // residential growth score shift at 0 or 100 happiness
   },
 
   sim: {
