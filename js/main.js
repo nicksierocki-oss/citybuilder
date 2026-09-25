@@ -8,7 +8,7 @@ import { expandMap, highwayEntry } from './map.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
-import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave } from './save.js';
+import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave, restoreBackup } from './save.js';
 
 const canvas = document.getElementById('game');
 const canvas3d = document.getElementById('game3d');
@@ -115,6 +115,15 @@ const game = {
     if (r.ok) refreshFields(this.state);
     this.ui.toast(r.text, r.ok ? 'info' : 'bad');
   },
+  restorePrevious() {
+    try {
+      this.setState(restoreBackup(this.state));
+      this.setSpeed(0);
+      this.ui.toast('Previous city restored (paused). The city you were on is now the previous one.', 'good', 6000);
+    } catch (err) {
+      this.ui.toast(`Could not restore: ${err.message}`, 'bad', 5000);
+    }
+  },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {
     try {
@@ -132,12 +141,15 @@ game.ui = new UI(game);
 game.input = new Input(game, [canvas, canvas3d]);
 
 const restored = loadAutosave();
-if (restored && !restored.bankrupt) {
-  game.setState(restored);
+if (restored?.state) {
+  game.setState(restored.state);
   game.setSpeed(0);
   game.ui.toast('Restored your last city (paused). Press Space to resume.', 'info', 5000);
 } else {
-  game.newCity();
+  game.newCity(); // keeps any previous save as the backup
+  if (restored?.error) {
+    game.ui.toast(`Your saved city could not be loaded (${restored.error}). It was kept: City ▾ → Restore previous city.`, 'bad', 12000);
+  }
 }
 game.setTool('road');
 game.ui.setOverlay(null);

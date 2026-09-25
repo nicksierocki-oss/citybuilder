@@ -153,15 +153,40 @@ export function readSaveFile(file) {
 }
 
 const AUTOSAVE_KEY = 'gridline.autosave';
+// The city an autosave replaced (new city, reset, or a save that failed to load), so a
+// mistake or a bug never destroys a city outright. "Restore previous city" swaps it back.
+const BACKUP_KEY = 'gridline.autosave.previous';
 export function autosave(state) {
   try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serialize(state))); } catch { /* storage unavailable */ }
 }
+// Returns { state } on success, { error } if a save exists but could not be loaded
+// (it is then kept as the backup), or null when there is no save.
 export function loadAutosave() {
-  try {
-    const s = localStorage.getItem(AUTOSAVE_KEY);
-    return s ? deserialize(JSON.parse(s)) : null;
-  } catch { return null; }
+  let raw = null;
+  try { raw = localStorage.getItem(AUTOSAVE_KEY); } catch { return null; }
+  if (!raw) return null;
+  try { return { state: deserialize(JSON.parse(raw)) }; } catch (err) {
+    try { localStorage.setItem(BACKUP_KEY, raw); } catch { /* ignore */ }
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
 }
+// Moves the current autosave to the backup slot instead of deleting it.
 export function clearAutosave() {
-  try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* ignore */ }
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (raw) localStorage.setItem(BACKUP_KEY, raw);
+    localStorage.removeItem(AUTOSAVE_KEY);
+  } catch { /* ignore */ }
+}
+export function hasBackup() {
+  try { return !!localStorage.getItem(BACKUP_KEY); } catch { return false; }
+}
+// Loads the backup city; the city being replaced becomes the new backup (so it can be undone).
+export function restoreBackup(current) {
+  const raw = localStorage.getItem(BACKUP_KEY);
+  if (!raw) throw new Error('No previous city saved');
+  const state = deserialize(JSON.parse(raw));
+  localStorage.setItem(BACKUP_KEY, JSON.stringify(serialize(current)));
+  localStorage.setItem(AUTOSAVE_KEY, raw);
+  return state;
 }

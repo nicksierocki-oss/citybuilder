@@ -8,6 +8,7 @@ import { evaluateTile, levelName } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
 import { supplyOf, happinessReasons } from './services.js';
 import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
+import { hasBackup } from './save.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -156,10 +157,16 @@ export class UI {
       menu.style.top = `${r.bottom}px`;
       menu.style.right = `${window.innerWidth - r.right}px`;
       menu.hidden = !menu.hidden;
+      $('btnRestore').hidden = !hasBackup();
     });
     window.addEventListener('click', closeMenu);
     $('btnSave').addEventListener('click', () => { closeMenu(); this.game.save(); });
     $('btnLoad').addEventListener('click', () => { closeMenu(); $('fileInput').click(); });
+    $('btnRestore').addEventListener('click', () => {
+      closeMenu();
+      this.confirm('Restore previous city?', 'Switch back to the city you had before your last new city or reset. The city you are on now becomes the previous one, so you can switch back again.',
+        'Restore', () => this.game.restorePrevious());
+    });
     $('fileInput').addEventListener('change', (e) => {
       const input = /** @type {HTMLInputElement} */ (e.target);
       const f = input.files?.[0];
