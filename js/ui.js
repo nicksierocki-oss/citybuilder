@@ -222,7 +222,10 @@ export class UI {
       if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
       if (id === 'btnBudgetClose') this.toggleBudget(false);
     });
-    $('btnDayNight').addEventListener('click', () => { closeMenu(); this.game.setDayNight(!this.game.dayNight); this.updateMenuLabels(); });
+    $('btnDayNight').addEventListener('click', () => { closeMenu(); this.game.setDayNight(!this.game.dayNight); });
+    $('btnSeasons').addEventListener('click', () => { closeMenu(); this.game.setSeasons(!this.game.seasons); });
+    $('tglDayNight').addEventListener('click', () => this.game.setDayNight(!this.game.dayNight));
+    $('tglSeasons').addEventListener('click', () => this.game.setSeasons(!this.game.seasons));
     $('btnUndo').addEventListener('click', () => this.game.undo());
     $('popStat').addEventListener('click', () => this.toggleGraphs());
     $('btnMinimap').addEventListener('click', () => { closeMenu(); this.minimap.toggle(); this.updateMenuLabels(); });
@@ -242,7 +245,13 @@ export class UI {
   }
 
   updateMenuLabels() {
-    $('btnDayNight').textContent = this.game.dayNight ? 'Day & night: on' : 'Day & night: off';
+    const g = this.game;
+    $('btnDayNight').textContent = g.dayNight ? 'Day & night: on' : 'Day & night: off';
+    $('btnSeasons').textContent = g.seasons ? 'Seasons: on' : 'Seasons: off';
+    $('tglDayNight').classList.toggle('active', g.dayNight);
+    $('tglDayNight').title = `Day & night cycle: ${g.dayNight ? 'on' : 'off'} (click to turn ${g.dayNight ? 'off' : 'on'})`;
+    $('tglSeasons').classList.toggle('active', g.seasons);
+    $('tglSeasons').title = `Seasons: ${g.seasons ? 'on' : 'off, always summer colours'} (click to turn ${g.seasons ? 'off' : 'on'})`;
     $('btnMinimap').textContent = this.minimap?.visible === false ? 'Show mini-map' : 'Hide mini-map';
   }
 

@@ -100,7 +100,8 @@ There's an optional **3D view**, built with Three.js. The library is included in
    Names float over the map, and the **Districts** overlay colours them in.
 13. **Watch the seasons and the clock.** Grass, trees and parks follow the seasons
    (blossom in spring, gold in autumn, snow on roofs in winter). Evenings bring street
-   lamps, lit windows and headlights; turn the cycle off under **City → Day & night**.
+   lamps, lit windows and headlights. The ☾ and 🍂 buttons in the top bar (also in the
+   **City** menu) switch the day/night cycle and the seasons off or on; the game remembers.
 14. **Look back.** Click **Population** (or press `G`) for the city history graphs:
    population and jobs, funds, income and upkeep, commute and jams, happiness, crime and
    education, over 2 years, 10 years or the whole game.

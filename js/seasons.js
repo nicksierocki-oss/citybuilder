@@ -75,9 +75,10 @@ export function timeOfDay(animTime, enabled = true) {
 }
 
 // Combined environment the renderers read each frame.
-export function environment(state, animTime, dayNight = true) {
+// With seasons off the city stays in its summer colours.
+export function environment(state, animTime, dayNight = true, seasons = true) {
   const frac = (state.tick % CONFIG.time.ticksPerMonth) / CONFIG.time.ticksPerMonth;
-  return { ...seasonPalette(state.month + frac), ...timeOfDay(animTime, dayNight) };
+  return { ...seasonPalette(seasons ? state.month + frac : 6.5), ...timeOfDay(animTime, dayNight) };
 }
 
 export function clockText(hour) {

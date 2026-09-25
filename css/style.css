@@ -318,3 +318,8 @@ body:not(.brushable) #brushSection { opacity: 0.45; }
 #date { white-space: nowrap; }
 .stat:has(#clock) { min-width: 104px; }
 @media (max-width: 1400px) { #cityName { max-width: 84px; } #topbar { gap: 7px; } .seg button { padding: 5px 7px; } .group button { padding: 6px 8px; } }
+
+/* Scenery toggles: faded when off */
+.seg.env button { padding: 4px 6px; min-width: 0; opacity: 0.45; filter: grayscale(1); }
+.seg.env button.active { background: var(--accent-soft); color: inherit; opacity: 1; filter: none; }
+@media (max-width: 1400px) { #btnReset { display: none; } .seg.env button { padding: 3px 4px; } .stat.util .gauge small { min-width: 40px; } #topbar > .stat:has(#safety) { min-width: 46px; } }

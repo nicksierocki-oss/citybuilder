@@ -42,6 +42,10 @@
     </div>
     <div class="spacer"></div>
     <div class="group">
+      <div class="group seg env" role="group" aria-label="Scenery">
+        <button id="tglDayNight" aria-label="Day and night cycle">☾</button>
+        <button id="tglSeasons" aria-label="Seasons">🍂</button>
+      </div>
       <button id="btnUndo" title="Undo the last build (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
       <button id="btnView" class="view" title="Switch to the 3D view (V)">3D</button>
       <button id="btnReset" title="Start over on a fresh map of the same size">Reset</button>
@@ -53,6 +57,7 @@
           <button id="btnSave">Save to file</button>
           <button id="btnLoad">Load from file…</button>
           <button id="btnDayNight">Day &amp; night</button>
+          <button id="btnSeasons">Seasons</button>
           <button id="btnMinimap">Mini-map</button>
         </div>
       </div>
@@ -110,6 +115,7 @@
           <li><b>Keep traffic moving</b>: drag the <b>Upgrade</b> tool (<kbd>9</kbd>) along busy roads: Street → Avenue → Highway (no driveways). Intersections slow cars down: add <b>Lights</b> at busy ones, and <b>Ramps</b> (an interchange) where a highway crosses another road.</li>
           <li><b>Public transit</b>: people within walking distance of a <b>bus stop</b> (3 tiles) or <b>metro station</b> (4) ride to jobs near another stop of the same kind, leaving the roads. Place stops in pairs: one among homes, one among jobs.</li>
           <li><b>Educate</b>: schools (and later a university) raise the share of skilled residents over a few years. Offices, big shops and high-tech industry need skilled workers; skilled residents also pay more tax. Press <kbd>N</kbd> for the education overlay.</li>
+          <li><b>Scenery</b>: the ☾ and 🍂 buttons in the top bar turn the day/night cycle and the seasons on or off.</li>
           <li><b>Landmarks</b> unlock as the city grows: a town park, a central park (1,000 residents), a university (1,500) and a stadium (2,500). They cover several tiles and lift a whole area; the stadium sells tickets.</li>
           <li><b>Districts</b>: name neighbourhoods in the Districts panel, paint them, and give them rules: a height limit, no heavy industry, or a tax break.</li>
           <li><b>Mind the budget</b>: roads and public buildings cost upkeep. Twelve months in debt and you're fired.</li>

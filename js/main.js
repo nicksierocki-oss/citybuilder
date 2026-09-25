@@ -15,6 +15,7 @@ const canvas = document.getElementById('game');
 const canvas3d = document.getElementById('game3d');
 const VIEW_KEY = 'gridline.view';
 const DAYNIGHT_KEY = 'gridline.daynight';
+const SEASONS_KEY = 'gridline.seasons';
 const BRUSHES = ['rect', 'line', 'circle'];
 const pref = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 
@@ -24,6 +25,7 @@ const game = {
   toolArg: 0,         // district id for the district brush
   brush: 'rect',      // how rectangle tools paint: rect | line | circle
   dayNight: pref(DAYNIGHT_KEY, '1') === '1',
+  seasons: pref(SEASONS_KEY, '1') === '1',
   lastUndo: null,     // undo record of the last build action
   speed: 1,           // 0 = paused
   hover: null,
@@ -49,6 +51,13 @@ const game = {
     this.dayNight = on;
     try { localStorage.setItem(DAYNIGHT_KEY, on ? '1' : '0'); } catch { /* ignore */ }
     this.ui.toast(on ? 'Day and night cycle on.' : 'Always daytime.', 'info', 1800);
+    this.ui.updateMenuLabels();
+  },
+  setSeasons(on) {
+    this.seasons = on;
+    try { localStorage.setItem(SEASONS_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+    this.ui.toast(on ? 'Seasons on: the city changes colour through the year.' : 'Seasons off: always summer colours.', 'info', 1800);
+    this.ui.updateMenuLabels();
   },
   undo() {
     if (!this.lastUndo || this.state.bankrupt) { this.ui.toast('Nothing to undo', 'info', 1200); return; }
@@ -183,7 +192,7 @@ function frame(now) {
   game.input.update(dt);
   if (game.speed > 0 && !game.state.bankrupt) game.animTime += dt * (0.6 + 0.4 * game.speed);
   game.renderer.time = game.animTime;
-  game.renderer.env = environment(game.state, game.animTime, game.dayNight);
+  game.renderer.env = environment(game.state, game.animTime, game.dayNight, game.seasons);
   if (game.speed > 0 && !game.state.bankrupt) {
     acc += dt * 1000;
     const step = CONFIG.time.msPerTick[game.speed];
