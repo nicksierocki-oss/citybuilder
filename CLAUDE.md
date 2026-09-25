@@ -15,19 +15,21 @@ move it to **Done** with a one-line note.
 
 We're in app-development mode (gameplay first, not distribution).
 
-**Phases A and B are done** (see Done). Next up: Phase C.
+**Phases A, B and C are done** (see Done; weather and disasters were skipped). Next up: Phase D.
 
-**Phase C: living systems**
-7. **Weather and disasters.** Floods (levee tool), heatwaves, winter storms, rare tornadoes;
-   rain and snow particles; Disasters off / mild / full.
-8. **Transit 2.0.** Drawn bus lines with frequency and cost, buses on the roads, a lines panel;
-   then tram and rail tracks and a regional train station.
+Deferred: **Weather and disasters.** Floods (levee tool), heatwaves, winter storms, rare
+tornadoes; rain and snow particles; Disasters off / mild / full.
 
 **Phase D: engine-level (own branch each, extra save-compatibility testing)**
 9. **Road tools 2.0.** One-way streets, roundabouts, parking; diagonal roads last.
 10. **Terrain.** Height layer, hills and coastline maps, slope costs, terraforming.
 
 ## Done (recent)
+
+- Phase C, Transit 2.0 (`js/transit.js`, `js/lines-ui.js`): drawn bus and tram lines
+  (`state.lines`, frequency and cost, road-path routes, vehicles in 2D/3D, tram track via
+  `FLAG.TRAM`), railways (`TILE.RAIL`, persistent `rail` layer, level crossings, bridges), train
+  stations (`railstation`), regional trains from rail at the map edge (`railExits`, region link).
 
 - Phase B: service funding per group (budget panel, scales reach/strength/upkeep), hospital +
   `health` field, garbage (landfill, recycling capacity, trash piles, grace for old saves; save v5);

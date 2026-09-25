@@ -182,3 +182,77 @@ export function migrateStops(state) {
   }
   state.lines.push({ id: 1, name: 'Line 1', color: lineColor(0), mode: 'bus', stops: order, freq: 2 });
 }
+
+// ---------------------------------------------------------------- railways
+
+// The rail network, rebuilt when the map changes: connected track (components), the stations
+// on each, travel minutes between stations and to the map edge, and paths for the trains.
+export function railNetwork(state) {
+  const map = state.map, cached = map._rail;
+  if (cached && cached.version === map.version && cached.size === map.size) return cached;
+  const { width: w, height: h, size } = map, comp = new Int32Array(size).fill(-1);
+  const nb = (i) => { const x = i % w, y = (i / w) | 0, o = []; for (const [dx, dy] of DIRS) if (x + dx >= 0 && y + dy >= 0 && x + dx < w && y + dy < h) o.push((y + dy) * w + x + dx); return o; };
+  const comps = [];
+  for (let i = 0; i < size; i++) {
+    if (!map.rail[i] || comp[i] >= 0) continue;
+    const c = comps.length, q = [i], edges = [];
+    comp[i] = c;
+    for (let hd = 0; hd < q.length; hd++) {
+      const u = q[hd], x = u % w, y = (u / w) | 0;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) edges.push(u);
+      for (const v of nb(u)) if (map.rail[v] && comp[v] < 0) { comp[v] = c; q.push(v); }
+    }
+    comps.push({ tiles: q.length, edges, stations: [] });
+  }
+  // Stations and the track tile each one boards from.
+  const stations = [];
+  for (let i = 0; i < size; i++) {
+    if (map.type[i] !== TILE.SERVICE || KINDS[map.kind[i]] !== 'railstation') continue;
+    const track = nb(i).find((j) => map.rail[j]);
+    if (track == null) continue;
+    const st = { i, track, comp: comp[track], x: i % w, y: (i / w) | 0 };
+    stations.push(st);
+    comps[st.comp].stations.push(st);
+  }
+  // Tile distances along the track from each station (BFS), with parents for the train paths.
+  const mpt = CONFIG.rail.minutesPerTile;
+  for (const st of stations) {
+    const dist = new Int32Array(size).fill(-1), par = new Int32Array(size).fill(-1), q = [st.track];
+    dist[st.track] = 0;
+    for (let hd = 0; hd < q.length; hd++) for (const v of nb(q[hd])) if (map.rail[v] && dist[v] < 0) { dist[v] = dist[q[hd]] + 1; par[v] = q[hd]; q.push(v); }
+    st.minutesTo = new Map(comps[st.comp].stations.map((o) => [o.i, dist[o.track] * mpt]));
+    const edge = comps[st.comp].edges.reduce((b, e) => (b < 0 || dist[e] < dist[b] ? e : b), -1);
+    st.edgeMinutes = edge >= 0 ? dist[edge] * mpt : Infinity;
+    const pathTo = (t) => { const p = []; for (let u = t; u >= 0; u = par[u]) p.push(u); return p.reverse(); };
+    st.paths = new Map(comps[st.comp].stations.map((o) => [o.i, pathTo(o.track)]));
+    st.edgePath = edge >= 0 ? pathTo(edge) : null;
+  }
+  // Train runs to animate: each station to the next one on its network, and out to the edge.
+  const runs = [];
+  for (const c of comps) {
+    c.stations.forEach((st, k) => {
+      const next = c.stations[k + 1];
+      if (next) runs.push(st.paths.get(next.i));
+    });
+    if (c.edges.length && c.stations.length) runs.push(c.stations[0].edgePath);
+  }
+  map._rail = { version: map.version, size, comp, comps, stations, runs: runs.filter((p) => p && p.length > 1) };
+  return map._rail;
+}
+
+// Railway links to the region (track tiles on the map edge).
+export function railExits(state) {
+  return railNetwork(state).comps.reduce((a, c) => a + (c.stations.length ? c.edges.length : 0), 0);
+}
+
+// Trains shuttling along each run: [{ x, y, horiz }] in tile units.
+export function trainPositions(state, t) {
+  const map = state.map, out = [];
+  railNetwork(state).runs.forEach((P, n) => {
+    const L = P.length - 1, cycle = L * 2, s0 = (t * 3.2 + n * 5.3) % cycle;
+    const s = s0 > L ? cycle - s0 : s0, k = Math.min(L - 1, Math.floor(s)), f = s - k;
+    const a = P[k], b = P[k + 1], ax = a % map.width, ay = (a / map.width) | 0, bx = b % map.width, by = (b / map.width) | 0;
+    out.push({ x: ax + (bx - ax) * f + 0.5, y: ay + (by - ay) * f + 0.5, horiz: ay === by });
+  });
+  return out;
+}

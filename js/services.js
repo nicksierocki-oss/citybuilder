@@ -245,7 +245,7 @@ export function happinessSystem(state) {
     if (map.terrain[i] === TERRAIN.WATER) { map.happiness[i] = 0; continue; }
     const c = map.coverage;
     let v = H.base
-      + Math.max(c.bus[i] * B.bus.happiness, c.metro[i] * B.metro.happiness)
+      + Math.max(c.bus[i] * B.bus.happiness, c.metro[i] * B.metro.happiness, c.railstation[i] * B.railstation.happiness)
       + (map.landValue[i] - 40) * H.landValueWeight
       - map.pollution[i] * H.pollutionWeight;
     for (const k of AMENITY_KINDS) v += c[k][i] * B[k].happiness;

@@ -83,7 +83,7 @@ export const OVERLAYS = {
   },
   transit: {
     label: 'Transit', key: 'm', kind: 'field',
-    value: (map, i) => (isLand(map, i) ? Math.max(map.coverage.bus[i], map.coverage.metro[i]) * 100 : null),
+    value: (map, i) => (isLand(map, i) ? Math.max(map.coverage.bus[i], map.coverage.metro[i], map.coverage.railstation[i]) * 100 : null),
     color: (v) => cover(v / 100),
     legend: { gradient: gradient(cover), labels: ['walk too far', 'nearby', 'at the stop'] },
     hint: 'Walking distance to a bus or tram stop (3 tiles) or metro station (4). Buses and trams take riders to other stops on the same line; metro connects every station.',

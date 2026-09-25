@@ -4,7 +4,7 @@ import { TILE, TERRAIN, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { roadTime } from './traffic.js';
 import { drawOverlay as paintOverlay, drawDistricts, roundRect } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
-import { vehiclePositions } from './transit.js';
+import { vehiclePositions, trainPositions } from './transit.js';
 
 export const TS = 32; // tile size in world units
 
@@ -296,6 +296,7 @@ export class Renderer {
       }
     }
     if (t === TILE.ROAD) this.drawRoad(map, x, y, map.terrain[i] === TERRAIN.WATER);
+    if (map.rail[i]) this.drawRail(map, x, y, t === TILE.ROAD, map.terrain[i] === TERRAIN.WATER);
     else if (t === TILE.PARK) this.drawPark(px, py, v);
     else if (t === TILE.SERVICE) {
       const k = KINDS[map.kind[i]], [fw, fh] = footprintSize(k);
@@ -432,6 +433,29 @@ export class Renderer {
     }
   }
 
+  // Railway track: ballast, sleepers and two rails along each connected direction.
+  drawRail(map, x, y, crossing, bridge) {
+    const ctx = this.ctx, px = x * TS, py = y * TS, c = TS / 2;
+    const r = (dx, dy) => map.inBounds(x + dx, y + dy) && map.rail[map.idx(x + dx, y + dy)];
+    let n = r(0, -1), s = r(0, 1), w = r(-1, 0), e = r(1, 0);
+    if (!n && !s && !w && !e) { w = e = true; }
+    if (x === 0 && (e || !(n || s))) w = true; if (x === map.width - 1 && (w || !(n || s))) e = true;
+    if (y === 0 && (s || !(w || e))) n = true; if (y === map.height - 1 && (n || !(w || e))) s = true;
+    const arm = (dx, dy, fn) => { if (dx) fn(dx < 0 ? px : px + c, py + c, c, true); else fn(px + c, dy < 0 ? py : py + c, c, false); };
+    const each = (fn) => { if (w) arm(-1, 0, fn); if (e) arm(1, 0, fn); if (n) arm(0, -1, fn); if (s) arm(0, 1, fn); };
+    if (!crossing) {
+      ctx.fillStyle = bridge ? '#cfbba5' : '#d9d1c2';
+      each((ax, ay, len, h) => { if (h) ctx.fillRect(ax, ay - 7, len + 0.5, 14); else ctx.fillRect(ax - 7, ay, 14, len + 0.5); });
+      ctx.fillStyle = '#b09a82';
+      each((ax, ay, len, h) => { for (let k = 2; k < len; k += 5) { if (h) ctx.fillRect(ax + k, ay - 6, 2.2, 12); else ctx.fillRect(ax - 6, ay + k, 12, 2.2); } });
+    } else {
+      ctx.fillStyle = 'rgba(245,245,240,0.8)'; // crossing stripes
+      each((ax, ay, len, h) => { if (h) { ctx.fillRect(ax, ay - 8, len, 1.2); ctx.fillRect(ax, ay + 7, len, 1.2); } else { ctx.fillRect(ax - 8, ay, 1.2, len); ctx.fillRect(ax + 7, ay, 1.2, len); } });
+    }
+    ctx.fillStyle = '#8c929c';
+    each((ax, ay, len, h) => { if (h) { ctx.fillRect(ax, ay - 4.2, len + 0.5, 1.5); ctx.fillRect(ax, ay + 2.7, len + 0.5, 1.5); } else { ctx.fillRect(ax - 4.2, ay, 1.5, len + 0.5); ctx.fillRect(ax + 2.7, ay, 1.5, len + 0.5); } });
+  }
+
   // Transit routes as coloured ribbons along the roads, with a dot at each stop.
   drawRoutes(state) {
     const ctx = this.ctx, map = state.map, routes = state.transitRoutes ?? {};
@@ -458,6 +482,13 @@ export class Renderer {
   // Buses and trams in their line's colour.
   drawVehicles(state) {
     const ctx = this.ctx;
+    for (const tr of trainPositions(state, this.time)) {
+      const x = tr.x * TS, y = tr.y * TS, w = tr.horiz ? 26 : 7, h = tr.horiz ? 7 : 26;
+      ctx.fillStyle = 'rgba(40,50,60,0.2)'; roundRect(ctx, x - w / 2 + 1.5, y - h / 2 + 2, w, h, 3); ctx.fill();
+      ctx.fillStyle = '#e8e4dc'; roundRect(ctx, x - w / 2, y - h / 2, w, h, 3); ctx.fill();
+      ctx.fillStyle = '#c96a5a';
+      if (tr.horiz) ctx.fillRect(x - w / 2 + 1, y - 1, w - 2, 2); else ctx.fillRect(x - 1, y - h / 2 + 1, 2, h - 2);
+    }
     for (const v of vehiclePositions(state, this.time)) {
       const len = v.mode === 'tram' ? 15 : 9, wid = v.mode === 'tram' ? 5.5 : 5;
       const x = v.x * TS, y = v.y * TS, w = v.horiz ? len : wid, h = v.horiz ? wid : len;
@@ -1046,6 +1077,12 @@ export class Renderer {
         ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(px + 13, py + 11.5, 3.5, 0.3, Math.PI * 1.7); ctx.stroke();
+        break;
+      case 'railstation':
+        this.box(px + 3, py + 6, 26, 12, 4, '#f1e6d8', false, 3);        // station hall
+        ctx.fillStyle = this.snowy('#c98f6a'); roundRect(ctx, px + 5, py + 8, 22, 4, 2); ctx.fill();
+        ctx.fillStyle = '#e4ddd0'; roundRect(ctx, px + 2, py + 21, 28, 7, 2); ctx.fill(); // platform
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px + 16, py + 13.5, 2.6, 0, Math.PI * 2); ctx.fill(); // clock
         break;
       case 'statue':
         // Bronze mayor on a stone plinth, with a ring of flowers

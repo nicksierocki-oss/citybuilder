@@ -5,12 +5,12 @@ import { CONFIG } from './config.js';
 
 export const TERRAIN = { GRASS: 0, WATER: 1 };
 // New types go at the END (saves store the number).
-export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6, OFFICE: 7, FARM: 8, MIXED: 9 };
-export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building', 'Offices', 'Farm', 'Mixed-use'];
+export const TILE = { EMPTY: 0, ROAD: 1, RES: 2, COM: 3, IND: 4, PARK: 5, SERVICE: 6, OFFICE: 7, FARM: 8, MIXED: 9, RAIL: 10 };
+export const ZONE_NAMES = ['Empty', 'Road', 'Residential', 'Commercial', 'Industrial', 'Park', 'Public building', 'Offices', 'Farm', 'Mixed-use', 'Railway'];
 // Public building kinds stored in map.kind for TILE.SERVICE tiles (keys of CONFIG.buildings).
 // New kinds go at the END (saves store the index).
 export const KINDS = [null, 'coal', 'wind', 'pump', 'school', 'clinic', 'plaza', 'recycling', 'police', 'fire', 'bus', 'metro',
-  'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital', 'landfill'];
+  'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital', 'landfill', 'railstation'];
 export const KIND_ID = Object.fromEntries(KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 // Utility service status per tile (map.power / map.water)
 export const SUPPLY = { NONE: 0, SHORT: 1, OK: 2 };
@@ -87,6 +87,7 @@ export class GameMap {
     this.kind = new Uint8Array(n);      // KINDS index for public buildings
     this.part = new Uint8Array(n);      // multi-tile buildings: 0 = anchor (top-left), else 1 + dx + 8 * dy
     this.district = new Uint8Array(n);  // district id, 0 = none
+    this.rail = new Uint8Array(n);      // 1 = railway track (TILE.RAIL, or a road with a level crossing)
     this.education = new Uint8Array(n); // homes: skilled share of residents × 255 (changes slowly)
     this.educationReady = false;        // false until education has been seeded (new maps, old saves)
     // Derived layers (recomputed by the simulation)
@@ -115,7 +116,7 @@ export class GameMap {
       bus: new Float32Array(n), metro: new Float32Array(n),
       townpark: new Float32Array(n), centralpark: new Float32Array(n),
       university: new Float32Array(n), stadium: new Float32Array(n), statue: new Float32Array(n),
-      hospital: new Float32Array(n), landfill: new Float32Array(n),
+      hospital: new Float32Array(n), landfill: new Float32Array(n), railstation: new Float32Array(n),
     };
     this.riders = new Float32Array(n);    // transit boardings + alightings per station tile
     this.crime = new Float32Array(n);     // 0..100 per building
@@ -302,7 +303,7 @@ export function generateMap(seed = (Math.random() * 1e9) | 0, size = CONFIG.map.
   return map;
 }
 
-export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education'];
+export const PERSISTENT_LAYERS = ['terrain', 'type', 'level', 'flags', 'variant', 'roadClass', 'kind', 'part', 'district', 'education', 'rail'];
 
 // Grow a city's map to newSize x newSize, adding land evenly on every side.
 // The river keeps meandering into the new land and every road that ran off the old

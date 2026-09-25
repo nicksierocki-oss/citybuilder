@@ -4,7 +4,7 @@ import { TILE, TERRAIN, FLAG, isZone } from './map.js';
 
 const KEY = 'gridline.minimap';
 const COL = {
-  grass: [226, 240, 211], water: [166, 214, 238], trees: [169, 211, 154], road: [150, 157, 168],
+  grass: [226, 240, 211], water: [166, 214, 238], trees: [169, 211, 154], road: [150, 157, 168], rail: [150, 126, 104],
   [TILE.RES]: [124, 196, 122], [TILE.COM]: [111, 166, 227], [TILE.IND]: [227, 183, 90],
   [TILE.OFFICE]: [90, 190, 200], [TILE.FARM]: [196, 206, 110], [TILE.MIXED]: [205, 150, 120],
   park: [146, 207, 122], service: [200, 170, 210], abandoned: [190, 186, 180], fire: [232, 100, 80],
@@ -53,6 +53,7 @@ export class Minimap {
       if (map.hasFlag(i, FLAG.FIRE)) c = COL.fire;
       else if (t === TILE.ROAD) c = COL.road;
       else if (isZone(t)) c = map.hasFlag(i, FLAG.ABANDONED) ? COL.abandoned : COL[t];
+      else if (t === TILE.RAIL) c = COL.rail;
       else if (t === TILE.PARK) c = COL.park;
       else if (t === TILE.SERVICE) c = COL.service;
       else if (map.terrain[i] === TERRAIN.WATER) c = COL.water;

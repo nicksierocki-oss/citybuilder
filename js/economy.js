@@ -36,6 +36,8 @@ export const TOOLS = {
   fire:        { label: 'Fire station', shape: 'single', building: 'fire' },
   bus:         { label: 'Bus stop',    shape: 'single', building: 'bus' },
   metro:       { label: 'Metro station', shape: 'single', building: 'metro' },
+  rail:        { label: 'Railway',     shape: 'line' },
+  railstation: { label: 'Train station', shape: 'single', building: 'railstation' },
   // Landmarks: multi-tile, placed centred on the cursor
   townpark:    { label: 'Town park',    shape: 'footprint', building: 'townpark', footprint: true },
   centralpark: { label: 'Central park', shape: 'footprint', building: 'centralpark', footprint: true },
@@ -61,6 +63,7 @@ export function toolPrice(tool) {
   const def = TOOLS[tool];
   if (def.building) return CONFIG.buildings[def.building].cost;
   if (tool === 'trees') return CONFIG.costs.plantTrees;
+  if (tool === 'rail') return CONFIG.rail.cost;
   return CONFIG.costs[tool] ?? 0;
 }
 
@@ -89,11 +92,19 @@ export function toolCost(state, tool, i, arg = 0) {
   const def = TOOLS[tool];
   if (def?.building) {
     if (!def.footprint && !isUnlocked(state, def.building)) return null;
-    if (water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
+    if (def.building === 'railstation' && !besideRail(map, i)) return null;
+    if (t === TILE.RAIL || water || t === TILE.ROAD || t === TILE.SERVICE || t === TILE.PARK) return null;
     if (isZone(t) && map.level[i] > 0) return null;
     return def.footprint ? trees : CONFIG.buildings[def.building].cost + trees;
   }
   switch (tool) {
+    case 'rail': {
+      const R = CONFIG.rail;
+      if (map.rail[i]) return null;
+      if (t === TILE.ROAD) return map.roadClass[i] === 2 || water ? null : R.crossingCost; // highways need a bridge: not yet
+      if (t !== TILE.EMPTY && !(isZone(t) && map.level[i] === 0)) return null;
+      return water ? R.bridgeCost : R.cost + trees;
+    }
     case 'district':
       if (water && t !== TILE.ROAD) return null;
       return map.district[i] === arg ? null : 0;
@@ -113,11 +124,12 @@ export function toolCost(state, tool, i, arg = 0) {
       if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
       if (t === TILE.PARK || t === TILE.SERVICE) return null;
+      if (t === TILE.RAIL && (water || cls === 2)) return null; // a street or avenue can cross the tracks
       return roadCost(cls, water) + (water ? 0 : trees);
     }
     case 'residential': case 'commercial': case 'industrial': case 'office': case 'farm': case 'mixed': case 'park': {
       const want = TOOLS[tool].tile;
-      if (water || t === TILE.ROAD || t === want || t === TILE.SERVICE) return null;
+      if (water || t === TILE.ROAD || t === want || t === TILE.SERVICE || t === TILE.RAIL) return null;
       if (isZone(t) && map.level[i] > 0) return null;
       if (t === TILE.PARK && want !== TILE.PARK) return null;
       return C[tool] + trees;
@@ -135,6 +147,13 @@ export function toolCost(state, tool, i, arg = 0) {
     default:
       return null;
   }
+}
+
+// Is there railway track next to tile i (train stations must be)?
+export function besideRail(map, i) {
+  const x = i % map.width, y = (i / map.width) | 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (map.inBounds(x + dx, y + dy) && map.rail[map.idx(x + dx, y + dy)]) return true;
+  return false;
 }
 
 // Total cost of placing a landmark on `tiles` (its footprint, row by row), or null if it can't go there.
@@ -161,6 +180,12 @@ export function expandSelection(map, tool, tiles) {
 function applyOne(state, tool, i, arg = 0, part = 0) {
   const map = state.map;
   const wasRoad = map.type[i] === TILE.ROAD;
+  if (tool === 'rail') {
+    map.rail[i] = 1;
+    if (map.type[i] !== TILE.ROAD) { map.type[i] = TILE.RAIL; map.level[i] = 0; map.kind[i] = 0; map.setFlag(i, FLAG.TREES, false); }
+    map.version++;
+    return;
+  }
   if (tool === 'district') {
     map.district[i] = arg;
   } else if (tool === 'trees') {
@@ -185,6 +210,7 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
     map.kind[i] = 0;
     map.part[i] = 0;
     map.roadClass[i] = 0;
+    map.rail[i] = 0;
     map.flags[i] = 0; // clears fire, abandonment, lights and interchanges (trees handled above)
     map.burn[i] = 0;
     map.traffic[i] = 0;
@@ -316,6 +342,7 @@ export function monthlyBudget(state) {
     ordinances: ordinancesCost(state),
     imports: tradeMoney(state).cost,
     transitLines: linesCost(state),
+    rail: (s.rails ?? 0) * CONFIG.rail.upkeep + (s.railBridges ?? 0) * CONFIG.rail.bridgeUpkeep,
   };
   for (const [k, n] of Object.entries(s.services || {})) {
     const upkeep = n * CONFIG.buildings[k].upkeep * funding(state, k);

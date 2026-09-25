@@ -12,6 +12,7 @@ import { ordinance, mayorSystem } from './cityhall.js';
 import { goalsSystem, emptyGoals } from './goals.js';
 import { newsSystem } from './news.js';
 import { exportDemand } from './region.js';
+import { railExits } from './transit.js';
 
 export const DEFAULT_CITY_NAME = 'My City';
 const CITY_NAMES = ['Willowbrook', 'Riverton', 'Maple Bay', 'Fairhaven', 'Linden Park', 'Ashford', 'Brightwater',
@@ -73,7 +74,7 @@ function emptyStats() {
     population: 0, comJobs: 0, indJobs: 0, jobs: 0, workers: 0,
     roads: 0, avenues: 0, highways: 0, bridges: 0, parks: 0, lights: 0, interchanges: 0,
     zoned: { r: 0, c: 0, i: 0, o: 0, f: 0, m: 0 }, abandoned: 0,
-    officeJobs: 0, farmJobs: 0, hotels: 0, hotelIncome: 0,
+    officeJobs: 0, farmJobs: 0, hotels: 0, hotelIncome: 0, rails: 0, railBridges: 0,
     services: {},             // count per public building kind (landmarks count once)
     taxBase: { r: 0, c: 0, i: 0, o: 0, f: 0 }, // taxable residents/jobs after education, high-tech and tax breaks
     skilledJobs: 0, hightech: 0,
@@ -222,7 +223,7 @@ export function landValueSystem(state) {
     v -= map.crime[i] * CONFIG.crime.landValueWeight;
     const B = CONFIG.buildings, cov = map.coverage;
     for (const k of AMENITY_KINDS) v += cov[k][i] * B[k].landValue;
-    v += Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue);
+    v += Math.max(cov.bus[i] * B.bus.landValue, cov.metro[i] * B.metro.landValue, cov.railstation[i] * B.railstation.landValue);
     if (map.type[i] !== TILE.ROAD) v -= Math.min(CONFIG.traffic.noiseCap, map.passing[i] * CONFIG.traffic.noisePerTrip);
     v -= map.pollution[i] * L.pollutionWeight + map.trash[i] * CONFIG.garbage.landValueWeight;
     if (tramNear[i]) v += CONFIG.transit.modes.tram.landValue;
@@ -296,6 +297,7 @@ export function computeStats(state) {
       if (map.hasFlag(i, FLAG.INTERCHANGE)) s.interchanges++;
     }
     else if (t === TILE.PARK) s.parks++;
+    if (map.rail[i]) { if (map.terrain[i] === TERRAIN.WATER) s.railBridges++; else s.rails++; }
     else if (t === TILE.SERVICE && !map.part[i]) { const k = kindOf(map, i); s.services[k] = (s.services[k] || 0) + 1; }
     if (isZone(t) && abandoned) s.abandoned++;
   }
@@ -317,7 +319,7 @@ export function targetDemand(state) {
   let r = norm(targetPop, P);
 
   // Labour: can the city staff more businesses?
-  const labor = P * D.workforceRatio + D.externalLabor;
+  const labor = P * D.workforceRatio + D.externalLabor + railExits(state) * CONFIG.rail.regionalWorkers; // trains bring commuters in
   const laborRoom = norm(labor, jobs) + D.laborSlack;
 
   // Commercial: shoppers need shops.

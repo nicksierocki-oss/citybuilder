@@ -199,6 +199,7 @@ export const CONFIG = {
     statue:      { label: "Mayor's statue", cost: 500, upkeep: 5, radius: 6, landValue: 8, happiness: 6, unlockRating: 80 },
     hospital:    { label: 'Hospital',     cost: 5000, upkeep: 70, size: [2, 2], radius: 14, happiness: 6, landValue: 4, unlock: 2000 },
     // Collects `garbage` units a month from buildings within `radius`; smelly nearby.
+    railstation: { label: 'Train station', cost: 3000, upkeep: 45, radius: 5, landValue: 8, happiness: 4, capacity: 800 },
     landfill:    { label: 'Landfill',     cost: 1500, upkeep: 25, size: [2, 2], radius: 24, garbage: 700, pollution: 30, pollutionRadius: 3 },
   },
 
@@ -212,7 +213,7 @@ export const CONFIG = {
       health:    { label: 'Health',    kinds: ['clinic', 'hospital'] },
       police:    { label: 'Police',    kinds: ['police'] },
       fire:      { label: 'Fire',      kinds: ['fire'] },
-      transit:   { label: 'Transit',   kinds: ['bus', 'metro'] },
+      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation'] },
       parks:     { label: 'Parks',     kinds: ['plaza', 'townpark', 'centralpark', 'statue'] },
       garbage:   { label: 'Garbage',   kinds: ['landfill', 'recycling'] },
     },
@@ -360,6 +361,19 @@ export const CONFIG = {
       bus:  { label: 'Bus',  perVehicle: 120, vehicleCost: 20, timeFactor: 1.25, dwell: 0.5, wait: 8, share: 0.35, roadTrips: 25, animSpeed: 2.2, trackCost: 0, trackUpkeep: 0 },
       tram: { label: 'Tram', perVehicle: 300, vehicleCost: 40, timeFactor: 1.0, dwell: 0.3, wait: 6, share: 0.5, roadTrips: 8, animSpeed: 1.8, trackCost: 25, trackUpkeep: 0.5, landValue: 6 },
     },
+  },
+
+  // Railways: track tiles (level crossings over streets and avenues) and train stations.
+  rail: {
+    cost: 40, bridgeCost: 120, crossingCost: 80,   // per tile
+    upkeep: 2, bridgeUpkeep: 5,                    // per tile a month
+    minutesPerTile: 0.2, wait: 3, share: 0.55,     // fast; up to 55% of a home's workers ride
+    crossingDelay: 0.5,                            // minutes cars lose at a level crossing
+    // Track that reaches the map edge links the network to the region:
+    regionalJobs: 120,      // jobs in neighbouring towns reachable per edge link
+    regionalWorkers: 60,    // commuters from outside per edge link (labour for your businesses)
+    regionalRide: 10,       // extra minutes to jobs beyond the edge
+    linkWeight: 3,          // trade link weight of a railway leaving the map
   },
 
   // Neighbouring towns and trade (js/region.js).

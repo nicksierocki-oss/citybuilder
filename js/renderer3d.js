@@ -8,7 +8,7 @@ import { Renderer, TS, forEachCar } from './renderer.js';
 import { TILE, FLAG, KINDS, footprintSize, isZone } from './map.js';
 import { drawDistricts } from './overlays.js';
 import { seasonPalette, timeOfDay, mix } from './seasons.js';
-import { vehiclePositions } from './transit.js';
+import { vehiclePositions, trainPositions } from './transit.js';
 
 // Ground texture pixels per tile: full 2D detail on small maps, capped near 2k px for big ones.
 const texPx = (size) => Math.max(16, Math.min(TS, Math.floor(2048 / size)));
@@ -788,6 +788,13 @@ export class Renderer3D {
         P(this.rboxes, 0.36, -0.28, 0.18, 0.18, 0, 1.0, S.fireTrim); // hose-drying tower
         P(this.rboxes, 0.36, 0.3, 0.14, 0.3, 0, 0.13, S.fireTrim);   // engine
         break;
+      case 'railstation':
+        P(this.rboxes, 0, -0.12, 0.84, 0.4, 0, 0.45, '#f1e6d8');
+        P(this.roofs, 0, -0.12, 0.9, 0.46, 0.45, 0.16, this.snowy('#c98f6a'));
+        P(this.boxes, 0, 0.26, 0.9, 0.22, 0, 0.06, '#e4ddd0');
+        for (const u of [-0.35, 0, 0.35]) P(this.cylinders, u, 0.3, 0.03, 0.03, 0.06, 0.28, '#9aa3ad');
+        P(this.boxes, 0, 0.3, 0.9, 0.2, 0.34, 0.03, '#c98f6a');
+        break;
       case 'statue':
         P(this.rboxes, 0, 0, 0.36, 0.36, 0, 0.3, '#e4ddd0');
         P(this.cylinders, 0, 0, 0.12, 0.12, 0.3, 0.32, '#a8834a');
@@ -932,6 +939,7 @@ export class Renderer3D {
     this.buildSignals();
     const tv = this.transitVehicles;
     tv.begin();
+    for (const tr of trainPositions(state, this.time)) tv.add(tr.x, 0.03, tr.y, tr.horiz ? 0.85 : 0.2, 0.2, tr.horiz ? 0.2 : 0.85, '#e8e4dc');
     for (const v of vehiclePositions(state, this.time)) {
       const len = v.mode === 'tram' ? 0.5 : 0.32;
       tv.add(v.x, 0.02, v.y, v.horiz ? len : 0.15, 0.16, v.horiz ? 0.15 : len, v.color);

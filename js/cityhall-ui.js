@@ -179,7 +179,7 @@ export class CityHallUI {
 
   regionTab(s) {
     const R = CONFIG.region, info = regionInfo(s), deals = s.tradeDeals ?? {}, t = s.trade ?? {}, m = tradeMoney(s);
-    const linked = info.neighbours.filter((n) => n.exits);
+    const linked = info.neighbours.filter((n) => n.exits || n.rails);
     const kind = (n) => (n.weight >= 4 * n.exits ? 'highway' : n.weight >= 2 * n.exits ? 'avenue' : 'street');
     const deal = (res, way) => {
       const k = `${way}_${res}`, amt = t[res]?.[way === 'buy' ? 'imported' : 'exported'] ?? 0, price = (way === 'buy' ? R.buyPrice : R.sellPrice)[res];
@@ -189,7 +189,7 @@ export class CityHallUI {
     };
     return `<p class="muted">Every road that leaves the map links you to a neighbouring town. Bigger links (avenues, highways)
       carry more trade and lift demand for your industry's exports.</p>
-      <table class="links">${linked.map((n) => `<tr><td><b>${esc(n.name)}</b> <small>to the ${n.dir}</small></td><td>${n.exits} ${kind(n)}${n.exits > 1 ? 's' : ''}</td></tr>`).join('')
+      <table class="links">${linked.map((n) => `<tr><td><b>${esc(n.name)}</b> <small>to the ${n.dir}</small></td><td>${n.exits ? `${n.exits} ${kind(n)}${n.exits > 1 ? 's' : ''}` : ''}${n.rails ? `${n.exits ? ' + ' : ''}railway` : ''}</td></tr>`).join('')
         || '<tr><td class="muted">No roads leave the map: no neighbours.</td></tr>'}</table>
       <p>Links carry up to <b>${info.tradeCap.toLocaleString()}</b> units of power and water a month, and the region wants
       about <b>${exportDemand(s)}</b> industrial jobs' worth of exports. A highway to a new edge adds the most.</p>

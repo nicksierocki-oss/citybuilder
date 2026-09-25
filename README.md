@@ -68,6 +68,11 @@ There's an optional **3D view**, built with Three.js. The library is included in
      congested route is slow; set 1–4 vehicles per line (more = shorter waits, more riders, more
      cost). Trams carry far more, lay track along their route ($25 a tile) and raise land value
      beside it. Stops only serve the lines that call there; the metro still links every station.
+   - **Railways** ($40 a tile, $120 as a bridge) and **train stations** ($3,000, beside the track):
+     people within 5 tiles ride fast trains to jobs near any station on the same track. Track
+     can cross streets and avenues with a level crossing (a small delay for cars). Run the
+     track to the map edge and trains also carry commuters to and from the region, and the
+     neighbour on that side trades more with you.
    - **Riders don't drive,** so transit cuts congestion, noise and pollution (buses add a little traffic).
      Stops work in pairs: one near homes, one near jobs. Tile info shows each stop's
      ridership, and the **Transit** overlay (`M`) shows walking coverage.

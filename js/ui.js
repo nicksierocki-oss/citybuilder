@@ -12,7 +12,7 @@ import { Graphs } from './graphs.js';
 import { Minimap } from './minimap.js';
 import { CityHallUI } from './cityhall-ui.js';
 import { LinesUI } from './lines-ui.js';
-import { isStop } from './transit.js';
+import { isStop, railNetwork } from './transit.js';
 import { SCENARIOS, SCENARIO_ORDER } from './goals.js';
 
 const DISTRICT_NAMES = ['Old Town', 'Riverside', 'Hillcrest', 'Northside', 'Westgate', 'Eastbrook', 'Southfield', 'Uptown',
@@ -27,7 +27,7 @@ const GROUPS = [
   ['Zones', ['residential', 'commercial', 'industrial', 'office', 'farm', 'mixed']],
   ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park', 'trees']],
-  ['Transit', ['bus', 'metro']],
+  ['Transit', ['bus', 'metro', 'rail', 'railstation']],
   ['Safety', ['police', 'fire']],
   ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'hospital', 'statue']],
   ['Tools', ['inspect', 'bulldoze']],
@@ -40,7 +40,7 @@ const TOOL_COLOR = {
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
-  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e',
+  townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e', rail: '#9a8f82', railstation: '#c98f6a',
 };
 
 const TOOL_HELP = {
@@ -74,6 +74,8 @@ const TOOL_HELP = {
   university: '3×2 campus: educates residents within 14 tiles, making room for offices and high-tech industry.',
   stadium: '3×3 stadium: visitors bring ticket income, busier shops and happier residents across 16 tiles.',
   statue: 'A bronze mayor: raises land value and happiness nearby. Unlocked by a mayor rating of 80.',
+  rail: 'Railway track ($40 a tile, $120 on water). Can cross streets and avenues on land (level crossing, slows cars a little), not highways or road bridges. Track to the map edge links you to the region.',
+  railstation: 'Train station: must sit beside track. Riders within 5 tiles take fast trains to jobs near any station on the same track, or out to the region.',
   hospital: '2×2 hospital: big health boost within 14 tiles (healthier residents are happier). Unlocks at 2,000 residents.',
   landfill: '2×2 dump: collects 700 units of garbage a month within 24 tiles. Smells: keep it away from homes.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
@@ -114,6 +116,8 @@ const ICONS = {
   centralpark: I('<rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="15" cy="9" rx="3.5" ry="2.2"/><circle cx="8" cy="15" r="2.6"/><path d="M8 17.6V20"/>'),
   university: I('<path d="M3 20h18M5 20V10M19 20V10M9 20v-6h6v6"/><path d="M3 10 12 4l9 6z"/>'),
   stadium: I('<ellipse cx="12" cy="12" rx="9" ry="7"/><rect x="8" y="9.5" width="8" height="5" rx="1"/><path d="M12 9.5v5"/>'),
+  rail: I('<path d="M8 3 6 21M16 3l2 18"/><path d="M6.5 7h11M6 12h12M5.5 17h13"/>'),
+  railstation: I('<path d="M4 10h16l-2-5H6z"/><path d="M6 10v9M18 10v9M3 19h18"/><rect x="9" y="12" width="6" height="5" rx="1"/>'),
   hospital: I('<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M12 9v8M8 13h8"/><path d="M8 6V3h8v3"/>'),
   landfill: I('<path d="M3 19c2-5 5-8 9-8s7 3 9 8z"/><path d="M8 8l1-3M13 7l1-4M17 9l2-2"/>'),
   statue: I('<circle cx="12" cy="5" r="2"/><path d="M10 8h4l1 7h-6zM7 21h10M8 21v-3h8v3"/>'),
@@ -163,7 +167,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -612,7 +616,7 @@ export class UI {
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Lights & interchanges', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
-      ${nz('Transit lines', b.expenses.transitLines)}${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
+      ${nz('Transit lines', b.expenses.transitLines)}${nz('Railways', b.expenses.rail)}${nz('Loan repayments', b.expenses.loans)}${nz('Ordinances', b.expenses.ordinances)}${nz('Utility imports', b.expenses.imports)}
       ${row('Net', net, 'total')}
     </table>
     ${this.fundingHtml(s)}
@@ -654,6 +658,7 @@ export class UI {
     const ab = map.hasFlag(i, FLAG.ABANDONED);
     let title = ZONE_NAMES[type];
     if (type === TILE.EMPTY) title = water ? 'Water' : map.hasFlag(i, FLAG.TREES) ? 'Woodland' : 'Open land';
+    if (type === TILE.RAIL) title = water ? 'Rail bridge' : 'Railway';
     const rows = [], notes = [];
     const supply = (v) => `<span class="pill ${['none', 'short', 'ok'][v]}">${['none', 'shortage', 'yes'][v]}</span>`;
     if (isZone(type)) {
@@ -688,6 +693,12 @@ export class UI {
         if (map[res][i] !== SUPPLY.OK) notes.push('Not beside a road: its output isn\'t reaching anyone');
       }
       if (B.radius) rows.push(['Reach', `${B.radius} tiles`]);
+      if (k === 'railstation') {
+        const net = railNetwork(g.state), st = net.stations.find((x) => x.i === i), c = st ? net.comps[st.comp] : null;
+        rows.push(['Riders', `${Math.round(map.riders[i])} / ${B.capacity} a month`]);
+        rows.push(['Network', c ? `${c.stations.length} station${c.stations.length > 1 ? 's' : ''}${c.edges.length ? ' · regional link' : ''}` : 'no track']);
+        if (c && c.stations.length < 2 && !c.edges.length) notes.push('Add another station on this track, or run the track to the map edge for regional trains');
+      }
       if (k === 'metro') {
         rows.push(['Riders', `${Math.round(map.riders[i])} / ${B.capacity} a month`]);
         if (map.riders[i] < 5) notes.push('No riders yet: people ride between metro stations, so build another near jobs or homes');

@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { TILE, FLAG, KINDS, JUNCTION, skilledShare, isHome, isJob, homeCap, jobCap } from './map.js';
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
-import { buildRoutes, lineCapacity } from './transit.js';
+import { buildRoutes, lineCapacity, railNetwork } from './transit.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -55,14 +55,14 @@ export function roadTime(map, i) {
 
 // Extra minutes spent crossing a junction tile (0 on plain road).
 export function junctionDelay(map, i, load = map.traffic[i] / CONFIG.traffic.capacity[map.roadClass[i]]) {
-  const J = CONFIG.traffic.junction, kind = map.junctionKind(i);
-  if (kind === JUNCTION.NONE) return 0;
+  const J = CONFIG.traffic.junction, kind = map.junctionKind(i), crossing = map.rail[i] ? CONFIG.rail.crossingDelay : 0;
+  if (kind === JUNCTION.NONE) return crossing;
   const lights = map.hasFlag(i, FLAG.LIGHTS);
   const [base, k] = kind === JUNCTION.MERGE ? J.merge
     : kind === JUNCTION.INTERSECTION ? (lights ? J.lights : J.plain)
     : map.hasFlag(i, FLAG.INTERCHANGE) ? J.interchange
     : lights ? J.highwayLights : J.highwayAtGrade;
-  return base * (1 + k * Math.min(4, load * load));
+  return base * (1 + k * Math.min(4, load * load)) + crossing;
 }
 
 export function roadLoad(map, i) {
@@ -185,6 +185,22 @@ export function trafficSystem(state) {
     line: l, route: routes[l.id], M: MODES[l.mode], left: lineCapacity(state, l), riders: 0,
     stops: l.stops.map((i) => stopAt.get(i)).filter(Boolean),
   }));
+  // Rail: stations with the jobs around them; riders go to any station on the same track.
+  const RL = CONFIG.rail, rail = railNetwork(state);
+  const trains = rail.stations.map((st) => {
+    const r = B.railstation.radius, jobs = [];
+    for (let y = Math.max(0, st.y - r); y <= Math.min(h - 1, st.y + r); y++) for (let x = Math.max(0, st.x - r); x <= Math.min(w - 1, st.x + r); x++) {
+      const j = y * w + x;
+      if (remaining[j] + remainingS[j] > 0) jobs.push(j);
+    }
+    return { ...st, jobs, left: B.railstation.capacity * funding(state, 'railstation') };
+  });
+  const trainAt = new Map(trains.map((t) => [t.i, t]));
+  let regionalJobs = RL.regionalJobs * rail.comps.reduce((a, c) => a + (c.stations.length ? c.edges.length : 0), 0);
+  const trainsNear = (home) => {
+    const x = home % w, y = (home / w) | 0;
+    return trains.filter((s) => Math.max(Math.abs(s.x - x), Math.abs(s.y - y)) <= B.railstation.radius && s.left > 0);
+  };
   const linesNear = (home) => {
     const x = home % w, y = (home / w) | 0, r = B.bus.radius, out = [];
     for (const L of lines) {
@@ -238,6 +254,31 @@ export function trafficSystem(state) {
           minutes += take * ride;
           transitRiders += take;
         }
+      }
+    }
+    // Trains: to jobs near other stations on the network, or out to the region.
+    for (const from of trains.length ? trainsNear(home) : []) {
+      let want = Math.min(left, workers * Math.min(0.95, RL.share * shareMult), from.left);
+      if (want <= 0) continue;
+      const dests = [...from.minutesTo].filter(([i]) => i !== from.i).sort((a, b) => a[1] - b[1]);
+      for (const [di, t] of dests) {
+        const to = trainAt.get(di), ride = T.walkMinutes * 2 + RL.wait + t;
+        if (want <= 0 || !to || ride > T.maxCommute) break;
+        for (const j of to.jobs) {
+          if (want <= 0 || to.left <= 0 || from.left <= 0) break;
+          const take = hire(j, Math.min(want, to.left, from.left));
+          if (take <= 0) continue;
+          want -= take; left -= take; from.left -= take; to.left -= take;
+          map.riders[from.i] += take; map.riders[to.i] += take;
+          minutes += take * ride; transitRiders += take;
+        }
+      }
+      const out = T.walkMinutes + RL.wait + from.edgeMinutes + RL.regionalRide;
+      if (want > 0 && regionalJobs > 0 && out <= T.maxCommute) {
+        const take = Math.min(want, regionalJobs, from.left), u2 = Math.min(leftU, take);
+        leftU -= u2; leftS -= take - u2;
+        regionalJobs -= take; want -= take; left -= take; from.left -= take;
+        map.riders[from.i] += take; minutes += take * out; transitRiders += take;
       }
     }
     if (metro.length) {
