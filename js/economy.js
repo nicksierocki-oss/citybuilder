@@ -1,7 +1,7 @@
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
-import { TILE, TERRAIN, FLAG, KIND_ID, isZone } from './map.js';
+import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, isZone } from './map.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -81,6 +81,11 @@ export function toolCost(state, tool, i) {
     case 'bulldoze':
       if (t === TILE.EMPTY) return map.hasFlag(i, FLAG.TREES) ? C.clearTrees : null;
       if (isZone(t)) return C.bulldoze + C.bulldozePerLevel * map.level[i];
+      if (t === TILE.SERVICE) {
+        // Selling a public building back refunds part of its price (a negative cost).
+        const k = KINDS[map.kind[i]];
+        return C.bulldoze - Math.round(CONFIG.buildings[k].cost * CONFIG.economy.refundShare);
+      }
       return C.bulldoze;
     default:
       return null;
@@ -171,6 +176,7 @@ export function monthlyBudget(state) {
     parks: s.parks * E.parkMaintenance,
     utilities: 0,
     services: 0,
+    loans: (state.loans ?? []).reduce((a, l) => a + l.payment, 0),
   };
   for (const [k, n] of Object.entries(s.services || {})) {
     const upkeep = n * CONFIG.buildings[k].upkeep;
@@ -190,6 +196,25 @@ export function economySystem(state) {
   state.month++;
   if (state.month >= 12) { state.month = 0; state.year++; }
 
+  // Loan repayments count down; paid-off loans disappear.
+  if (state.loans?.length) {
+    for (const l of state.loans) l.monthsLeft--;
+    const done = state.loans.filter((l) => l.monthsLeft <= 0).length;
+    state.loans = state.loans.filter((l) => l.monthsLeft > 0);
+    if (done) push(state, 'A loan has been paid off!', 'good');
+  }
+
+  // Early warning while there is still time to act.
+  const E = CONFIG.economy;
+  if (net < 0 && state.funds > 0) {
+    const runway = Math.floor(state.funds / -net);
+    const since = state.tick - (state.lastBudgetWarn ?? -1e9);
+    if (runway < E.warnRunwayMonths && since >= 6 * CONFIG.time.ticksPerMonth) {
+      state.lastBudgetWarn = state.tick;
+      push(state, `Budget: losing $${-net}/month, about ${runway} months of money left. Open “Last month” for tips.`, 'bad');
+    }
+  }
+
   if (state.utilityGrace > 0) {
     state.utilityGrace--;
     const g = state.utilityGrace;
@@ -204,9 +229,64 @@ export function economySystem(state) {
       state.bankrupt = true;
       push(state, 'Bankrupt! The city council has taken over.', 'bad');
     } else {
-      push(state, `In debt! ${left} month${left === 1 ? '' : 's'} until bankruptcy.`, 'bad');
+      const canBorrow = (state.loans?.length ?? 0) < CONFIG.economy.maxLoans;
+      push(state, `In debt! ${left} month${left === 1 ? '' : 's'} until bankruptcy.${canBorrow ? ' Take a loan from the budget panel.' : ''}`, 'bad');
     }
   } else {
     state.negativeMonths = 0;
   }
+}
+
+// ---------------------------------------------------------------- loans & advice
+
+export function canTakeLoan(state) {
+  return (state.loans?.length ?? 0) < CONFIG.economy.maxLoans && !state.bankrupt;
+}
+
+export function takeLoan(state) {
+  if (!canTakeLoan(state)) return false;
+  const E = CONFIG.economy;
+  state.loans = [...(state.loans ?? []), { monthsLeft: E.loanMonths, payment: E.loanPayment }];
+  state.funds += E.loanAmount;
+  if (state.funds >= 0) state.negativeMonths = 0;
+  push(state, `Borrowed $${E.loanAmount.toLocaleString()}: $${E.loanPayment}/month for ${E.loanMonths / 12} years.`, 'good');
+  return true;
+}
+
+// Plain-language suggestions for fixing the budget, most useful first.
+export function budgetAdvice(state) {
+  const map = state.map, s = state.stats, b = monthlyBudget(state), E = CONFIG.economy, out = [];
+  const net = b.totalIncome - b.totalExpenses;
+  // Roads nobody uses: no traffic and no building or public building beside them.
+  let idle = 0;
+  for (let i = 0; i < map.size; i++) {
+    if (map.type[i] !== TILE.ROAD || map.traffic[i] > 1) continue;
+    const x = i % map.width, y = (i / map.width) | 0;
+    const x0 = x === 0 || y === 0 || x === map.width - 1 || y === map.height - 1;
+    if (x0) continue; // keep the link to the region
+    let used = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!map.inBounds(x + dx, y + dy)) continue;
+      const j = map.idx(x + dx, y + dy), t = map.type[j];
+      if ((isZone(t) && map.level[j] > 0) || t === TILE.SERVICE) used = true;
+    }
+    if (!used) idle++;
+  }
+  if (idle >= 8) out.push(`${idle} road tiles carry no traffic and serve no buildings: that's $${Math.round(idle * E.roadMaintenance)}/month. Bulldoze the ones you don't need yet.`);
+  if (b.expenses.services > b.totalIncome * 0.35 && s.population < 1500) {
+    out.push(`Public services cost $${Math.round(b.expenses.services)}/month, a lot for ${s.population.toLocaleString()} residents. Add them as the city grows (one school/clinic per neighbourhood); bulldozing refunds half their price.`);
+  }
+  const u = state.utilities;
+  if (u && u.power.supply > u.power.demand * 3 + 200) out.push(`Power plants make ${u.power.supply} units but the city uses ${u.power.demand}. You're paying for spare capacity.`);
+  if (u && u.power.demand > u.power.supply) out.push(`Power is short (${u.power.demand}/${u.power.supply}): without it buildings can't grow past low density, so income stalls. A wind farm is $1,000.`);
+  if (u && u.water.demand > u.water.supply) out.push(`Water is short (${u.water.demand}/${u.water.supply}): pumps within 2 tiles of the river make 3× more.`);
+  const d = state.demand;
+  if (d.r > 0.25 || d.c > 0.25 || d.i > 0.25) {
+    const want = [['r', 'homes'], ['c', 'shops'], ['i', 'industry']].filter(([k]) => d[k] > 0.25).map(([, n]) => n).join(' and ');
+    out.push(`Demand is strong for ${want}: zone more next to existing roads. Growth is the best cure for a deficit.`);
+  }
+  if (s.population >= 300 && state.taxRate <= E.taxRate && Math.max(d.r, d.c, d.i) > 0.3 && net < 0) out.push('Demand is high, so you can afford a tax rise of 1–2 points.');
+  if (s.abandoned > 5) out.push(`${s.abandoned} abandoned buildings earn nothing: hover them to see why (jobs, pollution, commute).`);
+  if (net < 0 && canTakeLoan(state)) out.push(`A $${E.loanAmount.toLocaleString()} loan buys time while the city grows.`);
+  return out;
 }

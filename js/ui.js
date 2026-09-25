@@ -1,7 +1,7 @@
 // UI: top bar, toolbar, demand panel, overlays + legend, tile info, toasts and dialogs (DOM only).
 
 import { CONFIG } from './config.js';
-import { TOOLS, monthlyBudget, toolPrice } from './economy.js';
+import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice } from './economy.js';
 import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, isZone } from './map.js';
 import { evaluateTile, levelName } from './simulation.js';
 import { roadLoad } from './traffic.js';
@@ -168,7 +168,13 @@ export class UI {
         + (cost ? ` The land costs $${cost.toLocaleString()}.` : ''),
         'Expand', () => this.game.expandMap(next));
     });
-    $('budgetStat').addEventListener('click', () => $('budget').classList.toggle('open'));
+    $('budgetStat').addEventListener('click', () => this.toggleBudget());
+    // The budget panel re-renders often, so handle its buttons by delegation.
+    $('budget').addEventListener('click', (e) => {
+      const id = e.target.closest('button')?.id;
+      if (id === 'btnLoan') { takeLoan(this.game.state); this.lastBudgetHtml = null; this.updateBudget(); }
+      if (id === 'btnBudgetClose') this.toggleBudget(false);
+    });
     $('helpBtn').addEventListener('click', () => $('help').classList.toggle('open'));
     $('helpClose').addEventListener('click', () => $('help').classList.remove('open'));
   }
@@ -290,13 +296,25 @@ export class UI {
     el.textContent = t && map.inBounds(t.x, t.y) ? `here: ${overlayValueText(this.overlay, map, map.idx(t.x, t.y))}` : '';
   }
 
+  toggleBudget(open) {
+    const el = $('budget');
+    el.classList.toggle('open', open);
+    this.lastBudgetHtml = null;
+    this.updateBudget();
+  }
+
   updateBudget() {
     const el = $('budget');
     if (!el.classList.contains('open')) return;
-    const s = this.game.state, b = monthlyBudget(s);
+    const s = this.game.state, b = monthlyBudget(s), E = CONFIG.economy;
     const row = (k, v, cls = '') => `<tr class="${cls}"><td>${k}</td><td>${money(v)}</td></tr>`;
     const nz = (k, v) => (Math.round(v) ? row(k, -v) : '');
-    el.innerHTML = `<h3>Monthly budget <small>(projected at ${s.taxRate}% tax)</small></h3><table>
+    const net = b.totalIncome - b.totalExpenses;
+    const runway = net < 0 && s.funds > 0 ? Math.floor(s.funds / -net) : null;
+    const loans = s.loans ?? [];
+    const advice = budgetAdvice(s);
+    const html = `<button id="btnBudgetClose" class="x" aria-label="Close">×</button>
+    <h3>Monthly budget <small>(projected at ${s.taxRate}% tax)</small></h3><table>
       <tr class="sep"><td>Income</td><td></td></tr>
       ${row('Residential tax', b.income.residential)}
       ${row('Commercial tax', b.income.commercial)}
@@ -305,9 +323,16 @@ export class UI {
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Parks', b.expenses.parks)}
       ${nz('Power & water', b.expenses.utilities)}${nz('Public services', b.expenses.services)}
-      ${row('Net', b.totalIncome - b.totalExpenses, 'total')}
+      ${nz('Loan repayments', b.expenses.loans)}
+      ${row('Net', net, 'total')}
     </table>
-    <p class="muted">Workers ${Math.round(s.stats.workers)} / jobs ${s.stats.jobs}. Click “Last month” to close.</p>`;
+    ${runway != null ? `<p class="warnline">At this rate the money runs out in about ${runway} month${runway === 1 ? '' : 's'}.</p>` : ''}
+    <div class="loans">
+      <div><b>Loans</b> <span class="muted">${loans.length}/${E.maxLoans}${loans.length ? ` · ${loans.map((l) => `${Math.ceil(l.monthsLeft / 12)} yr left`).join(', ')}` : ''}</span></div>
+      <button id="btnLoan" ${canTakeLoan(s) ? '' : 'disabled'} title="Repay $${E.loanPayment}/month for ${E.loanMonths / 12} years">Borrow $${E.loanAmount.toLocaleString()}</button>
+    </div>
+    ${advice.length ? `<h4>Advisor</h4><ul class="advice">${advice.map((a) => `<li>${a}</li>`).join('')}</ul>` : '<p class="muted">Advisor: the budget looks healthy.</p>'}`;
+    if (html !== this.lastBudgetHtml) { el.innerHTML = html; this.lastBudgetHtml = html; }
   }
 
   updateInfo() {
@@ -405,18 +430,22 @@ export class UI {
     const sp = r.tileToScreen(h.x, h.y), sx = sp.x + 8, sy = sp.y + 8;
     tip.style.transform = `translate(${Math.min(sx, r.viewW - 130)}px, ${Math.min(sy, r.viewH - 30)}px)`;
     tip.className = p.ok ? '' : 'bad';
-    tip.textContent = p.cost.count ? `${p.cost.count} tile${p.cost.count > 1 ? 's' : ''} · $${p.cost.total.toLocaleString()}` : 'Nothing to build here';
+    const total = p.cost.total;
+    tip.textContent = p.cost.count
+      ? `${p.cost.count} tile${p.cost.count > 1 ? 's' : ''} · ${total < 0 ? `refund $${(-total).toLocaleString()}` : `$${total.toLocaleString()}`}`
+      : 'Nothing to build here';
   }
 
   flashCost(amount) {
-    if (amount) this.toast(`${money(amount)}`, 'cost', 900);
+    if (amount) this.toast(amount > 0 ? `+${money(amount)} refund` : `${money(amount)}`, 'cost', 900);
   }
 
   drainEvents() {
     const ev = this.game.state.events;
     while (ev.length) {
       const e = ev.shift();
-      this.toast(e.text, e.kind, e.kind === 'bad' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
+      const t = this.toast(e.text, e.kind, e.kind === 'bad' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
+      if (/^Budget:|In debt/.test(e.text)) { t.classList.add('link'); t.addEventListener('click', () => this.toggleBudget(true)); }
       if (this.game.state.bankrupt) this.showBankrupt();
     }
   }
@@ -439,6 +468,7 @@ export class UI {
     box.appendChild(t);
     while (box.children.length > 4) box.firstChild.remove();
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, ms);
+    return t;
   }
 
   // New-city dialog with a map-size choice.

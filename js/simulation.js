@@ -29,7 +29,8 @@ export function createGame(seed, size = CONFIG.map.defaultSize) {
     happiness: 0,
     crime: 0,                 // population-weighted average crime in homes
     fires: 0,                 // buildings burning right now
-    utilityGrace: 0,          // months left before utilities are enforced (older saves)
+    utilityGrace: 0,
+    loans: [],                // [{ monthsLeft, payment }]          // months left before utilities are enforced (older saves)
     events: [],               // messages for the UI to show, drained by it
     rng: Math.random,
   };

@@ -62,12 +62,26 @@ There's an optional **3D view**, built with Three.js. The library is included in
    - **Unattended fires:** a fire outside station cover can spread next door. After
      two months it burns the building down, leaving the zoned lot vacant.
    - **Alerts:** fire alerts are clickable. They jump the camera to the fire.
-9. **Balance the books.** Taxes come in monthly. Roads, bridges and parks cost
-   upkeep. If funds stay negative for 6 months, the council removes you.
+9. **Balance the books.** You start with $20,000. Click **Last month** for the budget:
+   it shows how long your money will last, a **Borrow $10,000** button (up to 3 loans,
+   repaid at $105/month for 10 years), and an **advisor** that spots the usual money
+   drains. Bulldozing a public building refunds half its price. Twelve months in debt
+   and the council takes over.
 
-A good opener: run a street off the highway, put industry near the highway
-entrance, homes a few blocks away, a strip of shops between them, and a park
-among the homes.
+### Strategy: staying solvent
+
+- **Grow first, serve later.** Taxes come from residents and jobs. In the first minutes,
+  build a short street off the regional road, a strip of industry by the map entrance,
+  homes a few tiles away and a row of shops between them.
+- **Build roads only where you zone.** Every road tile costs upkeep forever, and the
+  advisor counts the idle ones.
+- **Start utilities small.** One wind farm ($1,000) and one pump beside the river cover
+  about 500 people. Add capacity when the Power or Water gauge turns orange.
+- **Add services as neighbourhoods fill.** Each covers a 9–10 tile radius. Around 500
+  residents is a good time for a first school, clinic, police station and fire station.
+- **Follow the demand panel.** Zone whatever is positive, a little at a time.
+- **If you're losing money,** open the budget and act on the advisor's list: bulldoze
+  idle roads, sell back an oversized plant, zone what's in demand, or borrow to bridge the gap.
 
 ### Controls
 
@@ -171,7 +185,10 @@ Current results (seed 12345):
   1,000 people by month 24 (about 77 s at 1×) and about 2,000 by year 6, earning about +$610/month.
 - **Same layout with avenues:** 1,000 by month 21 and about 2,300 by year 6.
 - **Sprawl** (road grid, industry mixed into housing, no utilities): stalls around 440 people with a small deficit.
-- **Careless** (everything zoned residential, 300+ roads): bankrupt within 6 months.
+- **Eager builder** (every public building in the first year): used to run out of money and stall.
+  With the current costs it stays solvent (about $9,000 in hand after 6 years) and the advisor
+  names what's holding it back.
+- **Careless** (everything zoned residential, 300+ roads): still bankrupt, at month 22 (loans not used).
 
 ---
 

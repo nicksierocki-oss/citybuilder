@@ -36,6 +36,7 @@ export function serialize(state) {
     demand: state.demand, negativeMonths: state.negativeMonths,
     milestones: state.milestones, lastMonth: state.lastMonth,
     utilityGrace: state.utilityGrace,
+    loans: state.loans ?? [],
   };
 }
 
@@ -62,6 +63,7 @@ export function deserialize(data) {
     milestones: Array.isArray(data.milestones) ? data.milestones : [],
     events: [], rng: Math.random,
     utilityGrace: data.utilityGrace | 0,
+    loans: Array.isArray(data.loans) ? data.loans.map((l) => ({ monthsLeft: l.monthsLeft | 0, payment: Number(l.payment) || 0 })) : [],
     traffic: { workers: 0, employed: 0, avgCommute: 0, freightTrips: 0, congested: 0 },
     utilities: { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } },
     happiness: 0,

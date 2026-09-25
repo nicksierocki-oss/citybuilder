@@ -20,7 +20,7 @@ export const CONFIG = {
   },
 
   economy: {
-    startingFunds: 10000,
+    startingFunds: 20000,
     taxRate: 9,              // % default; player can change 0..20
     taxRateMin: 0,
     taxRateMax: 20,
@@ -35,7 +35,14 @@ export const CONFIG = {
     highwayMaintenance: 8,
     parkMaintenance: 4,
     // consecutive months with negative funds before the council fires you
-    bankruptcyMonths: 6,
+    bankruptcyMonths: 12,
+    // Loans (city bonds): borrow now, repay a fixed amount monthly
+    loanAmount: 10000,
+    loanMonths: 120,
+    loanPayment: 105,        // per month -> repays $12,600 in total
+    maxLoans: 3,
+    refundShare: 0.5,        // share of a public building's price refunded when bulldozed
+    warnRunwayMonths: 18,    // warn when funds would run out within this many months
   },
 
   costs: {
@@ -145,12 +152,12 @@ export const CONFIG = {
     coal:      { label: 'Coal plant',   cost: 2500, upkeep: 40, power: 600, pollution: 55, pollutionRadius: 5 },
     wind:      { label: 'Wind farm',    cost: 1000, upkeep: 15, power: 150 },
     pump:      { label: 'Water pump',   cost: 800,  upkeep: 20, water: 400, dryWater: 130, nearWaterRange: 2 },
-    school:    { label: 'School',       cost: 1200, upkeep: 30, radius: 9, happiness: 14, landValue: 8 },
-    clinic:    { label: 'Clinic',       cost: 1200, upkeep: 30, radius: 9, happiness: 14, landValue: 5 },
-    plaza:     { label: 'Plaza',        cost: 250,  upkeep: 6,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
-    recycling: { label: 'Recycling center', cost: 1800, upkeep: 35, radius: 7, pollutionCut: 0.5 },
-    police:    { label: 'Police station', cost: 1000, upkeep: 30, radius: 10 },
-    fire:      { label: 'Fire station',   cost: 1000, upkeep: 30, radius: 10 },
+    school:    { label: 'School',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 8 },
+    clinic:    { label: 'Clinic',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 5 },
+    plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
+    recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5 },
+    police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 10 },
+    fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 10 },
   },
 
   utilities: {

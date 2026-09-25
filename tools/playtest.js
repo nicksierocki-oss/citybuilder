@@ -1,7 +1,7 @@
 // Headless balance playtest: runs the real simulation with scripted players.
 // Usage: node tools/playtest.js
 import { createGame, tick, refreshFields, evaluateTile } from '../js/simulation.js';
-import { applyTool } from '../js/economy.js';
+import { applyTool, budgetAdvice } from '../js/economy.js';
 import { CONFIG } from '../js/config.js';
 import { TILE, TERRAIN, highwayEntry } from '../js/map.js';
 const SIZE = 40; // the scripted layouts below were designed for the small map
@@ -117,6 +117,32 @@ function sprawl(state) {
   return () => {};
 }
 
+// An eager player: a tidy grid and every kind of public building within the first year.
+function eager(state) {
+  const H = H0;
+  applyTool(state, 'road', line(state, 10, H, 24, H));
+  for (const x of [13, 17, 21]) applyTool(state, 'road', line(state, x, H - 8, x, H + 8));
+  applyTool(state, 'road', line(state, 13, H - 8, 21, H - 8));
+  applyTool(state, 'road', line(state, 13, H + 8, 21, H + 8));
+  applyTool(state, 'industrial', rect(state, 2, H - 2, 9, H - 1));
+  applyTool(state, 'residential', rect(state, 14, H - 7, 16, H - 1));
+  applyTool(state, 'residential', rect(state, 18, H - 7, 20, H - 1));
+  applyTool(state, 'residential', rect(state, 14, H + 2, 16, H + 7));
+  applyTool(state, 'commercial', rect(state, 18, H + 1, 20, H + 3));
+  applyTool(state, 'wind', [state.map.idx(12, H + 1)]);
+  applyTool(state, 'pump', [state.map.idx(12, H + 3)]);
+  return (month) => {
+    const at = (k, x, y) => applyTool(state, k, [state.map.idx(x, y)]);
+    if (month === 2) at('school', 12, H - 3);
+    if (month === 3) at('clinic', 12, H - 5);
+    if (month === 4) at('police', 22, H - 3);
+    if (month === 5) at('fire', 22, H + 3);
+    if (month === 6) at('park', 12, H + 5);
+    if (month === 8) at('coal', 10, H + 1);
+    if (month === 10) at('plaza', 22, H - 6);
+  };
+}
+
 function run(name, strategy, months = 72, seed = 12345) {
   const state = createGame(seed, SIZE);
   state.rng = (() => { let a = 99; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
@@ -152,6 +178,7 @@ function run(name, strategy, months = 72, seed = 12345) {
     console.log('services', JSON.stringify(state.stats.services), 'utilities', JSON.stringify(state.utilities), 'happiness', state.happiness.toFixed(0),
       'crime', state.crime.toFixed(0), 'fires burning', state.fires, 'burned down', burned, burnLog.join(' '));
     console.log('budget', JSON.stringify(state.lastMonth?.breakdown));
+    for (const a of budgetAdvice(state)) console.log('  advice:', a);
   }
   const secs1x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[1] / 1000).toFixed(0) : '-';
   const secs2x = hit1000 ? (hit1000 * TPM * CONFIG.time.msPerTick[2] / 1000).toFixed(0) : '-';
@@ -160,5 +187,6 @@ function run(name, strategy, months = 72, seed = 12345) {
 
 run('sensible', sensible);
 run('sensible + avenues', (st) => sensible(st, true));
+run('eager builder', eager);
 run('sprawl', sprawl);
 run('careless', careless);
