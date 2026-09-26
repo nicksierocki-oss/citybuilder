@@ -910,6 +910,7 @@ export class Renderer {
 
   // Ground layer of a landmark covering (ax, ay, w, h) in world pixels.
   drawLandmarkGround(k, ax, ay, w, h, v) {
+    if (this.tourismGround(k, ax, ay, w, h, v)) return;
     const ctx = this.ctx, S = PAL.svc;
     const lawn = (col) => { ctx.fillStyle = col; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, 10); ctx.fill(); };
     const path = (pts, width = 4) => {
@@ -951,6 +952,7 @@ export class Renderer {
 
   // Raised parts of a landmark (buildings, stands, trees), drawn at its anchor.
   drawLandmark(k, ax, ay, w, h, v) {
+    if (this.tourismLandmark(k, ax, ay, w, h, v)) return;
     const ctx = this.ctx, S = PAL.svc;
     if (k === 'stadium') {
       const cx = ax + w / 2, cy = ay + h / 2;
@@ -1022,6 +1024,192 @@ export class Renderer {
       roundRect(ctx, ax + w * 0.58 + 11, ay + 15, 3, 2, 1); ctx.fill();
       ctx.fillStyle = '#c9a57a';
       roundRect(ctx, ax + 18, ay + 28, 9, 3, 1.2); ctx.fill();                // bench
+    }
+  }
+
+  // Ground of transport hubs, attractions and monuments. Returns false for other kinds.
+  tourismGround(k, ax, ay, w, h, v) {
+    const ctx = this.ctx, S = PAL.svc;
+    const pad = (col, r = 10) => { ctx.fillStyle = col; roundRect(ctx, ax + 1.5, ay + 1.5, w - 3, h - 3, r); ctx.fill(); };
+    const path = (pts, width = 4) => {
+      ctx.strokeStyle = S.path; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(ax + pts[0], ay + pts[1]);
+      for (let n = 2; n < pts.length; n += 2) ctx.lineTo(ax + pts[n], ay + pts[n + 1]);
+      ctx.stroke();
+    };
+    switch (k) {
+      case 'airport': {
+        pad('#d3d6db', 6);
+        ctx.fillStyle = '#9aa1ab'; roundRect(ctx, ax + 4, ay + h - 26, w - 8, 20, 4); ctx.fill();          // runway
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6; ctx.setLineDash([8, 7]);
+        ctx.beginPath(); ctx.moveTo(ax + 12, ay + h - 16); ctx.lineTo(ax + w - 12, ay + h - 16); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = '#ffffff'; for (let n = 0; n < 4; n++) { ctx.fillRect(ax + 8, ay + h - 24 + n * 4.5, 6, 2); ctx.fillRect(ax + w - 14, ay + h - 24 + n * 4.5, 6, 2); }
+        ctx.fillStyle = '#b8bec6'; roundRect(ctx, ax + w * 0.3, ay + 30, 10, h - 56, 3); ctx.fill();     // taxiway
+        return true;
+      }
+      case 'seaport':
+        pad('#d8d3c9', 6);
+        ctx.strokeStyle = '#f3efe6'; ctx.lineWidth = 3; ctx.strokeRect(ax + 4, ay + 4, w - 8, h - 8);
+        ctx.fillStyle = '#c9c2b4'; for (let n = 0; n < 3; n++) ctx.fillRect(ax + 8, ay + 12 + n * 26, w - 16, 2); // rails for the cranes
+        return true;
+      case 'museum': case 'opera': case 'arch': case 'skytower':
+        pad(S.plazaStone, 10);
+        ctx.strokeStyle = 'rgba(190,175,150,0.35)'; ctx.lineWidth = 1;
+        ctx.beginPath(); for (let a = 8; a < w; a += 10) { ctx.moveTo(ax + a, ay + 3); ctx.lineTo(ax + a, ay + h - 3); } ctx.stroke();
+        if (k === 'skytower') { ctx.fillStyle = S.yard; ctx.beginPath(); ctx.arc(ax + w / 2, ay + h / 2, w * 0.4, 0, Math.PI * 2); ctx.fill(); }
+        return true;
+      case 'aquarium':
+        pad(S.plazaStone, 10);
+        ctx.fillStyle = this.env.water; roundRect(ctx, ax + 6, ay + h - 20, w - 12, 13, 6); ctx.fill();
+        return true;
+      case 'zoo':
+        pad(this.env.park, 10);
+        path([4, h / 2, w * 0.3, h * 0.45, w * 0.55, h * 0.6, w - 4, h * 0.5]);
+        path([w / 2, 4, w * 0.5, h * 0.3, w * 0.55, h * 0.6, w * 0.5, h - 4], 3);
+        ctx.fillStyle = S.sand; roundRect(ctx, ax + 8, ay + 8, 30, 26, 6); ctx.fill();            // savanna
+        ctx.fillStyle = this.env.water; ctx.beginPath(); ctx.ellipse(ax + w - 24, ay + h - 22, 16, 10, 0, 0, Math.PI * 2); ctx.fill(); // penguin pool
+        ctx.strokeStyle = '#b8a894'; ctx.lineWidth = 1.2;
+        roundRect(ctx, ax + 8, ay + 8, 30, 26, 6); ctx.stroke();
+        roundRect(ctx, ax + w - 40, ay + 8, 32, 28, 6); ctx.stroke();
+        return true;
+      case 'amusement':
+        pad('#f2e6d6', 12);
+        path([6, h - 10, w / 2, h * 0.55, w - 6, h - 10], 5);
+        path([w / 2, h * 0.55, w / 2, 6], 4);
+        return true;
+      case 'cathedral':
+        pad(PAL.svc.yard, 10);
+        path([w / 2, h - 2, w / 2, h - 18], 6);
+        return true;
+      case 'pyramid':
+        pad(S.plazaStone, 10);
+        ctx.fillStyle = this.env.water;
+        for (const [px, py] of [[0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]]) { ctx.beginPath(); ctx.arc(ax + w * px, ay + h * py, 7, 0, Math.PI * 2); ctx.fill(); }
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  // Raised parts of transport hubs, attractions and monuments. Returns false for other kinds.
+  tourismLandmark(k, ax, ay, w, h, v) {
+    const ctx = this.ctx;
+    const plane = (cx, cy, len, rot, col = '#ffffff') => {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
+      ctx.fillStyle = PAL.shadow; ctx.beginPath(); ctx.ellipse(3, 4, len / 2, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.ellipse(0, 0, len / 2, 2.2, 0, 0, Math.PI * 2); ctx.fill();          // fuselage
+      ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(1, -len * 0.45); ctx.lineTo(4, -len * 0.45); ctx.lineTo(3, 0); ctx.lineTo(4, len * 0.45); ctx.lineTo(1, len * 0.45); ctx.fill(); // wings
+      ctx.beginPath(); ctx.moveTo(-len / 2 + 1, 0); ctx.lineTo(-len / 2 - 1, -len * 0.18); ctx.lineTo(-len / 2 + 3, 0); ctx.lineTo(-len / 2 - 1, len * 0.18); ctx.fill(); // tail
+      ctx.fillStyle = '#8fb0d8'; ctx.fillRect(len / 2 - 5, -1, 3, 2);
+      ctx.restore();
+    };
+    switch (k) {
+      case 'airport': {
+        this.box(ax + 6, ay + 6, w * 0.55, 22, 6, '#eef1f5', false, 5);                              // terminal
+        ctx.fillStyle = this.snowy('#9fb6d8'); roundRect(ctx, ax + 9, ay + 9, w * 0.55 - 6, 5, 2); ctx.fill();
+        for (let n = 0; n < 4; n++) this.box(ax + 14 + n * 18, ay + 28, 4, 8, 2, '#dfe3ea', false, 1.5); // jet bridges
+        this.round(ax + w - 22, ay + 16, 6, '#e8ecf2', 12);                                          // control tower
+        ctx.fillStyle = '#8fb0d8'; ctx.beginPath(); ctx.arc(ax + w - 22, ay + 16, 3.6, 0, Math.PI * 2); ctx.fill();
+        plane(ax + 22, ay + 44, 20, Math.PI / 2);
+        plane(ax + 58, ay + 44, 20, Math.PI / 2, '#fbe9dc');
+        plane(ax + w * 0.2 + ((this.time * 12 + v) % (w * 0.6)), ay + h - 16, 22, 0);                 // taking off
+        return true;
+      }
+      case 'seaport': {
+        this.box(ax + 6, ay + 6, 38, 20, 6, '#e6dccb', false, 3);                                    // warehouse
+        ctx.fillStyle = this.snowy('#c9a88f'); roundRect(ctx, ax + 8, ay + 8, 34, 4, 2); ctx.fill();
+        const cols = ['#e58f82', '#6fa6e3', '#e3b75a', '#7cc47a', '#b38fd6'];
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) if ((v >> (r * 4 + c)) & 1 || c % 2) this.box(ax + 10 + c * 13, ay + 36 + r * 11, 11, 7, 3, cols[(v + r * 4 + c) % cols.length], false, 1);
+        for (const cx of [ax + w - 22, ax + w - 12]) {                                               // cranes
+          ctx.strokeStyle = '#e3a35a'; ctx.lineWidth = 2.4;
+          ctx.beginPath(); ctx.moveTo(cx, ay + 10); ctx.lineTo(cx, ay + h - 10); ctx.stroke();
+          ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx - 6, ay + 20); ctx.lineTo(cx + 6, ay + 20); ctx.stroke();
+        }
+        return true;
+      }
+      case 'museum':
+        this.box(ax + 6, ay + 10, w - 12, h - 20, 6, '#f1e8da', false, 3);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'; for (let n = 0; n < 6; n++) ctx.fillRect(ax + 10 + n * 8, ay + h - 16, 3, 6); // columns
+        ctx.fillStyle = this.snowy('#c9a88f'); ctx.beginPath(); ctx.moveTo(ax + 6, ay + 16); ctx.lineTo(ax + w / 2, ay + 8); ctx.lineTo(ax + w - 6, ay + 16); ctx.fill();
+        this.round(ax + w / 2, ay + h / 2, 7, '#dcd3c2', 5);
+        return true;
+      case 'aquarium':
+        this.box(ax + 6, ay + 6, w - 12, 28, 5, '#e8f1f6', false, 6);
+        this.round(ax + w / 2, ay + 20, 12, '#9fd0e8', 8);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(ax + w / 2 - 4, ay + 16, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#f0a06e'; ctx.beginPath(); ctx.ellipse(ax + 20 + (this.time * 5 % 20), ay + h - 13, 3, 1.5, 0, 0, Math.PI * 2); ctx.fill(); // fish
+        return true;
+      case 'zoo': {
+        for (const [tx, ty, r] of [[60, 14, 6], [84, 50, 6], [14, 60, 7], [30, 84, 6], [70, 84, 5], [48, 44, 5]]) this.treeBlob(ax + tx, ay + ty, r, v + tx + ty);
+        const animal = (x, y, col, r) => { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(ax + x, ay + y, r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); };
+        animal(18 + Math.sin(this.time + v) * 3, 18, '#e3c06a', 3.5); animal(28, 26, '#c9a06a', 3);      // giraffes and lions
+        animal(w - 26 + Math.sin(this.time * 1.5) * 4, h - 22, '#3f4652', 2); animal(w - 20, h - 24, '#3f4652', 2); // penguins
+        this.box(ax + w - 38, ay + 12, 14, 10, 3, '#9a8f82', false, 2);                               // elephant house
+        return true;
+      }
+      case 'amusement': {
+        const cx = ax + w * 0.3, cy = ay + h * 0.32, r = 22;                                        // ferris wheel
+        ctx.strokeStyle = this.snowy('#e38fb0'); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
+        for (let n = 0; n < 8; n++) {
+          const a = n * Math.PI / 4 + this.time * 0.4;
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.stroke();
+          ctx.fillStyle = ['#6fa6e3', '#e3b75a', '#7cc47a', '#e58f82'][n % 4]; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 3, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.strokeStyle = '#b38fd6'; ctx.lineWidth = 3;                                            // roller coaster
+        ctx.beginPath(); ctx.moveTo(ax + w * 0.55, ay + 12);
+        ctx.bezierCurveTo(ax + w + 10, ay + 10, ax + w - 6, ay + h * 0.6, ax + w * 0.62, ay + h * 0.55);
+        ctx.bezierCurveTo(ax + w * 0.45, ay + h * 0.5, ax + w * 0.4, ay + 10, ax + w * 0.55, ay + 12); ctx.stroke();
+        this.round(ax + w * 0.3, ay + h * 0.78, 14, '#f3c6d6', 6);                                    // carousel
+        ctx.fillStyle = '#e38fb0'; ctx.beginPath(); ctx.arc(ax + w * 0.3, ay + h * 0.78, 5, 0, Math.PI * 2); ctx.fill();
+        this.box(ax + w * 0.62, ay + h * 0.72, 30, 18, 4, '#fbe9dc', false, 4);                      // food court
+        return true;
+      }
+      case 'opera':
+        for (const [x, y, r] of [[0.25, 0.55, 18], [0.5, 0.48, 22], [0.75, 0.55, 18]]) {             // sail-like shells
+          ctx.fillStyle = PAL.shadow; ctx.beginPath(); ctx.ellipse(ax + w * x + 4, ay + h * y + 5, r, r * 0.7, -0.4, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = this.snowy('#fbfaf6'); ctx.beginPath(); ctx.ellipse(ax + w * x, ay + h * y, r, r * 0.7, -0.4, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#dcd6ca'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(ax + w * x, ay + h * y, r * 0.6, r * 0.4, -0.4, 0, Math.PI * 2); ctx.stroke();
+        }
+        return true;
+      case 'arch':
+        this.box(ax + 8, ay + 18, w - 16, h - 36, 12, '#e6dcc6', false, 2);
+        ctx.fillStyle = '#b8ab92'; roundRect(ctx, ax + w / 2 - 7, ay + 18, 14, h - 36, 6); ctx.fill();   // the opening
+        ctx.fillStyle = '#c9a86a'; ctx.fillRect(ax + 10, ay + 20, w - 20, 3);
+        return true;
+      case 'cathedral':
+        this.box(ax + w / 2 - 14, ay + 18, 28, h - 26, 8, '#ede4d4', false, 3);                       // nave
+        this.box(ax + 14, ay + h / 2 - 10, w - 28, 20, 8, '#ede4d4', false, 3);                       // transept
+        ctx.fillStyle = this.snowy('#a897c9'); roundRect(ctx, ax + w / 2 - 3, ay + 20, 6, h - 30, 2); ctx.fill();
+        for (const tx of [ax + w / 2 - 11, ax + w / 2 + 11]) this.round(tx, ay + h - 12, 6, '#e2d8c4', 14);  // towers
+        this.round(ax + w / 2, ay + h / 2, 9, '#bfb2d8', 10);                                         // dome
+        return true;
+      case 'skytower': {
+        const cx = ax + w / 2, cy = ay + h / 2;
+        ctx.strokeStyle = PAL.shadow; ctx.lineWidth = 8; ctx.lineCap = 'round';                      // long shadow
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 30, cy + 34); ctx.stroke();
+        this.round(cx, cy, 6, '#e8ecf2', 4);
+        this.round(cx, cy, 13, '#7fb0d8', 22);                                                        // observation pod
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.arc(cx - 4, cy - 4, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#e8ecf2'; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+        return true;
+      }
+      case 'pyramid': {
+        const cx = ax + w / 2, cy = ay + h / 2, r = w * 0.34;
+        ctx.fillStyle = PAL.shadow; ctx.beginPath(); ctx.moveTo(cx + 8, cy - r + 10); ctx.lineTo(cx + r + 8, cy + 10); ctx.lineTo(cx + 8, cy + r + 10); ctx.lineTo(cx - r + 8, cy + 10); ctx.fill();
+        const faces = ['#bfe3ee', '#9fd0e2', '#8fc0d6', '#afd8e8'];
+        const pts = [[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]];
+        for (let n = 0; n < 4; n++) {
+          ctx.fillStyle = this.snowy(faces[n]);
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(...pts[n]); ctx.lineTo(...pts[(n + 1) % 4]); ctx.fill();
+        }
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 0.8;
+        ctx.beginPath(); for (const p of pts) { ctx.moveTo(cx, cy); ctx.lineTo(p[0], p[1]); } ctx.stroke();
+        return true;
+      }
+      default:
+        return false;
     }
   }
 
@@ -1139,6 +1327,14 @@ export class Renderer {
         ctx.fillStyle = this.snowy('#c98f6a'); roundRect(ctx, px + 5, py + 8, 22, 4, 2); ctx.fill();
         ctx.fillStyle = '#e4ddd0'; roundRect(ctx, px + 2, py + 21, 28, 7, 2); ctx.fill(); // platform
         ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px + 16, py + 13.5, 2.6, 0, Math.PI * 2); ctx.fill(); // clock
+        break;
+      case 'clocktower':
+        this.box(px + 9, py + 9, 14, 14, 10, '#e6dcc6', false, 2);
+        ctx.fillStyle = this.snowy('#b8a07a'); roundRect(ctx, px + 11, py + 11, 10, 10, 2); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px + 16, py + 16, 3.4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#5f6670'; ctx.lineWidth = 0.8; ctx.beginPath();
+        { const a = this.time * 0.5; ctx.moveTo(px + 16, py + 16); ctx.lineTo(px + 16 + Math.cos(a) * 2.8, py + 16 + Math.sin(a) * 2.8); ctx.moveTo(px + 16, py + 16); ctx.lineTo(px + 16, py + 14); }
+        ctx.stroke();
         break;
       case 'statue':
         // Bronze mayor on a stone plinth, with a ring of flowers

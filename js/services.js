@@ -9,7 +9,8 @@ import { regionInfo } from './region.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
-export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital'];
+export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital',
+  'museum', 'aquarium', 'zoo', 'amusement', 'opera', 'clocktower', 'arch', 'cathedral', 'skytower', 'pyramid'];
 
 // Funding group of each public building kind (see CONFIG.budgets.groups).
 const GROUP_OF = Object.fromEntries(Object.entries(CONFIG.budgets.groups).flatMap(([g, d]) => d.kinds.map((k) => [k, g])));

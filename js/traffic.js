@@ -8,6 +8,7 @@ import { TILE, FLAG, KINDS, JUNCTION, ROADMOD, canDrive, onewayAt, skilledShare,
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
 import { buildRoutes, lineCapacity, railNetwork, railExits, rideMinutes } from './transit.js';
+import { portRoads } from './tourism.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -379,11 +380,12 @@ export function trafficSystem(state) {
     map.skillFill[i] = map.skillFill[i] * 0.5 + (1 - remainingS[i] / skilledPosts[i]) * 0.5;
   }
 
-  // --- freight: industry trucks to the nearest highway exit (shortest-time tree from the edge)
+  // --- freight: industry trucks to the nearest highway exit or seaport (shortest-time tree)
   const toEdge = new Float64Array(size).fill(Infinity);
   const edgeParent = new Int32Array(size).fill(-1);
   heap.clear();
   for (let i = 0; i < size; i++) if (isNode[i] && isEdge(i)) { toEdge[i] = time[i]; heap.push(i, time[i]); }
+  for (const i of portRoads(map)) if (isNode[i] && time[i] < toEdge[i]) { toEdge[i] = time[i]; heap.push(i, time[i]); }
   while (heap.size) {
     const u = heap.pop();
     if (heap.lastPri > toEdge[u]) continue;

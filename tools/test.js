@@ -8,6 +8,8 @@ import { serialize, deserialize, sanitizeLayers, autosave, loadAutosave, clearAu
 import { applyTool, undoAction } from '../js/economy.js';
 import { TILE, TERRAIN, KINDS, KIND_ID, FLAG, PERSISTENT_LAYERS, highwayEntry, footprintSize } from '../js/map.js';
 import { layTramTrack } from '../js/transit.js';
+import { MAYOR_LEVELS, levelFromAchievements } from '../js/goals.js';
+import { monthlyBudget } from '../js/economy.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -182,6 +184,63 @@ test('downgrading a road keeps the buildings beside it and refunds part of the p
   for (const i of homes) assert.equal(m.level[i], 2, 'homes untouched');
   assert.equal(applyTool(s, 'downgrade', road).applied, 0, 'a street cannot go lower');
   assert.ok(undoAction(s, r.undo) && m.roadClass[road[0]] === 1, 'undo brings the avenue back');
+});
+
+test('an overloaded school stretches thin and says so', () => {
+  const { s, m, row, x0 } = streetCity();
+  for (let i = 0; i < m.size; i++) if (m.type[i] === TILE.RES) m.level[i] = 3;
+  m.version++;
+  assert.ok(applyTool(s, 'school', [m.idx(x0 + 5, row + 1)]).applied);
+  refreshFields(s);
+  const [entry] = Object.values(s.serviceLoad);
+  assert.equal(entry.kind, 'school');
+  assert.ok(entry.load > entry.capacity, `load ${entry.load} over ${entry.capacity}`);
+  assert.equal(s.serviceUse.school.full, 1);
+  const full = s.map.coverage.school[m.idx(x0 + 5, row + 2)];
+  assert.ok(full < 1 && full >= 0.35, 'coverage scaled down but not below the floor');
+  m.level.fill(0); refreshFields(s);
+  assert.equal(Object.values(s.serviceLoad)[0].load, 0, 'no homes, no load');
+});
+
+test('airport, seaport and attractions bring visitors and money', () => {
+  const { s, m, row, x0 } = streetCity();
+  const rect = (x1, y1, x2, y2) => { const o = []; for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) o.push(m.idx(x, y)); return o; };
+  for (let i = 0; i < m.size; i++) if (m.type[i] !== TILE.ROAD) { m.type[i] = TILE.EMPTY; m.level[i] = 0; }
+  m.version++;
+  assert.equal(applyTool(s, 'airport', rect(x0 + 2, row + 1, x0 + 6, row + 3)).applied, 0, 'locked below 3,000 residents');
+  s.stats.population = 20000;
+  assert.equal(applyTool(s, 'airport', rect(x0 + 2, row + 1, x0 + 6, row + 3)).applied, 15);
+  assert.equal(applyTool(s, 'museum', rect(x0 + 8, row - 2, x0 + 9, row - 1)).applied, 4);
+  assert.equal(applyTool(s, 'seaport', rect(x0 + 12, row + 5, x0 + 14, row + 7)).applied, 0, 'a seaport needs the shore');
+  assert.equal(applyTool(s, 'pyramid', rect(x0 + 16, row - 3, x0 + 18, row - 1)).applied, 0, 'monuments wait for the mayor level');
+  s.mayorLevel = MAYOR_LEVELS.length;
+  assert.equal(applyTool(s, 'pyramid', rect(x0 + 16, row - 3, x0 + 18, row - 1)).applied, 9);
+  refreshFields(s);
+  const t = s.tourism;
+  assert.equal(t.airports, 1);
+  assert.ok(t.byMode.air > 0 && t.visitors > 0, 'tourists fly in');
+  assert.ok(t.prestige > 0);
+  const b = monthlyBudget(s).income;
+  assert.ok(b.attractions > 0 && b.airport > 0, 'tickets and airport fees');
+  const a = serialize(s), back = deserialize(JSON.parse(JSON.stringify(a)));
+  assert.equal(back.mayorLevel, s.mayorLevel, 'level saved');
+});
+
+test('mayor levels promote from achievements and pay once', () => {
+  const s = createGame(9, 40);
+  assert.equal(s.mayorLevel, 1);
+  for (const L of MAYOR_LEVELS) assert.ok(L.achievements.length >= 10 && L.achievements.length <= 15, `${L.title} has 10-15 achievements`);
+  const ids = MAYOR_LEVELS.flatMap((L) => L.achievements.map((a) => a.id));
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+  s.achievements = MAYOR_LEVELS[0].achievements.slice(0, MAYOR_LEVELS[0].need).map((a) => a.id);
+  assert.equal(levelFromAchievements(s.achievements), 2);
+  const funds = s.funds;
+  while (s.tick % 8 !== 7) tick(s);
+  tick(s);
+  assert.equal(s.mayorLevel, 2, 'promoted');
+  assert.ok(s.funds >= funds + MAYOR_LEVELS[0].reward - 2000, 'reward paid');
+  const d = serialize(s); delete d.mayorLevel;
+  assert.equal(deserialize(JSON.parse(JSON.stringify(d))).mayorLevel, 2, 'older saves work their level out');
 });
 
 test('stops with only homes around them make no route that goes nowhere', () => {

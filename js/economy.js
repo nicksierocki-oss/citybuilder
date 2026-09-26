@@ -8,6 +8,7 @@ import { ordinance, ordinancesCost } from './cityhall.js';
 import { funding, groupOf, serviceAdvice } from './services.js';
 import { tradeMoney } from './region.js';
 import { linesCost } from './transit.js';
+import { placementProblem } from './tourism.js';
 
 export const TOOLS = {
   inspect:     { label: 'Inspect / Pan', key: '0', shape: 'point' },
@@ -54,6 +55,18 @@ export const TOOLS = {
   statue:      { label: "Mayor's statue", shape: 'single', building: 'statue' },
   hospital:    { label: 'Hospital',     shape: 'footprint', building: 'hospital', footprint: true },
   landfill:    { label: 'Landfill',     shape: 'footprint', building: 'landfill', footprint: true },
+  airport:     { label: 'Airport',      shape: 'footprint', building: 'airport', footprint: true },
+  seaport:     { label: 'Seaport',      shape: 'footprint', building: 'seaport', footprint: true },
+  museum:      { label: 'Museum',       shape: 'footprint', building: 'museum', footprint: true },
+  aquarium:    { label: 'Aquarium',     shape: 'footprint', building: 'aquarium', footprint: true },
+  zoo:         { label: 'Zoo',          shape: 'footprint', building: 'zoo', footprint: true },
+  amusement:   { label: 'Amusement park', shape: 'footprint', building: 'amusement', footprint: true },
+  opera:       { label: 'Opera house',  shape: 'footprint', building: 'opera', footprint: true },
+  clocktower:  { label: 'Clock tower',  shape: 'single', building: 'clocktower' },
+  arch:        { label: 'Triumphal arch', shape: 'footprint', building: 'arch', footprint: true },
+  cathedral:   { label: 'Grand cathedral', shape: 'footprint', building: 'cathedral', footprint: true },
+  skytower:    { label: 'Observation tower', shape: 'footprint', building: 'skytower', footprint: true },
+  pyramid:     { label: 'Glass pyramid', shape: 'footprint', building: 'pyramid', footprint: true },
   // Paints the selected district (arg = district id, 0 erases)
   district:    { label: 'Paint district', shape: 'rect' },
 };
@@ -64,6 +77,7 @@ export function isUnlocked(state, kind) {
   const B = CONFIG.buildings[kind];
   if (state.scenario?.banned?.includes(kind)) return false;
   if (B?.unlockRating) return state.milestones.includes(`unlock:${kind}`);
+  if (B?.unlockLevel) return (state.mayorLevel ?? 1) >= B.unlockLevel;
   return !B?.unlock || state.milestones.includes(`unlock:${kind}`) || state.stats.population >= B.unlock;
 }
 
@@ -216,6 +230,7 @@ export function besideRail(map, i) {
 export function footprintCost(state, tool, tiles) {
   const kind = TOOLS[tool].building, [w, h] = footprintSize(kind);
   if (tiles.length !== w * h || !isUnlocked(state, kind)) return null;
+  if (placementProblem(state, kind, tiles)) return null;
   let total = CONFIG.buildings[kind].cost;
   for (const i of tiles) {
     const c = toolCost(state, tool, i);
@@ -318,7 +333,11 @@ export function applyTool(state, tool, tiles, arg = 0) {
   const undo = { map, tool, tiles: [], spent: 0 };
   if (TOOLS[tool]?.footprint) {
     const cost = footprintCost(state, tool, tiles);
-    if (cost == null) { push(state, `No room for a ${CONFIG.buildings[TOOLS[tool].building].label.toLowerCase()} here`, 'bad'); return none; }
+    if (cost == null) {
+      const kind = TOOLS[tool].building, why = tiles.length === footprintSize(kind)[0] * footprintSize(kind)[1] ? placementProblem(state, kind, tiles) : null;
+      push(state, `No room for ${/^[aeiou]/i.test(CONFIG.buildings[kind].label) ? 'an' : 'a'} ${CONFIG.buildings[kind].label.toLowerCase()} here${why ? `: it ${why}` : ''}`, 'bad');
+      return none;
+    }
     if (cost > state.funds) { push(state, 'Not enough funds', 'bad'); return none; }
     const w = footprintSize(TOOLS[tool].building)[0];
     tiles.forEach((i, k) => {
@@ -405,6 +424,10 @@ export function monthlyBudget(state) {
     utilitySales: tradeMoney(state).income,
     tourism: (s.hotelIncome ?? 0) * (ordinance(state, 'tourism') ? CONFIG.ordinances.tourism.visitorMult : 1),
     visitors: visitorIncome(state),
+    attractions: state.tourism?.income?.tickets ?? 0,
+    stays: state.tourism?.income?.stays ?? 0,
+    airport: state.tourism?.income?.airport ?? 0,
+    port: state.tourism?.income?.port ?? 0,
   };
   const expenses = {
     roads: s.roads * E.roadMaintenance,
@@ -590,6 +613,9 @@ export function budgetAdvice(state) {
     out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. ${why}`);
   }
   out.push(...serviceAdvice(state));
+  const tour = state.tourism;
+  if (tour && tour.wanted > tour.room + 100) out.push(`${(tour.wanted - tour.room).toLocaleString()} more tourists a month would come if they could get here: ${tour.airports ? 'a seaport or rail to the region adds room' : 'an airport lets 4,000 a month fly in'} (City hall → Tourism).`);
+  if (tour?.idleHubs) out.push(`${tour.idleHubs} airport or seaport has no connected street or avenue beside it, so it does nothing but cost upkeep.`);
   const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);
   if (breaks.length && net < 0) out.push(`Tax breaks in ${breaks.map((d) => d.name).join(', ')} waive ${Math.round(CONFIG.districts.taxBreakCut * 100)}% of their taxes. Lift them once the district has grown.`);
   if (s.abandoned > 5) out.push(`${s.abandoned} abandoned buildings earn nothing: hover them to see why (jobs, pollution, commute).`);

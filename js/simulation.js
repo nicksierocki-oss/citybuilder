@@ -14,6 +14,7 @@ import { goalsSystem, emptyGoals } from './goals.js';
 import { newsSystem } from './news.js';
 import { exportDemand } from './region.js';
 import { railExits } from './transit.js';
+import { tourismSystem, hubExports, hubOffices, ATTRACTION_KINDS } from './tourism.js';
 
 export const DEFAULT_CITY_NAME = 'My City';
 const CITY_NAMES = ['Willowbrook', 'Riverton', 'Maple Bay', 'Fairhaven', 'Linden Park', 'Ashford', 'Brightwater',
@@ -63,10 +64,12 @@ export function createGame(seed, size = CONFIG.map.defaultSize, landform = 'plai
     goals: emptyGoals('tutorial'),
     scenario: null,           // { id, status: 'active'|'won'|'lost', banned, deadlineYear }
     achievements: [],         // achievement ids earned in this city
+    mayorLevel: 1,            // mayor level from achievements (goals.js MAYOR_LEVELS)
     news: [],                 // citizen posts and headlines (news.js)
   };
   runFieldSystems(state);
   computeStats(state);
+  tourismSystem(state);
   return state;
 }
 
@@ -326,12 +329,12 @@ export function targetDemand(state) {
   const laborRoom = norm(labor, jobs) + D.laborSlack;
 
   // Commercial: shoppers need shops.
-  let c = Math.min(norm(P * D.comPerResident + D.comBase, C), laborRoom);
+  let c = Math.min(norm(P * D.comPerResident + D.comBase + (state.tourism?.visitors ?? 0) * CONFIG.tourism.shopJobsPerVisitor, C), laborRoom);
   // Industrial: goods for residents + regional exports.
-  let i = Math.min(norm(P * D.indPerResident + D.indBase + exportDemand(state), I), laborRoom);
+  let i = Math.min(norm(P * D.indPerResident + D.indBase + exportDemand(state) + hubExports(state), I), laborRoom);
   // Offices: skilled workers looking for skilled work.
   const skilled = P * D.workforceRatio * (state.education ?? 0);
-  let o = Math.min(norm(skilled * D.officePerSkilled + D.officeBase, O), laborRoom);
+  let o = Math.min(norm(skilled * D.officePerSkilled + D.officeBase + hubOffices(state), O), laborRoom);
   // Farms: food for residents plus regional produce demand.
   let f = Math.min(norm(P * D.farmPerResident + D.farmBase, F), laborRoom);
 
@@ -547,7 +550,8 @@ export function growthSystem(state) {
 export function tourismScore(map, i) {
   const Z = CONFIG.zones, c = map.coverage, wd = map.waterDist[i];
   const water = wd <= 3 ? Z.hotelWater * (1 - (wd - 1) / 3) : 0;
-  const sights = Math.max(c.stadium[i], c.centralpark[i], c.townpark[i] * 0.6, c.university[i] * 0.5, c.statue[i] * 0.5);
+  let sights = Math.max(c.stadium[i], c.centralpark[i], c.townpark[i] * 0.6, c.university[i] * 0.5, c.statue[i] * 0.5);
+  for (const k of ATTRACTION_KINDS) sights = Math.max(sights, c[k][i]);
   return water + Math.min(1, sights) * Z.hotelLandmarks + map.landValue[i] / 100 * Z.hotelLandValue;
 }
 
@@ -621,7 +625,7 @@ function milestoneSystem(state) {
 }
 
 // One sample per month for the graphs panel. Old samples are thinned so long games stay small.
-export const HISTORY_SERIES = ['pop', 'jobs', 'funds', 'income', 'expenses', 'happiness', 'crime', 'education', 'commute', 'unemployed', 'congested'];
+export const HISTORY_SERIES = ['pop', 'jobs', 'funds', 'income', 'expenses', 'happiness', 'crime', 'education', 'commute', 'unemployed', 'congested', 'transit', 'tourists'];
 function historySystem(state) {
   if (state.tick % CONFIG.time.ticksPerMonth !== 0) return;
   const s = state.stats, tr = state.traffic ?? {}, lm = state.lastMonth;
@@ -635,6 +639,7 @@ function historySystem(state) {
     commute: Math.round((tr.avgCommute ?? 0) * 10) / 10,
     unemployed: Math.max(0, Math.round((tr.workers ?? 0) - (tr.employed ?? 0))),
     congested: tr.congested ?? 0,
+    transit: Math.round(tr.transitRiders ?? 0), tourists: state.tourism?.visitors ?? 0,
   });
   const max = CONFIG.history.maxSamples;
   if (h.samples.length > max) {
@@ -664,6 +669,7 @@ export const SYSTEMS = [
   { name: 'growth', run: growthSystem },
   { name: 'fire', run: fireSystem },
   { name: 'stats2', run: computeStats },
+  { name: 'tourism', run: tourismSystem, every: CONFIG.traffic.everyTicks },
   { name: 'milestones', run: milestoneSystem },
   { name: 'economy', run: economySystem },
   { name: 'mayor', run: mayorSystem },
@@ -685,5 +691,6 @@ export function tick(state) {
 export function refreshFields(state) {
   runFieldSystems(state);
   computeStats(state);
+  tourismSystem(state);
 }
 

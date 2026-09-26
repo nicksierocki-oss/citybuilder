@@ -2,7 +2,7 @@
 // achievements), the news feed and the tutorial hint on the toolbar.
 
 import { CONFIG } from './config.js';
-import { CHAINS, SCENARIOS, ACHIEVEMENTS, currentGoal, startChain } from './goals.js';
+import { CHAINS, SCENARIOS, ACHIEVEMENTS, MAYOR_LEVELS, currentGoal, startChain, levelTitle } from './goals.js';
 import { ORDINANCE_ORDER, ordinance, ordinanceCost, ratingParts, ratingWord } from './cityhall.js';
 import { regionInfo, exportDemand, tradeMoney } from './region.js';
 import { LOAD_KINDS, loadStatus } from './services.js';
@@ -133,7 +133,7 @@ export class CityHallUI {
           ${s.goals.chain === 'tutorial' ? '<button id="btnSkipTutorial" class="linkbtn">Skip tutorial</button>' : ''}`;
       } else body = '<div class="gc-title">🎯 All goals done. Try a scenario from City → New city.</div>';
     }
-    const html = `<div class="gc-head"><span>Mayor</span><b>${Math.round(r)}</b><small>${ratingWord(r)} ${arrow}</small>
+    const html = `<div class="gc-head"><span title="${esc(levelTitle(s.mayorLevel ?? 1))}">Mayor · Lv ${s.mayorLevel ?? 1}</span><b>${Math.round(r)}</b><small>${ratingWord(r)} ${arrow}</small>
       <span class="gc-spacer"></span><span class="gc-open">City hall ▸</span>${sc?.status === 'active' ? '' : `<button id="btnHideGoals" class="linkbtn" title="${s.goals?.hidden ? 'Show' : 'Hide'} the current goal">${s.goals?.hidden ? 'show goal' : 'hide goal'}</button>`}</div>${body}`;
     if (html !== this.cardHtml) { el.innerHTML = html; this.cardHtml = html; }
   }
@@ -142,13 +142,14 @@ export class CityHallUI {
     const el = $('cityhall');
     if (!el.classList.contains('open')) return;
     const s = this.game.state;
-    const tabs = [['goals', 'Goals'], ['services', 'Services'], ['ordinances', 'Ordinances'], ['region', 'Region'], ['rating', 'Rating'], ['achievements', 'Achievements']];
+    const tabs = [['goals', 'Goals'], ['services', 'Services'], ['tourism', 'Tourism'], ['ordinances', 'Ordinances'], ['region', 'Region'], ['rating', 'Rating'], ['achievements', 'Mayor levels']];
     let body = '';
     if (this.tab === 'goals') body = this.goalsTab(s);
     else if (this.tab === 'ordinances') body = this.ordinancesTab(s);
     else if (this.tab === 'rating') body = this.ratingTab(s);
     else if (this.tab === 'region') body = this.regionTab(s);
     else if (this.tab === 'services') body = this.servicesTab(s);
+    else if (this.tab === 'tourism') body = this.tourismTab(s);
     else body = this.achievementsTab(s);
     const html = `<button id="btnCityHallClose" class="x" aria-label="Close">×</button><h3>🏛 City hall · ${esc(s.cityName)}</h3>
       <div class="gtabs chtabs">${tabs.map(([k, t]) => `<button data-chtab="${k}" class="${k === this.tab ? 'on' : ''}">${t}</button>`).join('')}</div>
@@ -194,13 +195,38 @@ export class CityHallUI {
       return `<tr class="golink" data-tx="${x}" data-ty="${y}" title="Show on the map"><td>${CONFIG.buildings[l.kind].label} <small>${x}, ${y}</small></td><td>${meter(l.share)}</td><td><small>${l.load.toLocaleString()} / ${l.capacity.toLocaleString()} · ${st.word}</small></td></tr>`;
     });
     const u = s.utilities ?? {}, gb = s.garbage ?? {};
-    const util = (name, a, b) => `<tr><td><b>${name}</b></td><td>${meter(b > 0 ? a / b : a > 0 ? 2 : 0)}</td><td><small>${Math.round(a).toLocaleString()} used of ${Math.round(b).toLocaleString()}</small></td></tr>`;
+    const util = (name, a, b) => `<tr><td><b>${name}</b></td><td>${b > 0 ? meter(a / b) : '<span class="pill none">none built</span>'}</td><td><small>${Math.round(a).toLocaleString()} used of ${Math.round(b).toLocaleString()}</small></td></tr>`;
     return `<p class="muted">Each school, clinic, hospital, university, police and fire station looks after the homes it covers best, up to its capacity.
       Over 100% it stretches thin and works at reduced strength for everyone. <b>Out of reach</b> means no building of that kind covers those homes at all:
       the fix there is a new building nearby, not a bigger one. Funding above 100% raises capacity a little.</p>
       <table class="svcuse">${rows.join('') || '<tr><td class="muted">No residents yet.</td></tr>'}</table>
       <h4>Utilities</h4><table class="svcuse">${util('Power', u.power?.demand ?? 0, u.power?.supply ?? 0)}${util('Water', u.water?.demand ?? 0, u.water?.supply ?? 0)}${gb.made ? util('Garbage pickup', gb.made - (gb.uncollected ?? 0), gb.capacity) : ''}</table>
       ${list.length ? `<h4>Every building <small class="muted">busiest first · click to find it</small></h4><table class="svcuse">${list.join('')}</table>` : ''}`;
+  }
+
+  // Visitors: what draws them, how they get here, what they spend.
+  tourismTab(s) {
+    const t = s.tourism, B = CONFIG.buildings;
+    if (!t) return '<p class="muted">No data yet.</p>';
+    const modes = [['road', 'By road', 'links to neighbouring towns'], ['rail', 'By train', 'railway to the map edge'], ['air', 'By air', 'airport'], ['sea', 'By sea', 'cruise ships at a seaport']];
+    const inc = t.income, total = inc.tickets + inc.stays + inc.airport + inc.port;
+    const draws = Object.entries(t.draws).sort((a, b) => b[1] - a[1]);
+    const tips = [];
+    if (!t.draw) tips.push('Nothing draws visitors yet. Attractions unlock with population (museum at 3,000); monuments with your mayor level.');
+    if (t.wanted > t.room + 1) tips.push(`${(t.wanted - t.room).toLocaleString()} more visitors a month would come if they could get here: ${t.airports ? 'add a seaport or rail to the region' : 'an airport carries up to 4,000 a month'}.`);
+    if (t.visitors * CONFIG.tourism.staying > t.beds + 1) tips.push(`Only ${t.beds.toLocaleString()} hotel beds for ${Math.round(t.visitors * CONFIG.tourism.staying).toLocaleString()} overnight visitors: shops at medium density near attractions and water turn into hotels.`);
+    if (t.idleHubs) tips.push(`${t.idleHubs} airport or seaport has no connected road beside it, so it does nothing.`);
+    return `<div class="rating-big"><b>${t.visitors.toLocaleString()}</b><span>visitors a month</span></div>
+      <p class="muted">Attractions and monuments draw visitors (more as the city grows and the happier it is). How many can come depends on the ways in.
+      Visitors buy tickets, stay in hotels and shop (shop demand rises). Monuments also add <b>+${t.prestige}</b> to the mayor rating.</p>
+      <h4>Ways in</h4><table class="svcuse">${modes.map(([k, n, what]) => `<tr><td><b>${n}</b><br><small>${what}</small></td><td>${t.byMode[k].toLocaleString()} visitors</td><td><small>room for ${Math.round(t.caps[k]).toLocaleString()}</small></td></tr>`).join('')}</table>
+      <h4>What draws them <small class="muted">${t.draw.toLocaleString()} at full strength</small></h4>
+      <table class="svcuse">${draws.map(([k, d]) => `<tr><td>${B[k].label}</td><td>${Math.round(d).toLocaleString()}</td><td><small>${B[k].ticket ? `$${B[k].ticket} a ticket` : 'free'}</small></td></tr>`).join('') || '<tr><td class="muted">No attractions yet.</td></tr>'}</table>
+      <h4>Money this month <small class="muted">${money(total)}</small></h4>
+      <table class="svcuse"><tr><td>Tickets</td><td>${money(inc.tickets)}</td></tr><tr><td>Hotel stays <small>${t.staying.toLocaleString()} guests · ${t.beds.toLocaleString()} beds</small></td><td>${money(inc.stays)}</td></tr>
+      ${t.airports ? `<tr><td>Airport fees <small>${t.flyers.toLocaleString()} passengers</small></td><td>${money(inc.airport)}</td></tr>` : ''}
+      ${t.seaports ? `<tr><td>Port fees <small>${t.cargo.toLocaleString()} truckloads shipped</small></td><td>${money(inc.port)}</td></tr>` : ''}</table>
+      ${tips.length ? `<ul class="advice">${tips.map((x) => `<li>${x}</li>`).join('')}</ul>` : ''}`;
   }
 
   ordinancesTab(s) {
@@ -244,13 +270,27 @@ export class CityHallUI {
   }
 
   achievementsTab(s) {
-    const mine = new Set(s.achievements ?? []);
-    const got = ACHIEVEMENTS.filter((a) => this.earned.has(a.id) || mine.has(a.id)).length;
-    return `<p class="muted">${got} of ${ACHIEVEMENTS.length} earned in this browser.</p>
-      <div class="achs">${ACHIEVEMENTS.map((a) => {
-        const have = this.earned.has(a.id) || mine.has(a.id);
-        return `<div class="ach ${have ? 'got' : ''}"><span>${have ? '🏆' : '🔒'}</span><div><b>${esc(a.name)}</b><br><small>${esc(a.text)}</small></div></div>`;
-      }).join('')}</div>`;
+    const mine = new Set(s.achievements ?? []), lvl = s.mayorLevel ?? 1;
+    const card = (a) => {
+      const have = mine.has(a.id), elsewhere = !have && this.earned.has(a.id);
+      return `<div class="ach ${have ? 'got' : ''}" title="${elsewhere ? 'Earned in another city: earn it here too to count for this city' : ''}"><span>${have ? '🏆' : elsewhere ? '🥉' : '🔒'}</span><div><b>${esc(a.name)}</b><br><small>${esc(a.text)}</small></div></div>`;
+    };
+    const cur = MAYOR_LEVELS[lvl - 1];
+    const got = cur ? cur.achievements.filter((a) => mine.has(a.id)).length : 0;
+    const head = cur
+      ? `<div class="rating-big"><b>${lvl}</b><span>${esc(levelTitle(lvl))}</span></div>
+        <p>${bar(got, cur.need)} <b>${got} / ${cur.need}</b> of this level's achievements to become <b>${esc(levelTitle(lvl + 1))}</b>
+        (reward $${cur.reward.toLocaleString()}${MAYOR_LEVELS[lvl]?.unlocks ? `, unlocks the ${CONFIG.buildings[MAYOR_LEVELS[lvl].unlocks].label.toLowerCase()}` : ''}).</p>`
+      : `<div class="rating-big"><b>★</b><span>${esc(levelTitle(lvl))}</span></div><p>Every level complete. The city will remember you.</p>`;
+    const levels = MAYOR_LEVELS.map((L, n) => {
+      const k = n + 1, done = L.achievements.filter((a) => mine.has(a.id)).length;
+      const state = k < lvl ? '<span class="pill ok">complete</span>' : k === lvl ? '<span class="pill short">current</span>' : '<span class="pill none">ahead</span>';
+      return `<h4>Level ${k}: ${esc(L.title)} ${state} <small class="muted">${done}/${L.achievements.length} · ${L.need} needed · $${L.reward.toLocaleString()}${L.unlocks ? ` · unlocks ${CONFIG.buildings[L.unlocks].label.toLowerCase()}` : ''}</small></h4>
+        <div class="achs ${k > lvl ? 'ahead' : ''}">${L.achievements.map(card).join('')}</div>`;
+    }).join('');
+    const scen = ACHIEVEMENTS.filter((a) => a.level === 0);
+    return `${head}<p class="muted">Achievements count in any order, even ones from later levels. Monuments unlock as you rise.</p>${levels}
+      <h4>Scenarios</h4><div class="achs">${scen.map((a) => card({ ...a })).join('')}</div>`;
   }
 
   renderNews() {

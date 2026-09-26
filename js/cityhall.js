@@ -40,7 +40,9 @@ export function ratingParts(state) {
   };
   let target = 0;
   for (const [k, w] of Object.entries(CONFIG.mayor.weights)) target += parts[k] * w;
-  return { parts, target };
+  const prestige = state.tourism?.prestige ?? 0; // monuments make the city proud
+  target = Math.min(100, target + prestige);
+  return { parts, target, prestige };
 }
 
 // Monthly: the rating drifts toward its target; January pays a grant if it's high;

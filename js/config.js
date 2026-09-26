@@ -229,6 +229,46 @@ export const CONFIG = {
     // Collects `garbage` units a month from buildings within `radius`; smelly nearby.
     railstation: { label: 'Train station', cost: 3000, upkeep: 45, radius: 15, landValue: 8, happiness: 4, capacity: 800 },
     landfill:    { label: 'Landfill',     cost: 1500, upkeep: 25, size: [2, 2], radius: 24, garbage: 700, pollution: 30, pollutionRadius: 3 },
+
+    // Transport hubs (see CONFIG.tourism): they need a street or avenue beside them to work.
+    // Airport: flat land only; flights bring tourists and business travellers, air cargo lifts
+    // exports and office demand; noisy (counts as pollution).
+    airport:     { label: 'Airport', cost: 25000, upkeep: 150, size: [5, 3], unlock: 3000, flat: true, pollution: 28, pollutionRadius: 5,
+      passengers: 4000, fee: 1.5, exports: 40, offices: 40 },
+    // Seaport: on the shore (at least `shore` water tiles along its edge); ships take freight
+    // (trucks drive to the port instead of the map edge), cruise ships bring tourists.
+    seaport:     { label: 'Seaport', cost: 20000, upkeep: 120, size: [3, 3], unlock: 2000, shore: 3, pollution: 22, pollutionRadius: 4,
+      cargo: 3000, cargoFee: 0.35, cruise: 1500, fee: 1, exports: 60 },
+
+    // Tourist attractions: unlocked by population. `attraction` = visitors a month they draw at
+    // full strength, `ticket` = $ each visitor spends there.
+    museum:      { label: 'Museum',         cost: 12000, upkeep: 60,  size: [2, 2], radius: 10, landValue: 10, happiness: 6,  unlock: 3000, attraction: 400,  ticket: 1 },
+    aquarium:    { label: 'Aquarium',       cost: 15000, upkeep: 80,  size: [2, 2], radius: 10, landValue: 10, happiness: 6,  unlock: 4000, attraction: 600,  ticket: 1.5, nearWater: 2 },
+    zoo:         { label: 'Zoo',            cost: 18000, upkeep: 90,  size: [3, 3], radius: 12, landValue: 12, happiness: 8,  unlock: 5000, attraction: 800,  ticket: 1.5, park: true },
+    amusement:   { label: 'Amusement park', cost: 35000, upkeep: 150, size: [4, 4], radius: 14, landValue: 8,  happiness: 10, unlock: 8000, attraction: 1500, ticket: 2 },
+    opera:       { label: 'Opera house',    cost: 40000, upkeep: 120, size: [3, 2], radius: 14, landValue: 16, happiness: 8,  unlock: 12000, attraction: 1000, ticket: 2.5 },
+    // Monuments: unlocked by mayor level (see goals.js), very expensive. Big draws, and
+    // `prestige` adds to the mayor rating for as long as they stand.
+    clocktower:  { label: 'Clock tower',       cost: 15000,  upkeep: 20,  radius: 10, landValue: 12, happiness: 6,  unlockLevel: 2, attraction: 250,  ticket: 1, prestige: 2 },
+    arch:        { label: 'Triumphal arch',    cost: 30000,  upkeep: 30,  size: [2, 2], radius: 12, landValue: 14, happiness: 8,  unlockLevel: 3, attraction: 500,  ticket: 1, prestige: 3 },
+    cathedral:   { label: 'Grand cathedral',   cost: 60000,  upkeep: 60,  size: [3, 3], radius: 16, landValue: 18, happiness: 10, unlockLevel: 4, attraction: 900,  ticket: 1.5, prestige: 4 },
+    skytower:    { label: 'Observation tower', cost: 90000,  upkeep: 90,  size: [2, 2], radius: 18, landValue: 20, happiness: 8,  unlockLevel: 5, attraction: 1400, ticket: 2, prestige: 5 },
+    pyramid:     { label: 'Glass pyramid',     cost: 150000, upkeep: 120, size: [3, 3], radius: 20, landValue: 22, happiness: 12, unlockLevel: 6, attraction: 2200, ticket: 2.5, prestige: 6 },
+  },
+
+  // Tourism (js/tourism.js). Attractions draw visitors; how many can come is capped by the ways
+  // in: road links (per unit of region link weight), trains to the region, flights, cruise ships.
+  tourism: {
+    stadiumDraw: 300, parkDraw: 100,   // older landmarks draw a few visitors too (no extra tickets)
+    popFull: 10000,                    // draw grows from `popMin` share to full at this population
+    popMin: 0.3,
+    roadPerWeight: 250, railPerLink: 500,
+    residentFlyers: 0.03,              // share of residents flying each month (airport fees)
+    staying: 0.5,                      // share of visitors staying overnight...
+    bedsPerHotel: [0, 0, 40, 100],     // ...in hotel beds (by density)...
+    staySpend: 2,                      // ...spending this much each
+    shopJobsPerVisitor: 0.02,          // commercial demand from tourists
+    maxPrestige: 15,                   // cap on the rating bonus from monuments
   },
 
   // Service funding: 50%..150% per group. Coverage radius × (radiusBase + radiusPer × funding);
@@ -241,9 +281,10 @@ export const CONFIG = {
       health:    { label: 'Health',    kinds: ['clinic', 'hospital'] },
       police:    { label: 'Police',    kinds: ['police'] },
       fire:      { label: 'Fire',      kinds: ['fire'] },
-      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation', 'parking'] },
+      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation', 'parking', 'airport', 'seaport'] },
       parks:     { label: 'Parks',     kinds: ['plaza', 'townpark', 'centralpark', 'statue'] },
       garbage:   { label: 'Garbage',   kinds: ['landfill', 'recycling'] },
+      culture:   { label: 'Culture & tourism', kinds: ['museum', 'aquarium', 'zoo', 'amusement', 'opera', 'clocktower', 'arch', 'cathedral', 'skytower', 'pyramid'] },
     },
   },
 

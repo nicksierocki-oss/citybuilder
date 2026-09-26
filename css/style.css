@@ -457,3 +457,4 @@ body:not(.brushable) #brushSection { opacity: 0.45; }
 .tsum small { font-weight: 400; color: var(--muted); }
 .lost { font-size: 11.5px; margin-top: 6px; padding: 6px 8px; border-radius: 9px; background: #fbeedb; }
 .lost .golink { color: #8a5a2a; padding: 1px 0; }
+.achs.ahead { filter: saturate(0.6); }
