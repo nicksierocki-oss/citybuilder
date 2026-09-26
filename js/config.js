@@ -1,3 +1,4 @@
+// @ts-check
 // Gridline — every balance number lives here. Tweak freely.
 // Units: money is in $, time is in simulation ticks (see `time`).
 
@@ -374,11 +375,17 @@ export const CONFIG = {
     },
   },
 
-  // Transit lines (js/transit.js): vehicles run a line's stops in order along the roads.
-  // Riders a vehicle carries a month, monthly cost per vehicle, travel time × road time,
-  // minutes stopped per stop, base wait (divided by frequency), share of a home's workers
-  // who'd ride, road trips a vehicle adds, animation speed (tiles/s).
+  // Transit lines (js/transit.js): planned automatically from the bus stops. Stops of the same
+  // kind (homes / jobs / mixed) within `areaGap` tiles form an area (at most `areaMaxStops` per
+  // line end); each home area gets a line to the nearest job area. A line runs trams when
+  // `tramShare` of its route has tram track. Vehicles run as the homes along a line need.
+  // Per mode: riders a vehicle carries a month, monthly cost per vehicle, travel time × road
+  // time, minutes stopped per stop, base wait (divided by frequency), share of a home's
+  // workers who'd ride, road trips a vehicle adds, animation speed (tiles/s).
   transit: {
+    areaGap: 7,
+    areaMaxStops: 6,
+    tramShare: 0.6,
     maxFreq: 4,
     colors: ['#e3a35a', '#6fa6e3', '#7cc47a', '#e87a8a', '#b38fd6', '#5fc2c0', '#d6b24a', '#8a94a6'],
     modes: {

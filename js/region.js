@@ -1,3 +1,4 @@
+// @ts-check
 // The region around the city: neighbouring towns on each map edge a road leaves from, how
 // much those connections can carry, and the trade deals with them. Pure simulation, no DOM.
 
@@ -13,11 +14,11 @@ const SIDE_NAMES = { N: 'north', E: 'east', S: 'south', W: 'west' };
 export function regionInfo(state) {
   const map = state.map;
   if (map._region && map._region.version === map.version && map._region.w === map.width) return map._region;
-  const R = CONFIG.region, sides = Object.fromEntries(SIDES.map((s) => [s, { weight: 0, exits: 0 }]));
+  const R = CONFIG.region, sides = Object.fromEntries(SIDES.map((s) => [s, { weight: 0, exits: 0, rails: 0 }]));
   const rail = railNetwork(state);
   const add = (i, side) => {
     const rs = railExitSide(map, i);
-    if (rs && rail.comps[rail.comp[i]]?.stations.length) { sides[rs].weight += CONFIG.rail.linkWeight; sides[rs].rails = (sides[rs].rails ?? 0) + 1; }
+    if (rs && rail.comps[rail.comp[i]]?.stations.length) { sides[rs].weight += CONFIG.rail.linkWeight; sides[rs].rails++; }
     if (map.type[i] !== TILE.ROAD) return;
     sides[side].weight += R.exitWeight[map.roadClass[i]];
     sides[side].exits++;

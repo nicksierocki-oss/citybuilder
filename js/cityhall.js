@@ -1,3 +1,4 @@
+// @ts-check
 // City hall: ordinances (city-wide policies with a monthly cost) and the mayor rating.
 // Pure simulation, no DOM.
 

@@ -1,3 +1,4 @@
+// @ts-check
 // Utilities (power, water), public-service coverage and residential happiness.
 // Pure simulation — no DOM.
 

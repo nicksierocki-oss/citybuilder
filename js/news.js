@@ -1,3 +1,4 @@
+// @ts-check
 // City news: citizens talk about what the simulation sees at their address, and a monthly
 // headline sums up the month. Pure simulation, no DOM. Items live in state.news (newest last).
 

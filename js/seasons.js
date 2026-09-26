@@ -1,3 +1,4 @@
+// @ts-check
 // Seasons and time of day for the renderers. Pure functions, no DOM.
 // The season follows the in-game month; the time of day follows the animation clock
 // (it runs only while the game does, faster at higher speeds).

@@ -12,8 +12,9 @@ import { Graphs } from './graphs.js';
 import { Minimap } from './minimap.js';
 import { CityHallUI } from './cityhall-ui.js';
 import { LinesUI } from './lines-ui.js';
-import { isStop, railNetwork } from './transit.js';
+import { railNetwork } from './transit.js';
 import { SCENARIOS, SCENARIO_ORDER } from './goals.js';
+import { hasBackup } from './save.js';
 
 const DISTRICT_NAMES = ['Old Town', 'Riverside', 'Hillcrest', 'Northside', 'Westgate', 'Eastbrook', 'Southfield', 'Uptown',
   'Harborview', 'Parkside', 'Midtown', 'Greenwood', 'Lakeside', 'Brookfield'];
@@ -72,7 +73,7 @@ const TOOL_HELP = {
   roundabout: 'Replaces an intersection (not with highways): hardly any wait at light or medium traffic; lights cope better when it is jammed.',
   parking: 'Parking lot: shops and offices within 4 tiles do better. No power or water needed.',
   interchange: 'Carries a highway over a crossing road with ramps: no more at-grade bottleneck.',
-  bus: 'Bus or tram stop. Riders within 3 tiles use the lines that call here: create lines under Transit lines.',
+  bus: 'Bus or tram stop. Stops link up by themselves: routes run from stops near homes to stops near jobs. Riders walk up to 3 tiles.',
   metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
   fire: 'Prevents fires and puts them out within 10 tiles.',
   townpark: '2×2 park: land value and happiness across a neighbourhood.',
@@ -158,7 +159,7 @@ export class UI {
   // A different city was loaded or started.
   onNewState() {
     this.selectedDistrict = null;
-    if (this.lines) { this.game.activeLine = null; this.lines.selected = null; this.lines.render(); }
+    if (this.lines) { this.lines.selected = null; this.lines.html = null; this.lines.render(); }
     if (this.cityhall) { this.cityhall.newsKey = null; this.cityhall.panelHtml = null; this.cityhall.renderPanel(true); }
     this.renderDistricts();
     this.labelKey = null;
@@ -226,10 +227,16 @@ export class UI {
       menu.style.top = `${r.bottom}px`;
       menu.style.right = `${window.innerWidth - r.right}px`;
       menu.hidden = !menu.hidden;
+      $('btnRestore').hidden = !hasBackup();
     });
     window.addEventListener('click', closeMenu);
     $('btnSave').addEventListener('click', () => { closeMenu(); this.game.save(); });
     $('btnLoad').addEventListener('click', () => { closeMenu(); $('fileInput').click(); });
+    $('btnRestore').addEventListener('click', () => {
+      closeMenu();
+      this.confirm('Restore previous city?', 'Switch back to the city you had before your last new city, reset or scenario. The city you are on now becomes the previous one, so you can switch back again.',
+        'Restore', () => this.game.restorePrevious());
+    });
     $('fileInput').addEventListener('change', (e) => {
       const f = e.target.files[0];
       if (f) this.game.load(f);
@@ -240,7 +247,7 @@ export class UI {
     $('btnRegion').addEventListener('click', () => { closeMenu(); this.cityhall.tab = 'region'; this.cityhall.toggle(true); });
     $('btnReset').addEventListener('click', () => {
       const n = this.game.state.map.width;
-      this.confirm('Reset the city?', `Start over from scratch on a fresh ${n}×${n} map with $${CONFIG.economy.startingFunds.toLocaleString()}. Your current city will be lost unless you save it first.`,
+      this.confirm('Reset the city?', `Start over from scratch on a fresh ${n}×${n} map with $${CONFIG.economy.startingFunds.toLocaleString()}. Your current city is kept as the previous city (City ▾ → Restore previous city) until you start another.`,
         'Reset', () => this.game.newCity(n));
     });
     $('btnExpand').addEventListener('click', () => {
@@ -512,7 +519,8 @@ export class UI {
       const tc = b.querySelector('.tc');
       if (tc) tc.textContent = !locked ? `$${B.cost.toLocaleString()}` : s.scenario?.banned?.includes(k) ? '🚫 banned' : B.unlockRating ? `🔒 rating ${B.unlockRating}` : `🔒 ${B.unlock.toLocaleString()}`;
     }
-    $('btnUndo').disabled = !this.game.lastUndo;
+    $('btnUndo').disabled = !this.game.undoStack.some((u) => u.map === this.game.state.map);
+    this.lines.render();
     this.updateDistrictStats();
     this.graphs.render();
     this.cityhall.render();
@@ -720,8 +728,8 @@ export class UI {
         const served = (g.state.lines ?? []).filter((l) => l.stops.includes(i));
         rows.push(['Lines', served.length ? served.map((l) => `<i class="dchip" style="background:${l.color}"></i>${esc(l.name)}`).join(' ') : 'none']);
         rows.push(['Riders', `${Math.round(map.riders[i])} a month`]);
-        if (!served.length) notes.push('Not on any line: pick a line under Transit lines, then click this stop');
-        else if (map.riders[i] < 5) notes.push('Few riders: a line needs stops near homes and stops near jobs');
+        if (!served.length) notes.push('Not on any route yet: place another stop near homes or jobs on the same roads and a route links them');
+        else if (map.riders[i] < 5) notes.push('Few riders: routes link stops near homes with stops near jobs, so this area needs both');
       }
       rows.push(['Upkeep', `${money(B.upkeep)}/mo`]);
       if (!B.power && k !== 'pump' && !B.park) rows.push(['Power · Water', `${supply(map.power[i])} ${supply(map.water[i])}`]);
@@ -814,13 +822,6 @@ export class UI {
         : `${B.label} · $${total.toLocaleString()}`;
       return;
     }
-    if (tool === 'bus' && this.game.activeLine) {
-      const line = this.game.state.lines?.find((l) => l.id === this.game.activeLine), h = this.game.hover, map = this.game.state.map;
-      const onStop = h && map.inBounds(h.x, h.y) && isStop(map, map.idx(h.x, h.y));
-      tip.className = '';
-      tip.textContent = onStop ? `Add stop to ${line?.name}` : p.cost.count ? `New stop on ${line?.name} · $${total.toLocaleString()}` : 'Click a bus stop, or land beside a road';
-      return;
-    }
     if (tool === 'district') {
       const d = this.districtById(this.game.toolArg);
       tip.textContent = p.cost.count ? `${d ? `Paint ${d.name}` : 'Erase district'} · ${p.cost.count} tile${p.cost.count > 1 ? 's' : ''}` : 'Already painted';
@@ -875,7 +876,7 @@ export class UI {
     const m = $('modal');
     m.querySelector('h2').textContent = 'Start a new city?';
     const sizes = Object.entries(CONFIG.map.sizes);
-    m.querySelector('p').innerHTML = 'Your current city will be lost unless you save it first.'
+    m.querySelector('p').innerHTML = 'Your current city is kept as the previous city (City ▾ → Restore previous city) until you start another.'
       + '<b class="dlg-h">Free play</b>'
       + `<span class="sizes">${sizes.map(([name, n]) => `<button data-size="${n}" class="${n === CONFIG.map.defaultSize ? 'sel' : ''}">${name}<small>${n}×${n}</small></button>`).join('')}</span>`
       + `<span class="sizes landforms">${Object.entries(CONFIG.map.landforms).map(([k, name]) => `<button data-landform="${k}" class="${k === (this.game.landform ?? 'plains') ? 'sel' : ''}">${name}<small>${{ plains: 'flat', hills: 'hilltop views', coast: 'sea to the south' }[k]}</small></button>`).join('')}</span>`

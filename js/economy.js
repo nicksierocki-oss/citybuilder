@@ -1,3 +1,4 @@
+// @ts-check
 // Economy: build costs, player tools, and the monthly budget.
 
 import { CONFIG } from './config.js';
@@ -571,7 +572,7 @@ export function budgetAdvice(state) {
   const cut = Object.entries(state.budgets ?? {}).filter(([, f]) => f < 1);
   if (cut.length && net > 0) out.push(`Services running below full funding: ${cut.map(([g, f]) => `${CONFIG.budgets.groups[g].label} ${Math.round(f * 100)}%`).join(', ')}. You can afford to restore them.`);
   const lonely = (s.services?.bus ?? 0) - new Set((state.lines ?? []).flatMap((l) => l.stops)).size;
-  if (lonely > 0) out.push(`${lonely} bus stop${lonely > 1 ? 's are' : ' is'} not on any line, so nobody uses ${lonely > 1 ? 'them' : 'it'}: add ${lonely > 1 ? 'them' : 'it'} to a line (Transit lines panel).`);
+  if (lonely > 0) out.push(`${lonely} bus stop${lonely > 1 ? 's are' : ' is'} not on any route, so nobody uses ${lonely > 1 ? 'them' : 'it'}: routes need a second stop near homes or jobs on the same roads (not highways).`);
   const open = Math.round(state.traffic?.skilledOpen ?? 0);
   if (open >= 15) out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. Schools${s.population >= CONFIG.buildings.university.unlock ? ' and a university' : ''} raise education over time.`);
   const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);
