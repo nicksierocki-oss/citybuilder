@@ -1,3 +1,4 @@
+// @ts-check
 // Map data model: a fixed grid stored as flat typed-array layers.
 // Adding a system later (power, water, traffic) = adding a layer here.
 
@@ -31,8 +32,8 @@ export function onewayCode(dx, dy) { return dx > 0 ? 1 : dx < 0 ? 2 : dy > 0 ? 3
 // Road tiles next to i (a junction has 3 or 4).
 export function roadLegs(map, i) {
   const w = map.width, x = i % w;
-  return (x > 0 && map.type[i - 1] === TILE.ROAD) + (x < w - 1 && map.type[i + 1] === TILE.ROAD)
-    + (i >= w && map.type[i - w] === TILE.ROAD) + (i + w < map.size && map.type[i + w] === TILE.ROAD);
+  return +(x > 0 && map.type[i - 1] === TILE.ROAD) + +(x < w - 1 && map.type[i + 1] === TILE.ROAD)
+    + +(i >= w && map.type[i - w] === TILE.ROAD) + +(i + w < map.size && map.type[i + w] === TILE.ROAD);
 }
 
 // One-way direction that applies at road tile i (junctions never restrict: the streets either
@@ -126,6 +127,8 @@ export class GameMap {
     this.heightVersion = 0;             // bumped when heights change (3D ground rebuild)
     this.education = new Uint8Array(n); // homes: skilled share of residents × 255 (changes slowly)
     this.educationReady = false;        // false until education has been seeded (new maps, old saves)
+    /** @type {number | null} */
+    this.seed = null;                   // generation seed (null for unknown)
     // Derived layers (recomputed by the simulation)
     this.pollution = new Float32Array(n);
     this.landValue = new Float32Array(n);
@@ -294,7 +297,8 @@ export function highwayEntry(width, height) {
 }
 
 // Tree clumps: seed some, then let them spread. `mask(i)` limits where trees may appear.
-function growTrees(map, rng, mask = () => true) {
+/** @param {(i: number) => boolean} [mask] */
+function growTrees(map, rng, mask = (_i) => true) {
   const { width, height } = map, treeChance = CONFIG.map.treeChance;
   for (let i = 0; i < map.size; i++) {
     if (mask(i) && map.terrain[i] === TERRAIN.GRASS && rng() < treeChance * 0.35) map.setFlag(i, FLAG.TREES, true);

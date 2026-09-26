@@ -1,10 +1,10 @@
+// @ts-check
 // Input: mouse painting, panning, zooming and keyboard shortcuts.
 
 import { TOOLS, applyTool, previewCost, expandSelection } from './economy.js';
 import { refreshFields } from './simulation.js';
 import { OVERLAY_ORDER } from './overlays.js';
 import { footprintSize } from './map.js';
-import { isStop } from './transit.js';
 
 const PAN_KEYS = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
@@ -90,7 +90,9 @@ export class Input {
         this.renderer.zoomAt(this.game.state.map, p.x, p.y, Math.exp(-e.deltaY * 0.0015));
       }, { passive: false });
     }
-    window.addEventListener('pointerup', (e) => this.onUp(e));
+    window.addEventListener('pointerup', () => this.onUp());
+    // A cancelled pointer (touch interrupted, capture lost) must not leave a drag or pan stuck.
+    window.addEventListener('pointercancel', () => { this.drag = null; this.pan = null; this.game.preview = null; });
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
@@ -112,6 +114,8 @@ export class Input {
     }
     if (e.button !== 0) return;
     const t = this.renderer.screenToTile(p.x, p.y);
+    // Clicking beside the map must not build on the nearest edge tile.
+    if (!this.game.state.map.inBounds(t.x, t.y)) return;
     this.drag = { start: t, end: t };
     this.updatePreview();
   }
@@ -155,21 +159,9 @@ export class Input {
     this.drag = null;
     this.game.preview = null;
     if (!tiles.length) return;
-    // Extending a transit line: click stops in order; clicking empty land builds a stop there.
-    const line = this.game.tool === 'bus' && this.game.activeLine ? state.lines?.find((l) => l.id === this.game.activeLine) : null;
-    if (line) {
-      const i = tiles[0];
-      if (isStop(state.map, i)) {
-        if (line.stops[line.stops.length - 1] !== i) { line.stops.push(i); this.game.ui.lines.changed(); }
-      } else {
-        const r = applyTool(state, 'bus', [i]);
-        if (r.applied) { line.stops.push(i); this.game.ui.flashCost(-r.spent); this.game.ui.lines.changed(); }
-      }
-      return;
-    }
     const { applied, spent, undo } = applyTool(state, this.game.tool, tiles, this.game.toolArg);
     if (applied) {
-      this.game.lastUndo = undo;
+      this.game.pushUndo(undo);
       refreshFields(state);
       this.game.ui.flashCost(-spent);
     }
@@ -201,7 +193,7 @@ export class Input {
       if (def.key === k) { g.setTool(name); return; }
     }
     switch (k) {
-      case 'Escape': this.drag = null; g.preview = null; g.pinned = null; if (g.activeLine) g.ui.lines.edit(null); g.setTool('inspect'); break;
+      case 'Escape': this.drag = null; g.preview = null; g.pinned = null; g.setTool('inspect'); break;
       case ' ': e.preventDefault(); g.togglePause(); break;
       case 'l': g.toggleOverlay('landValue'); break;
       case 'p': g.toggleOverlay('pollution'); break;

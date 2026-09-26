@@ -1,3 +1,4 @@
+// @ts-check
 // Entry point: wires state, simulation clock, renderer, input and UI together.
 
 import { CONFIG } from './config.js';
@@ -6,7 +7,7 @@ import { expandMap, highwayEntry } from './map.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
-import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave } from './save.js';
+import { downloadSave, readSaveFile, autosave, loadAutosave, clearAutosave, restoreBackup } from './save.js';
 import { undoAction, applyTool } from './economy.js';
 import { createScenario, SCENARIOS } from './goals.js';
 import { environment } from './seasons.js';
@@ -18,6 +19,7 @@ const VIEW_KEY = 'gridline.view';
 const DAYNIGHT_KEY = 'gridline.daynight';
 const SEASONS_KEY = 'gridline.seasons';
 const BRUSHES = ['rect', 'line', 'circle'];
+const UNDO_DEPTH = 20;
 const pref = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 
 const game = {
@@ -27,7 +29,7 @@ const game = {
   brush: 'rect',      // how rectangle tools paint: rect | line | circle
   dayNight: pref(DAYNIGHT_KEY, '1') === '1',
   seasons: pref(SEASONS_KEY, '1') === '1',
-  lastUndo: null,     // undo record of the last build action
+  undoStack: [],      // undo records of recent build actions, newest last
   speed: 1,           // 0 = paused
   hover: null,
   pinned: null,
@@ -41,7 +43,6 @@ const game = {
 
   setTool(name, arg = this.toolArg) {
     this.tool = name;
-    if (name !== 'bus' && this.activeLine) { this.activeLine = null; this.ui.lines?.render(); }
     this.toolArg = arg;
     this.preview = null;
     this.ui.setActiveTool(name);
@@ -49,7 +50,6 @@ const game = {
   },
   cycleBrush() { this.setBrush(BRUSHES[(BRUSHES.indexOf(this.brush) + 1) % BRUSHES.length]); },
   setBrush(b) { this.brush = b; this.ui.setBrush(b); },
-  activeLine: null,   // transit line being extended with the Bus stop tool
   refresh() { refreshFields(this.state); },
   setDayNight(on) {
     this.dayNight = on;
@@ -63,14 +63,25 @@ const game = {
     this.ui.toast(on ? 'Seasons on: the city changes colour through the year.' : 'Seasons off: always summer colours.', 'info', 1800);
     this.ui.updateMenuLabels();
   },
+  pushUndo(record) {
+    if (!record) return;
+    this.undoStack.push(record);
+    if (this.undoStack.length > UNDO_DEPTH) this.undoStack.shift();
+  },
   undo() {
-    if (!this.lastUndo || this.state.bankrupt) { this.ui.toast('Nothing to undo', 'info', 1200); return; }
-    const spent = this.lastUndo.spent;
-    if (undoAction(this.state, this.lastUndo)) {
+    const u = this.undoStack;
+    while (u.length && u[u.length - 1].map !== this.state.map) u.pop(); // the map was expanded since
+    const last = u[u.length - 1];
+    if (!last) { this.ui.toast('Nothing to undo', 'info', 1200); return; }
+    if (this.state.bankrupt) { this.ui.toast('Cannot undo after bankruptcy', 'bad', 1800); return; }
+    const spent = last.spent;
+    // Undoing a demolition takes its refund back: only if the city can pay it.
+    if (spent < 0 && this.state.funds < -spent) { this.ui.toast(`Undo needs $${Math.round(-spent).toLocaleString()} to take the refund back`, 'bad', 2500); return; }
+    u.pop();
+    if (undoAction(this.state, last)) {
       refreshFields(this.state);
       this.ui.toast(`Undone${spent > 0 ? `: ${'$' + Math.round(spent).toLocaleString()} back` : spent < 0 ? `: refund of $${Math.round(-spent).toLocaleString()} returned` : ''}`, 'info', 1800);
     }
-    this.lastUndo = null;
   },
   setSpeed(s) { this.speed = s; if (s > 0) this.lastSpeed = s; this.ui.setActiveSpeed(s); },
   togglePause() { this.setSpeed(this.speed === 0 ? (this.lastSpeed || 1) : 0); },
@@ -124,14 +135,19 @@ const game = {
     this.ui.clearToasts();
     this.pinned = null;
     this.preview = null;
-    this.lastUndo = null;
+    this.undoStack = [];
     this.ui.onNewState();
     const entry = highwayEntry(state.map.width, state.map.height);
     this.renderer2d.cam.zoom = 1.25;
     for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(state.map, entry.length + 4, entry.row);
   },
-  newCity(size = CONFIG.map.defaultSize) {
+  // The city being left becomes the previous city (City ▾ → Restore previous city).
+  keepPrevious() {
+    if (this.state && !this.state.bankrupt) autosave(this.state);
     clearAutosave();
+  },
+  newCity(size = CONFIG.map.defaultSize) {
+    this.keepPrevious();
     this.setState(createGame(undefined, size, this.landform ?? 'plains'));
     this.setSpeed(1);
     this.ui.toast('Welcome! Extend the regional road with streets, then zone next to them.', 'good', 6000);
@@ -147,13 +163,10 @@ const game = {
       const a = s.map.idx(x, y), b = map.idx(x + dx, y + dy);
       map.traffic[b] = s.map.traffic[a];
     }
-    // Line stops are tile indices: move them with the old land.
-    const W0 = s.map.width;
     for (const n of s.news ?? []) if (n.tx != null) { n.tx += dx; n.ty += dy; }
-    for (const line of s.lines ?? []) line.stops = line.stops.map((i) => map.idx((i % W0) + dx, ((i / W0) | 0) + dy));
     s.map = map;
     refreshFields(s);
-    this.lastUndo = null;
+    this.undoStack = [];
     this.pinned = null;
     this.preview = null;
     for (const r of [this.renderer2d, this.renderer3d]) if (r) r.centerOn(map, view.x + dx, view.y + dy);
@@ -161,7 +174,7 @@ const game = {
     autosave(s);
   },
   newScenario(id) {
-    clearAutosave();
+    this.keepPrevious();
     this.ui.toast('Setting up the scenario…', 'info', 1200);
     const state = createScenario(id, { createGame, applyTool, tick, refreshFields, highwayEntry });
     this.setState(state);
@@ -169,10 +182,22 @@ const game = {
     this.ui.cityhall.toggle(true);
     this.ui.toast(`${SCENARIOS[id].name}: ${SCENARIOS[id].blurb} Press Space to start.`, 'good', 7000);
   },
+  restorePrevious() {
+    try {
+      this.setState(restoreBackup(this.state));
+      this.setSpeed(0);
+      this.ui.toast('Previous city restored (paused). The city you were on is now the previous one.', 'good', 6000);
+    } catch (err) {
+      this.ui.toast(`Could not restore: ${err.message}`, 'bad', 5000);
+    }
+  },
   save() { downloadSave(this.state); this.ui.toast('City saved to your downloads.', 'good'); },
   async load(file) {
     try {
-      this.setState(await readSaveFile(file));
+      const loaded = await readSaveFile(file);
+      this.keepPrevious();
+      autosave(loaded);
+      this.setState(loaded);
       this.ui.toast('City loaded.', 'good');
       this.setSpeed(0);
     } catch (err) {
@@ -186,12 +211,15 @@ game.ui = new UI(game);
 game.input = new Input(game, [canvas, canvas3d]);
 
 const restored = loadAutosave();
-if (restored && !restored.bankrupt) {
-  game.setState(restored);
+if (restored?.state && !restored.state.bankrupt) {
+  game.setState(restored.state);
   game.setSpeed(0);
   game.ui.toast('Restored your last city (paused). Press Space to resume.', 'info', 5000);
 } else {
-  game.newCity();
+  game.newCity(); // keeps any previous save as the backup
+  if (restored?.error) {
+    game.ui.toast(`Your saved city could not be loaded (${restored.error}). It was kept: City ▾ → Restore previous city.`, 'bad', 12000);
+  }
 }
 game.setTool('road');
 game.ui.setOverlay(null);
@@ -214,7 +242,14 @@ function frame(now) {
     acc += dt * 1000;
     const step = CONFIG.time.msPerTick[game.speed];
     let n = 0;
-    while (acc >= step && n < 8) { tick(game.state); acc -= step; n++; }
+    try {
+      while (acc >= step && n < 8) { tick(game.state); acc -= step; n++; }
+    } catch (err) {
+      // Keep the city viewable and saveable instead of repeating the error every frame.
+      console.error(err);
+      game.setSpeed(0);
+      game.ui.toast(`Simulation error, game paused: ${err.message}`, 'bad', 8000);
+    }
     if (n === 8) acc = 0;
   } else acc = 0;
   if (game.state.month === 0 && game.state.year !== lastAutosaveYear) {
@@ -226,10 +261,13 @@ function frame(now) {
   game.ui.frame();
 }
 requestAnimationFrame(frame);
-window.addEventListener('beforeunload', () => { if (!game.state.bankrupt) autosave(game.state); });
+const saveOnExit = () => { if (!game.state.bankrupt) autosave(game.state); };
+window.addEventListener('beforeunload', saveOnExit);
+// Mobile browsers often skip beforeunload when a tab is closed from the switcher.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveOnExit(); });
 
 // Pick up new deploys while the game is open (the city is saved first and restored on reload).
-startUpdater(game, { onBeforeReload: () => { if (!game.state.bankrupt) autosave(game.state); } });
+startUpdater(game, { onBeforeReload: saveOnExit });
 
 // Handy for tinkering from the dev console.
-window.gridline = game;
+/** @type {any} */ (window).gridline = game;

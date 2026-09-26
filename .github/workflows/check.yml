@@ -1,0 +1,34 @@
+name: Checks
+
+# Runs on every push and PR. The Pages deploy also calls this and only deploys when it passes.
+on:
+  push:
+    branches-ignore: [main, claude/practical-dijkstra-7rwj50, claude/friendly-albattani-zo7gee] # those run it via pages.yml
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests (saves, undo, transit routes, backups)
+        run: npm test
+      - name: Balance playtest
+        run: npm run playtest
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke test
+        run: npm run smoke

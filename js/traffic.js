@@ -1,3 +1,4 @@
+// @ts-check
 // Traffic & commuting: workers travel from homes to jobs over the road network,
 // industry sends freight to the highway, and the resulting volumes congest roads.
 // Pure simulation — no DOM.

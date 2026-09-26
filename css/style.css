@@ -83,7 +83,7 @@ kbd {
   position: fixed; margin-top: 6px; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 170px; z-index: 20;
 }
-.menu-list[hidden] { display: none; }
+.menu-list[hidden], .menu-list button[hidden] { display: none; }
 .menu-list button { text-align: left; border-color: transparent; background: transparent; }
 .menu-list button:hover { background: var(--panel-2); }
 .menu-list button[disabled] { opacity: 0.45; cursor: default; }

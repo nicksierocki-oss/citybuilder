@@ -26,6 +26,17 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
 
 ## Done (recent)
 
+- Hardening rebuilt on the rail version: save loading validates and repairs damaged files
+  (`sanitizeLayers` in save.js), simulation errors pause instead of freezing, autosave on tab hide,
+  undo stack (20, `game.undoStack`), previous-city backup slot (`gridline.autosave.previous`,
+  City ▾ → Restore previous city; new city, scenario and file load keep the old one), `// @ts-check`
+  on the logic modules, `tools/test.js`, `tools/smoke.js`, playtest balance guard, `check.yml`
+  gating `pages.yml`.
+- Transit routes are automatic (`planLines` in transit.js): stops grouped into home/job/mixed
+  areas, each home area linked to the nearest job area, vehicles by demand, lines derived (not
+  saved; old saves' drawn lines are dropped). Trams: "Upgrade to tram" lays `FLAG.TRAM` along a
+  route; a route with `tramShare` of its tiles on track runs trams.
+
 - Phase D item 10, terrain: persistent `map.elev` layer (NOT `height`, which is the map's row count),
   `map.slope(i)`, landforms plains/hills/coast (`generateMap(seed, size, landform)`, plains unchanged),
   slope costs/limits in `toolCost`, density cap by slope, road time by slope, view land value,
@@ -95,6 +106,10 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
 
 ## Checks before pushing
 
+- `npm ci && npm run check` runs everything CI runs (`.github/workflows/check.yml`; the Pages
+  deploy only publishes when it passes): `tsc` over files with `// @ts-check`, `node tools/test.js`
+  (saves, undo, transit routes, backups), the playtest (exits non-zero if the balance targets
+  below break) and `node tools/smoke.js` (headless Chromium).
 - `node tools/playtest.js` (add `DIAG=1` for detail): balance scenarios. A sensible city
   should reach 1,000 people in about 25–30 in-game months without going bankrupt;
   "careless" should still go bankrupt.

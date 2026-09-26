@@ -58,6 +58,7 @@
           <button id="btnExpand">Expand map…</button>
           <button id="btnSave">Save to file</button>
           <button id="btnLoad">Load from file…</button>
+          <button id="btnRestore" hidden>Restore previous city</button>
           <button id="btnDayNight">Day &amp; night</button>
           <button id="btnSeasons">Seasons</button>
           <button id="btnMinimap">Mini-map</button>
@@ -80,7 +81,7 @@
         </div>
       </div>
       <div class="section" id="linesSection">
-        <h4><span>Lines</span><span><button id="btnNewBusLine" class="addbtn" title="New bus line: then click stops in order">+ Bus</button> <button id="btnNewTramLine" class="addbtn" title="New tram line: carries more, lays track along its route">+ Tram</button></span></h4>
+        <h4><span>Routes</span><small class="muted">automatic</small></h4>
         <div id="lineList"></div>
       </div>
       <div class="section" id="districtSection">
@@ -122,7 +123,7 @@
           <li><b>Keep people happy</b> with schools, clinics, plazas, parks and clean air. Recycling centers and trees cut pollution.</li>
           <li><b>Stay safe</b>: police stations cut crime (dense, run-down and jobless areas attract it). Fire stations prevent fires and put them out; without one nearby a fire can spread and burn buildings down. Click a fire alert to jump to it.</li>
           <li><b>Keep traffic moving</b>: drag the <b>Upgrade</b> tool (<kbd>9</kbd>) along busy roads: Street → Avenue → Highway (no driveways). Intersections slow cars down: add a <b>Roundabout</b> or <b>Lights</b> at busy ones, and <b>Ramps</b> (an interchange) where a highway crosses another road. <b>One-way</b> streets carry more: drag in the direction of flow, and pair them up so cars can get back (the Traffic overlay shows cut-off roads in purple).</li>
-          <li><b>Public transit</b>: in the <b>Lines</b> panel make a bus or tram line, then click stops in order (clicking land beside a road builds a stop). People within 3 tiles of a stop ride to jobs near the line's other stops. <b>Metro stations</b> (4 tiles) all link up. <b>Railways</b> with <b>train stations</b> are fastest, and track to the map edge carries commuters to the region.</li>
+          <li><b>Public transit</b>: place <b>bus stops</b> near homes and near jobs. Routes plan themselves, linking each group of stops among homes with the nearest stops among jobs, and add buses as the homes need them. People within 3 tiles of a stop ride to jobs near the route's other stops. Upgrade a busy route to <b>trams</b> in the <b>Routes</b> panel. <b>Metro stations</b> (4 tiles) all link up. <b>Railways</b> with <b>train stations</b> are fastest, and track to the map edge carries commuters to the region.</li>
           <li><b>Educate</b>: schools (and later a university) raise the share of skilled residents over a few years. Offices, big shops and high-tech industry need skilled workers; skilled residents also pay more tax. Press <kbd>N</kbd> for the education overlay.</li>
           <li><b>Terrain</b>: Hills and Coast maps (New city) have slopes: roads cost more there and hillside buildings stay low, but high ground has views. <b>Raise</b> / <b>Lower land</b> reshape open land, fill water or dig it.</li>
           <li><b>Scenery</b>: the ☾ and 🍂 buttons in the top bar turn the day/night cycle and the seasons on or off.</li>

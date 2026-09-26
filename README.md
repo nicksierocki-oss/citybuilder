@@ -77,11 +77,13 @@ There's an optional **3D view**, built with Three.js. The library is included in
      Up to 35% of a home's workers, 150 riders a month per stop, slower rides.
    - **Metro stations** ($2,500): people within 4 tiles ride to jobs near any other
      station. Up to 60%, 600 riders a month, fast. Stations also raise land value.
-   - **Bus and tram lines** (sidebar → *Lines*): make a line, then click stops in order (clicking
-     empty land beside a road builds a stop). Vehicles drive the roads between stops, so a
-     congested route is slow; set 1–4 vehicles per line (more = shorter waits, more riders, more
-     cost). Trams carry far more, lay track along their route ($25 a tile) and raise land value
-     beside it. Stops only serve the lines that call there; the metro still links every station.
+   - **Bus and tram routes plan themselves.** Place stops; the city groups stops that sit among
+     homes, among jobs, or among both (mixed) into areas, and runs a route from each home area to
+     the nearest job area on the same roads (highways excluded). Job areas left over join the route
+     from their nearest homes. Each route runs 1–4 buses, as many as the homes along it need.
+     Vehicles drive the roads between stops, so a congested route is slow. In the sidebar's
+     *Routes* panel, **Upgrade to tram** lays track along a route ($25 a tile): trams carry far
+     more and raise land value beside the track. The metro still links every station.
    - **Railways** ($40 a tile, $120 as a bridge) and **train stations** ($3,000, beside the track):
      people within 5 tiles ride fast trains to jobs near any station on the same track. Track
      can cross streets and avenues with a level crossing (a small delay for cars). Run the
@@ -188,7 +190,7 @@ There's an optional **3D view**, built with Three.js. The library is included in
 | --- | --- |
 | Tools | Grouped in the sidebar. Hover a tool for its cost and what it does. `1` Street · `7` Avenue · `8` Highway · `9` Upgrade road · `2` Residential · `3` Commercial · `4` Industrial · `5` Park · `6` Bulldoze · `0`/`Esc` Inspect |
 | Paint | Left-drag. Roads follow an L-shaped path; zones, parks and bulldoze paint rectangles, or a one-tile line or a circle with the **Brush** buttons (`B` cycles) |
-| Undo | `Ctrl`+`Z` or **↶** in the top bar undoes the last build and returns the money |
+| Undo | `Ctrl`+`Z` or **↶** in the top bar undoes recent builds (up to 20) and returns the money; undoing a demolition takes its refund back |
 | City name | Click the name in the top-left corner |
 | Mini-map | Top-right. Click or drag to move the camera; hide it from the **City** menu |
 | Pan | `WASD` / arrow keys, **`Shift` + drag** (any button) or **`Shift` + scroll**, middle-drag, right-drag (2D), or left-drag with the Inspect tool |
@@ -204,7 +206,11 @@ There's an optional **3D view**, built with Three.js. The library is included in
 | Taxes | `−` / `+` in the top bar (higher tax = more income, less demand) |
 
 **Save / Load** download the city as a JSON file and load it back. The game also
-autosaves to your browser each in-game year and when you close the tab.
+autosaves to your browser each in-game year and when you close or hide the tab. Starting a new
+city, a scenario, or loading a file keeps the city you were on as the *previous city*
+(City → **Restore previous city** swaps them), and an autosave that fails to load is kept there
+too instead of being deleted. Damaged save files are repaired where possible, or refused with a
+message, without replacing your city.
 
 ---
 
@@ -287,7 +293,11 @@ players and prints population, funds and RCI over six years:
 ```sh
 node tools/playtest.js          # add DIAG=1 for traffic stats and why homes aren't growing
 node tools/analyze.js save.json  # report on one of your saved cities (City → Save to file)
+npm ci && npm run check          # everything CI runs: type check, unit tests, playtest, browser smoke test
 ```
+
+The deploy (`.github/workflows/pages.yml`) runs the same checks (`check.yml`) first and only
+publishes a build that passes them.
 
 Current results (seed 12345):
 

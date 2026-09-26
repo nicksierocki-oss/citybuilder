@@ -1,3 +1,4 @@
+// @ts-check
 // Live updates: the deploy writes version.json (commit + file list). A running game checks it
 // every couple of minutes; when a new version is live it saves the city, refreshes the cached
 // files and reloads, so an open game picks up changes by itself. Silent when version.json is
