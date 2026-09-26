@@ -223,7 +223,7 @@ export const CONFIG = {
     statue:      { label: "Mayor's statue", cost: 500, upkeep: 5, radius: 6, landValue: 8, happiness: 6, unlockRating: 80 },
     hospital:    { label: 'Hospital',     cost: 5000, upkeep: 70, size: [2, 2], radius: 14, happiness: 6, landValue: 4, unlock: 2000 },
     // Collects `garbage` units a month from buildings within `radius`; smelly nearby.
-    railstation: { label: 'Train station', cost: 3000, upkeep: 45, radius: 5, landValue: 8, happiness: 4, capacity: 800 },
+    railstation: { label: 'Train station', cost: 3000, upkeep: 45, radius: 15, landValue: 8, happiness: 4, capacity: 800 },
     landfill:    { label: 'Landfill',     cost: 1500, upkeep: 25, size: [2, 2], radius: 24, garbage: 700, pollution: 30, pollutionRadius: 3 },
   },
 

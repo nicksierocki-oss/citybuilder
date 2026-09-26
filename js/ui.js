@@ -81,7 +81,7 @@ const TOOL_HELP = {
   stadium: '3×3 stadium: visitors bring ticket income, busier shops and happier residents across 16 tiles.',
   statue: 'A bronze mayor: raises land value and happiness nearby. Unlocked by a mayor rating of 80.',
   rail: 'Railway track ($40 a tile, $120 on water). Can cross streets and avenues on land (level crossing, slows cars a little), not highways or road bridges. Track to the map edge links you to the region.',
-  railstation: 'Train station: must sit beside track. Riders within 5 tiles take fast trains to jobs near any station on the same track, or out to the region.',
+  railstation: `Train station: must sit beside track. Riders within ${CONFIG.buildings.railstation.radius} tiles take fast trains to jobs near any station on the same track, or out to the region.`,
   hospital: '2×2 hospital: big health boost within 14 tiles (healthier residents are happier). Unlocks at 2,000 residents.',
   landfill: '2×2 dump: collects 700 units of garbage a month within 24 tiles. Smells: keep it away from homes.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
