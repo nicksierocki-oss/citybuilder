@@ -37,7 +37,11 @@ function residentLine(state, i, rng) {
 // What a business owner at job tile i might say.
 function businessLine(state, i) {
   const m = state.map;
-  if (m.skillFill[i] < 0.5) return ['skills', "I can't find skilled staff anywhere. Build more schools!"];
+  if (m.skillFill[i] < 0.5) {
+    if (m.coverage.school[i] < 0.05) return ['skills', "I can't find skilled staff: there's no school anywhere near here."];
+    if (state.serviceUse?.school?.full) return ['skills', 'The schools round here are packed to the rafters. No wonder nobody is qualified.'];
+    return ['skills', "Skilled staff are hard to find. The school is good, but it takes years to turn out graduates."];
+  }
   if (m.crime[i] > 35) return ['crime', 'Third shoplifting this week. Where are the police?'];
   if (m.type[i] === TILE.COM && m.shoppers[i] < 30 && m.level[i] >= 1) return ['customers', 'The shop is empty all day. We need more homes nearby.'];
   if (m.type[i] === TILE.COM && ordinance(state, 'carFree') && state.month % 2 === 0) return ['carfree', 'Car-free Sundays are killing my weekend trade.'];

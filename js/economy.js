@@ -5,7 +5,7 @@ import { CONFIG } from './config.js';
 import { TILE, TERRAIN, FLAG, KIND_ID, KINDS, JUNCTION, ROADMOD, PERSISTENT_LAYERS, isZone, footprintSize, onewayCode, roadLegs } from './map.js';
 import { roadLoad } from './traffic.js';
 import { ordinance, ordinancesCost } from './cityhall.js';
-import { funding, groupOf } from './services.js';
+import { funding, groupOf, serviceAdvice } from './services.js';
 import { tradeMoney } from './region.js';
 import { linesCost } from './transit.js';
 
@@ -15,6 +15,7 @@ export const TOOLS = {
   avenue:      { label: 'Avenue',      key: '7', shape: 'line', tile: TILE.ROAD, roadClass: 1 },
   highway:     { label: 'Highway',     key: '8', shape: 'line', tile: TILE.ROAD, roadClass: 2 },
   upgrade:     { label: 'Upgrade road', key: '9', shape: 'line' },
+  downgrade:   { label: 'Downgrade road', shape: 'line' },
   lights:      { label: 'Traffic lights', shape: 'rect' },
   interchange: { label: 'Interchange', shape: 'single' },
   oneway:      { label: 'One-way street', shape: 'line' },
@@ -85,6 +86,7 @@ export function roadCost(cls, water) {
 // Road class a road tool would leave on tile i (null = no change).
 function targetRoadClass(map, tool, i) {
   if (tool === 'upgrade') return map.type[i] === TILE.ROAD && map.roadClass[i] < 2 ? map.roadClass[i] + 1 : null;
+  if (tool === 'downgrade') return map.type[i] === TILE.ROAD && map.roadClass[i] > 0 ? map.roadClass[i] - 1 : null;
   const want = TOOLS[tool].roadClass;
   if (map.type[i] !== TILE.ROAD) return want;
   return want > map.roadClass[i] ? want : null; // painting a bigger road over a smaller one upgrades it
@@ -147,9 +149,11 @@ export function toolCost(state, tool, i, arg = 0) {
       return C.interchange;
     case 'trees':
       return t === TILE.EMPTY && !water && !map.hasFlag(i, FLAG.TREES) ? C.plantTrees : null;
-    case 'road': case 'avenue': case 'highway': case 'upgrade': {
+    case 'road': case 'avenue': case 'highway': case 'upgrade': case 'downgrade': {
       const cls = targetRoadClass(map, tool, i);
       if (cls == null) return null;
+      // Downgrading keeps the road (and everything beside it) and refunds part of the difference.
+      if (tool === 'downgrade') return -Math.round((roadCost(map.roadClass[i], water) - roadCost(cls, water)) * C.downgradeRefund);
       if (map.rail[i] && (water || cls === 2)) return null; // a street or avenue can cross the tracks, a highway can't
       if (t === TILE.ROAD) return roadCost(cls, water) - roadCost(map.roadClass[i], water);
       if (isZone(t) && map.level[i] > 0) return null;       // bulldoze buildings first
@@ -279,9 +283,10 @@ function applyOne(state, tool, i, arg = 0, part = 0) {
     map.flags[i] = 0; // clears fire, abandonment, lights and interchanges (trees handled above)
     map.burn[i] = 0;
     map.traffic[i] = 0;
-  } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade') {
+  } else if (tool === 'road' || tool === 'avenue' || tool === 'highway' || tool === 'upgrade' || tool === 'downgrade') {
     map.roadClass[i] = targetRoadClass(map, tool, i);
     if (map.roadClass[i] === 2) map.roadMod[i] = 0; // highways are two carriageways already
+    if (tool === 'downgrade' && map.junctionKind(i) !== JUNCTION.HIGHWAY) map.setFlag(i, FLAG.INTERCHANGE, false); // no highway left to carry over
     map.type[i] = TILE.ROAD;
     map.kind[i] = 0;
     map.level[i] = 0;
@@ -571,10 +576,20 @@ export function budgetAdvice(state) {
   if (gb && gb.uncollected > 20) out.push(`${gb.uncollected.toLocaleString()} units of garbage a month go uncollected (capacity ${gb.capacity.toLocaleString()}, made ${gb.made.toLocaleString()}): a landfill ($${CONFIG.buildings.landfill.cost.toLocaleString()}) collects ${CONFIG.buildings.landfill.garbage}. Keep it away from homes.`);
   const cut = Object.entries(state.budgets ?? {}).filter(([, f]) => f < 1);
   if (cut.length && net > 0) out.push(`Services running below full funding: ${cut.map(([g, f]) => `${CONFIG.budgets.groups[g].label} ${Math.round(f * 100)}%`).join(', ')}. You can afford to restore them.`);
-  const lonely = (s.services?.bus ?? 0) - new Set((state.lines ?? []).flatMap((l) => l.stops)).size;
-  if (lonely > 0) out.push(`${lonely} bus stop${lonely > 1 ? 's are' : ' is'} not on any route, so nobody uses ${lonely > 1 ? 'them' : 'it'}: routes need a second stop near homes or jobs on the same roads (not highways).`);
+  const lonely = state.unroutedStops?.length ?? 0;
+  if (lonely > 0) out.push(`${lonely} bus stop${lonely > 1 ? 's are' : ' is'} on no route, so nobody uses ${lonely > 1 ? 'them' : 'it'} (${state.unroutedStops[0].why}). The Routes panel lists them.`);
+  const idleLines = (state.lines ?? []).filter((l) => state.lineStats?.[l.id] && state.lineStats[l.id].riders < 1).length;
+  if (idleLines) out.push(`${idleLines} transit route${idleLines > 1 ? 's carry' : ' carries'} no riders but still cost${idleLines > 1 ? '' : 's'} money to run: the Routes panel says why.`);
   const open = Math.round(state.traffic?.skilledOpen ?? 0);
-  if (open >= 15) out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. Schools${s.population >= CONFIG.buildings.university.unlock ? ' and a university' : ''} raise education over time.`);
+  if (open >= 15) {
+    const su = state.serviceUse?.school;
+    const why = !su?.buildings ? 'There is no school yet: build one among the homes.'
+      : su.full ? 'Some schools are over capacity, so they teach less: add another near them.'
+      : su.unserved > 100 ? `${su.unserved.toLocaleString()} residents have no school in reach: the existing schools have room, so add one where those homes are.`
+      : `Every home has a school with room to spare: education is still rising (it takes a couple of years)${s.population >= CONFIG.buildings.university.unlock && !s.services?.university ? ', and a university would add more' : ''}.`;
+    out.push(`${open} skilled jobs are empty, so shops and industry can't grow denser. ${why}`);
+  }
+  out.push(...serviceAdvice(state));
   const breaks = (state.districts ?? []).filter((d) => d.policies.taxBreak);
   if (breaks.length && net < 0) out.push(`Tax breaks in ${breaks.map((d) => d.name).join(', ')} waive ${Math.round(CONFIG.districts.taxBreakCut * 100)}% of their taxes. Lift them once the district has grown.`);
   if (s.abandoned > 5) out.push(`${s.abandoned} abandoned buildings earn nothing: hover them to see why (jobs, pollution, commute).`);

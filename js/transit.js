@@ -5,7 +5,7 @@
 // congestion), out and back. A line whose route runs on tram track runs trams. Pure, no DOM.
 
 import { CONFIG } from './config.js';
-import { TILE, KINDS, FLAG, canDrive, isHome, isJob, homeCap } from './map.js';
+import { TILE, KINDS, FLAG, canDrive, isHome, isJob, homeCap, jobCap } from './map.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const TRACK_PULL = 0.6; // routes treat tram track as this much quicker, so upgraded lines stay on it
@@ -75,17 +75,20 @@ function roadComponents(map) {
   return comp;
 }
 
-// What a stop serves: homes, jobs, both ('mixed') or nothing yet ('none'), from the zoned
-// tiles within walking distance. `jobs` counts tiles per job zone type.
+// What a stop serves: homes, jobs, both ('mixed') or nothing yet ('none'), from the buildings
+// within walking distance (residents and jobs; an empty zoned lot counts a little, so a new
+// neighbourhood is routed before it fills). `kinds` weighs each job zone type.
 function stopProfile(map, i) {
   const r = CONFIG.buildings.bus.radius, w = map.width, x0 = i % w, y0 = (i / w) | 0;
   let homes = 0, jobs = 0;
   const kinds = {};
   for (let y = Math.max(0, y0 - r); y <= Math.min(map.height - 1, y0 + r); y++) {
     for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + r); x++) {
-      const t = map.type[y * w + x];
-      if (isHome(t)) homes++;
-      if (isJob(t)) { jobs++; kinds[t] = (kinds[t] ?? 0) + 1; }
+      const j = y * w + x, t = map.type[j];
+      if (!isHome(t) && !isJob(t)) continue;
+      const live = map.level[j] > 0 && !map.hasFlag(j, FLAG.ABANDONED);
+      if (isHome(t)) homes += live ? homeCap(map, j) : 2;
+      if (isJob(t)) { const n = live ? jobCap(map, j) : 2; jobs += n; kinds[t] = (kinds[t] ?? 0) + n; }
     }
   }
   const cls = homes && homes >= 2 * jobs ? 'home' : jobs && jobs >= 2 * homes ? 'work' : homes && jobs ? 'mixed' : 'none';
@@ -105,10 +108,11 @@ function chain(stops, first, xy) {
 }
 
 // Plan the lines from the stops on the map. Cached until the map changes (the player builds
-// or zones something). Returns { lines, stopArea } where stopArea maps a stop to its area label.
-export function planLines(map) {
+// or zones something) or `period` changes (callers pass the month, so routes follow the city
+// as it grows). Returns { lines, unrouted } where unrouted lists stops on no line, with why.
+export function planLines(map, period = 0) {
   const cached = map._linePlan;
-  if (cached && cached.version === map.version && cached.size === map.size) return cached;
+  if (cached && cached.version === map.version && cached.size === map.size && cached.period === period) return cached;
   const T = CONFIG.transit, w = map.width;
   const xy = (i) => [i % w, (i / w) | 0];
   const comp = roadComponents(map);
@@ -186,10 +190,10 @@ export function planLines(map) {
     served.add(H); served.add(W);
   }
   const lines = [];
-  const add = (stopsInOrder, name) => {
+  const add = (stopsInOrder, name, homeStops = 0) => {
     if (stopsInOrder.length < 2) return;
     const id = lines.length + 1;
-    lines.push({ id, name: `Route ${id} · ${name}`, color: lineColor(id - 1), mode: 'bus', stops: stopsInOrder, freq: 1 });
+    lines.push({ id, name: `Route ${id} · ${name}`, color: lineColor(id - 1), mode: 'bus', stops: stopsInOrder, freq: 1, homeStops });
   };
   const at = (i) => ({ x: xy(i)[0], y: xy(i)[1] });
   for (const { H, W } of routes) {
@@ -199,21 +203,23 @@ export function planLines(map) {
     const ws = W.flatMap((B) => B.stops);
     const wFirst = ws.reduce((a, b) => (dist(at(b), last) < dist(at(a), last) ? b : a));
     const names = [...new Set(W.map(label))].join(' & ');
-    add([...hs, ...chain(ws, wFirst, xy)], `${label(H)} ↔ ${names}`);
+    add([...hs, ...chain(ws, wFirst, xy)], `${label(H)} → ${names}`, hs.length);
   }
-  // Areas left out (a road piece with only homes, only jobs, or one mixed area): link them up
-  // in a chain so their riders can at least reach each other.
+  // Areas left out: a mixed area can run its own local line (it has homes and jobs); areas of
+  // only homes or only jobs with nothing to link to get no line (it would go nowhere), and the
+  // panel says why.
   const covered = new Set(routes.flatMap((r) => [r.H, ...r.W]));
-  const byComp = new Map();
-  for (const A of areas) if (!covered.has(A)) { if (!byComp.has(A.comp)) byComp.set(A.comp, []); byComp.get(A.comp).push(A); }
-  for (const list of byComp.values()) {
-    const all = list.flatMap((A) => A.stops);
-    for (let k = 0; k < all.length; k += T.areaMaxStops * 2) {
-      const part = all.slice(k, k + T.areaMaxStops * 2);
-      add(chain(part, part[0], xy), list.length === 1 ? `${label(list[0])} local` : `${label(list[0])} ↔ ${label(list[list.length - 1])}`);
-    }
+  const unrouted = [];
+  for (const A of areas) {
+    if (covered.has(A)) continue;
+    if (A.cls === 'mixed' && A.stops.length >= 2) { add(chain(A.stops, A.stops[0], xy), 'Mixed local'); continue; }
+    const why = A.cls === 'home' ? 'no stops near jobs on the same roads: place one where people work'
+      : A.cls === 'work' ? 'no stops near homes on the same roads: place one where people live'
+      : A.cls === 'mixed' ? 'needs a second stop: near other homes or jobs on the same roads'
+      : 'no homes or jobs within 3 tiles yet';
+    for (const i of A.stops) unrouted.push({ i, why });
   }
-  map._linePlan = { version: map.version, size: map.size, lines };
+  map._linePlan = { version: map.version, size: map.size, period, lines, unrouted };
   return map._linePlan;
 }
 
@@ -284,7 +290,9 @@ function roadPath(map, a, b, time) {
 // tram track, and as many vehicles as the homes along it need.
 export function buildRoutes(state, time) {
   const map = state.map, routes = {}, T = CONFIG.transit;
-  state.lines = planLines(map).lines;
+  const plan = planLines(map, Math.floor((state.tick ?? 0) / CONFIG.time.ticksPerMonth));
+  state.lines = plan.lines;
+  state.unroutedStops = plan.unrouted;
   for (const line of state.lines) {
     const S = line.stops, n = S.length;
     const path = [], legs = [], backLegs = [];

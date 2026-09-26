@@ -150,7 +150,8 @@ test('bus stops among homes and jobs link up into a route by themselves', () => 
   assert.equal(s.lines.length, 1, 'one route');
   const line = s.lines[0];
   assert.equal(line.stops.length, 5, 'every stop is on it');
-  assert.match(line.name, /Homes ↔ Industry/);
+  assert.match(line.name, /Homes → Industry/);
+  assert.equal(line.homeStops, 3, 'starts among the homes');
   assert.ok(s.transitRoutes[line.id].ok, 'route found along the road');
   assert.equal(line.mode, 'bus');
   for (let t = 0; t < 400; t++) tick(s);
@@ -165,6 +166,33 @@ test('a lone stop is on no route; a second one links them', () => {
   applyTool(s, 'bus', [m.idx(x0 + 30, row - 1)]);
   refreshFields(s);
   assert.equal(s.lines.length, 1);
+});
+
+test('downgrading a road keeps the buildings beside it and refunds part of the price', () => {
+  const { s, m, row, x0 } = streetCity();
+  const road = []; for (let x = x0; x < x0 + 10; x++) road.push(m.idx(x, row));
+  assert.ok(applyTool(s, 'upgrade', road).applied === 10, 'street to avenue');
+  const homes = road.map((i) => i - m.width);
+  for (const i of homes) m.level[i] = 2;
+  const funds = s.funds;
+  const r = applyTool(s, 'downgrade', road);
+  assert.equal(r.applied, 10);
+  assert.ok(s.funds > funds, 'refunded');
+  for (const i of road) { assert.equal(m.type[i], TILE.ROAD); assert.equal(m.roadClass[i], 0); }
+  for (const i of homes) assert.equal(m.level[i], 2, 'homes untouched');
+  assert.equal(applyTool(s, 'downgrade', road).applied, 0, 'a street cannot go lower');
+  assert.ok(undoAction(s, r.undo) && m.roadClass[road[0]] === 1, 'undo brings the avenue back');
+});
+
+test('stops with only homes around them make no route that goes nowhere', () => {
+  const { s, m, row, x0 } = streetCity();
+  for (let i = 0; i < m.size; i++) if (m.type[i] === TILE.IND) m.type[i] = TILE.EMPTY;
+  m.version++;
+  for (const x of [x0 + 2, x0 + 8]) applyTool(s, 'bus', [m.idx(x, row + 1)]);
+  refreshFields(s);
+  assert.equal(s.lines.length, 0, 'no homes-to-homes line');
+  assert.equal(s.unroutedStops.length, 2, 'both stops are listed as on no route');
+  assert.match(s.unroutedStops[0].why, /jobs/);
 });
 
 test('laying tram track turns a route into a tram line', () => {
