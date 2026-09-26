@@ -4,7 +4,7 @@
 import { GameMap, TILE, TERRAIN, ROAD_CLASS, ROADMOD, KINDS, highwayEntry, footprintSize, PERSISTENT_LAYERS } from './map.js';
 import { CONFIG } from './config.js';
 import { refreshFields, emptyHistory, DEFAULT_CITY_NAME } from './simulation.js';
-import { CHAINS, SCENARIOS, emptyGoals, startChain } from './goals.js';
+import { CHAINS, SCENARIOS, MAYOR_LEVELS, emptyGoals, startChain, levelFromAchievements } from './goals.js';
 import { ORDINANCE_ORDER } from './cityhall.js';
 
 const VERSION = 5;
@@ -54,6 +54,7 @@ export function serialize(state) {
     goals: state.goals,
     scenario: state.scenario,
     achievements: state.achievements ?? [],
+    mayorLevel: state.mayorLevel ?? 1,
     news: (state.news ?? []).slice(-CONFIG.news.keep),
     loansPaid: state.loansPaid ?? 0,
     positiveMonths: state.positiveMonths ?? 0,
@@ -127,7 +128,7 @@ export function deserialize(data) {
     goals: data.goals && (data.goals.chain == null || CHAINS[data.goals.chain])
       ? { ...emptyGoals(), ...data.goals, done: Array.isArray(data.goals.done) ? data.goals.done : [] } : null,
     scenario: data.scenario && SCENARIOS[data.scenario.id] ? { banned: [], ...data.scenario } : null,
-    achievements: Array.isArray(data.achievements) ? data.achievements : [],
+    achievements: Array.isArray(data.achievements) ? data.achievements.filter((a) => typeof a === 'string') : [],
     news: Array.isArray(data.news) ? data.news : [],
     budgets: Object.fromEntries(Object.keys(CONFIG.budgets.groups).filter((g) => Number.isFinite(data.budgets?.[g]))
       .map((g) => [g, Math.max(CONFIG.budgets.min, Math.min(CONFIG.budgets.max, Math.round(data.budgets[g] * 10) / 10))])),
@@ -137,6 +138,9 @@ export function deserialize(data) {
     lines: [],               // derived: transit.js plans the lines from the stops
     garbage: { made: 0, capacity: 0, uncollected: 0 },
     health: 0,
+    // Older saves have no level: work it out from the achievements (no rewards paid for those).
+    mayorLevel: Number.isInteger(data.mayorLevel) ? clamp(data.mayorLevel, 1, MAYOR_LEVELS.length + 1)
+      : levelFromAchievements(Array.isArray(data.achievements) ? data.achievements : []),
     loansPaid: data.loansPaid | 0,
     positiveMonths: data.positiveMonths | 0,
   };

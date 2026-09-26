@@ -9,7 +9,8 @@ import { regionInfo } from './region.js';
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // Buildings whose coverage adds land value and happiness (see CONFIG.buildings[k].landValue / .happiness).
-export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital'];
+export const AMENITY_KINDS = ['school', 'clinic', 'plaza', 'townpark', 'centralpark', 'university', 'stadium', 'statue', 'hospital',
+  'museum', 'aquarium', 'zoo', 'amusement', 'opera', 'clocktower', 'arch', 'cathedral', 'skytower', 'pyramid'];
 
 // Funding group of each public building kind (see CONFIG.budgets.groups).
 const GROUP_OF = Object.fromEntries(Object.entries(CONFIG.budgets.groups).flatMap(([g, d]) => d.kinds.map((k) => [k, g])));
@@ -154,27 +155,68 @@ export function utilitySystem(state) {
 }
 
 // Coverage of public buildings (linear falloff over their radius, measured from the footprint's edge).
+// Buildings with a capacity (`serves`) look after the homes they cover best; one with more
+// residents than it serves stretches thin and its coverage is scaled down (see CONFIG.serviceLoad).
+// Results per building go to state.serviceLoad, per kind to state.serviceUse.
 export function coverageSystem(state) {
-  const map = state.map, { width: w, height: h } = map;
-  for (const k of Object.keys(map.coverage)) map.coverage[k].fill(0);
+  const map = state.map, { width: w, height: h } = map, BU = CONFIG.budgets, SL = CONFIG.serviceLoad;
+  const buildings = [];
   for (let i = 0; i < map.size; i++) {
     const k = kindOf(map, i);
     if (!k || !map.coverage[k] || map.part[i]) continue;
-    const f = funding(state, k), BU = CONFIG.budgets, strength = fundingStrength(f);
-    const r = Math.max(1, Math.round(CONFIG.buildings[k].radius * (BU.radiusBase + BU.radiusPer * f))), layer = map.coverage[k];
-    const [fw, fh] = footprintSize(k);
-    const x0 = i % w, y0 = (i / w) | 0;
+    const f = funding(state, k);
+    buildings.push({ i, k, f, scale: 1, strength: fundingStrength(f), r: Math.max(1, Math.round(CONFIG.buildings[k].radius * (BU.radiusBase + BU.radiusPer * f))) });
+  }
+  // Paint every building's reach; `owner` (per capacity kind) remembers which one covers a tile best.
+  const owners = {};
+  const paint = (b, scale, owner) => {
+    const layer = map.coverage[b.k], [fw, fh] = footprintSize(b.k), x0 = b.i % w, y0 = (b.i / w) | 0, r = b.r;
     for (let y = Math.max(0, y0 - r); y <= Math.min(h - 1, y0 + fh - 1 + r); y++) {
       const dy = y < y0 ? y0 - y : y > y0 + fh - 1 ? y - (y0 + fh - 1) : 0;
       for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + fw - 1 + r); x++) {
         const dx = x < x0 ? x0 - x : x > x0 + fw - 1 ? x - (x0 + fw - 1) : 0;
         const d = Math.hypot(dx, dy);
         if (d > r) continue;
-        const v = strength * (1 - d / (r + 1)), j = y * w + x;
-        if (v > layer[j]) layer[j] = v;
+        const v = b.strength * scale * (1 - d / (r + 1)), j = y * w + x;
+        if (v > layer[j]) { layer[j] = v; if (owner) owner[j] = b.i; }
       }
     }
+  };
+  const residents = (j) => (isHome(map.type[j]) && map.level[j] > 0 && !map.hasFlag(j, FLAG.ABANDONED) ? homeCap(map, j) : 0);
+  for (const k of Object.keys(map.coverage)) map.coverage[k].fill(0);
+  for (const b of buildings) {
+    if (CONFIG.buildings[b.k].serves && !owners[b.k]) owners[b.k] = new Int32Array(map.size).fill(-1);
+    paint(b, 1, owners[b.k]);
   }
+  // Load per building: residents of the homes it covers best.
+  const load = new Map(), use = {};
+  for (const [k, owner] of Object.entries(owners)) {
+    const layer = map.coverage[k], u = use[k] = { buildings: 0, load: 0, capacity: 0, full: 0, busy: 0, unserved: 0 };
+    for (let j = 0; j < map.size; j++) {
+      const p = residents(j);
+      if (!p) continue;
+      if (owner[j] >= 0 && layer[j] > 0.05) load.set(owner[j], (load.get(owner[j]) ?? 0) + p); else u.unserved += p;
+    }
+  }
+  // Overloaded buildings stretch thin: repaint their kinds with each building's strength scaled.
+  state.serviceLoad = {};
+  const scaled = new Set();
+  for (const b of buildings) {
+    const serves = CONFIG.buildings[b.k].serves;
+    if (!serves) continue;
+    const cap = serves * fundingStrength(b.f), l = load.get(b.i) ?? 0, u = use[b.k];
+    b.scale = l > cap ? Math.max(SL.minStrength, cap / l) : 1;
+    if (b.scale < 1) scaled.add(b.k);
+    state.serviceLoad[b.i] = { kind: b.k, load: Math.round(l), capacity: Math.round(cap), share: cap > 0 ? l / cap : 0 };
+    u.buildings++; u.load += l; u.capacity += cap;
+    if (l > cap) u.full++; else if (l > cap * SL.busy) u.busy++;
+  }
+  for (const k of scaled) {
+    map.coverage[k].fill(0);
+    for (const b of buildings) if (b.k === k) paint(b, b.scale, null);
+  }
+  for (const u of Object.values(use)) { u.load = Math.round(u.load); u.capacity = Math.round(u.capacity); u.unserved = Math.round(u.unserved); }
+  state.serviceUse = use;
 }
 
 // ---------------------------------------------------------------- education
@@ -444,4 +486,29 @@ export function fireSystem(state) {
     }
   }
   state.fires = active + ignite.length;
+}
+
+// ---------------------------------------------------------------- service load advice
+
+// Kinds that have a capacity, in display order.
+export const LOAD_KINDS = ['school', 'university', 'clinic', 'hospital', 'police', 'fire'];
+const PLURALS = { school: 'schools', university: 'universities', clinic: 'clinics', hospital: 'hospitals', police: 'police stations', fire: 'fire stations' };
+
+// Plain-language status of one building's load: { share, word, cls }.
+export function loadStatus(entry) {
+  const share = entry?.share ?? 0;
+  return share > 1 ? { share, word: 'over capacity', cls: 'none' } : share > CONFIG.serviceLoad.busy ? { share, word: 'nearly full', cls: 'short' } : { share, word: share < 0.05 ? 'idle' : 'has room', cls: 'ok' };
+}
+
+// Advisor lines about services: which are full, and how many residents no building reaches.
+export function serviceAdvice(state) {
+  const out = [], use = state.serviceUse ?? {}, pop = state.stats?.population ?? 0;
+  const plural = (k, n) => (n === 1 ? CONFIG.buildings[k].label.toLowerCase() : PLURALS[k]);
+  for (const k of LOAD_KINDS) {
+    const u = use[k];
+    if (!u || !u.buildings) continue;
+    if (u.full) out.push(`${u.full} of ${u.buildings} ${plural(k, u.buildings)} ${u.full === 1 ? 'is' : 'are'} over capacity (${u.load.toLocaleString()} residents for room for ${u.capacity.toLocaleString()}): they work at reduced strength. Build another ${CONFIG.buildings[k].label.toLowerCase()} near the busiest one, or raise its funding.`);
+    if (u.unserved >= Math.max(150, pop * 0.1)) out.push(`${u.unserved.toLocaleString()} residents live out of reach of any ${CONFIG.buildings[k].label.toLowerCase()}. The existing ones ${u.full ? 'are full too' : `still have room (${Math.round(u.load / Math.max(1, u.capacity) * 100)}% used)`}, so the fix is a new one where those homes are (City hall → Services).`);
+  }
+  return out;
 }

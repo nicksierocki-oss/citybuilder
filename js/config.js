@@ -83,7 +83,9 @@ export const CONFIG = {
     roundabout: 400,         // replaces an intersection
     highway: 80,             // limited access: buildings can't use it as their frontage road
     highwayBridge: 240,
-    // The Upgrade tool (and painting a bigger road over a smaller one) charges the difference.
+    // The Upgrade tool (and painting a bigger road over a smaller one) charges the difference;
+    // the Downgrade tool refunds this share of it (buildings beside the road stay).
+    downgradeRefund: 0.5,
     residential: 10,
     commercial: 10,
     industrial: 10,
@@ -203,29 +205,70 @@ export const CONFIG = {
     coal:      { label: 'Coal plant',   cost: 2500, upkeep: 40, power: 600, pollution: 55, pollutionRadius: 5 },
     wind:      { label: 'Wind farm',    cost: 1000, upkeep: 15, power: 150 },
     pump:      { label: 'Water pump',   cost: 800,  upkeep: 20, water: 400, dryWater: 130, nearWaterRange: 2 },
-    school:    { label: 'School',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 8 },
-    clinic:    { label: 'Clinic',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 5 },
+    // `serves`: residents a building can look after at full funding (see CONFIG.serviceLoad).
+    school:    { label: 'School',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 8, serves: 2000 },
+    clinic:    { label: 'Clinic',       cost: 1200, upkeep: 20, radius: 9, happiness: 14, landValue: 5, serves: 2000 },
     parking:   { label: 'Parking lot', cost: 300, upkeep: 4, radius: 4, shopBonus: 0.1, officeBonus: 0.06 },
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
     recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5, garbage: 250 },
-    police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 14 },
+    police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 14, serves: 3000 },
     // Transit: people within `radius` tiles may ride to jobs near another stop on the network.
     bus:       { label: 'Bus stop',      cost: 150,  upkeep: 6,  radius: 3, capacity: 150, wait: 4, minutesPerTile: 0.7,  share: 0.35, landValue: 3, happiness: 3 },
     metro:     { label: 'Metro station', cost: 2500, upkeep: 40, radius: 4, capacity: 600, wait: 2, minutesPerTile: 0.25, share: 0.6,  landValue: 8, happiness: 5 },
-    fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 14 },
+    fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 14, serves: 3000 },
     // Landmarks: multi-tile (`size` = [w, h]), unlocked by population. `radius` counts from the
     // footprint's edge. Visitors pay `income` a month at full draw (scales with city size).
     townpark:    { label: 'Town park',    cost: 400,  upkeep: 10, size: [2, 2], radius: 6,  landValue: 14, happiness: 7,  park: true },
     centralpark: { label: 'Central park', cost: 2500, upkeep: 30, size: [3, 3], radius: 9,  landValue: 22, happiness: 12, park: true, unlock: 1000 },
-    university:  { label: 'University',   cost: 6000, upkeep: 90, size: [3, 2], radius: 14, landValue: 10, happiness: 6,  unlock: 1500 },
+    university:  { label: 'University',   cost: 6000, upkeep: 90, size: [3, 2], radius: 14, landValue: 10, happiness: 6,  unlock: 1500, serves: 8000 },
     stadium:     { label: 'Stadium',      cost: 8000, upkeep: 60, size: [3, 3], radius: 16, landValue: 6,  happiness: 10, shopBonus: 0.2, unlock: 2500,
       income: 180, visitorsAt: 8000 }, // ticket income reaches `income` at `visitorsAt` residents
     // Unlocked by a high mayor rating (see `mayor.statueRating`), not population.
     statue:      { label: "Mayor's statue", cost: 500, upkeep: 5, radius: 6, landValue: 8, happiness: 6, unlockRating: 80 },
-    hospital:    { label: 'Hospital',     cost: 5000, upkeep: 70, size: [2, 2], radius: 14, happiness: 6, landValue: 4, unlock: 2000 },
+    hospital:    { label: 'Hospital',     cost: 5000, upkeep: 70, size: [2, 2], radius: 14, happiness: 6, landValue: 4, unlock: 2000, serves: 6000 },
     // Collects `garbage` units a month from buildings within `radius`; smelly nearby.
     railstation: { label: 'Train station', cost: 3000, upkeep: 45, radius: 15, landValue: 8, happiness: 4, capacity: 800 },
     landfill:    { label: 'Landfill',     cost: 1500, upkeep: 25, size: [2, 2], radius: 24, garbage: 700, pollution: 30, pollutionRadius: 3 },
+
+    // Transport hubs (see CONFIG.tourism): they need a street or avenue beside them to work.
+    // Airport: flat land only; flights bring tourists and business travellers, air cargo lifts
+    // exports and office demand; noisy (counts as pollution).
+    airport:     { label: 'Airport', cost: 25000, upkeep: 150, size: [5, 3], unlock: 3000, flat: true, pollution: 28, pollutionRadius: 5,
+      passengers: 4000, fee: 1.5, exports: 40, offices: 40 },
+    // Seaport: on the shore (at least `shore` water tiles along its edge); ships take freight
+    // (trucks drive to the port instead of the map edge), cruise ships bring tourists.
+    seaport:     { label: 'Seaport', cost: 20000, upkeep: 120, size: [3, 3], unlock: 2000, shore: 3, pollution: 22, pollutionRadius: 4,
+      cargo: 3000, cargoFee: 0.35, cruise: 1500, fee: 1, exports: 60 },
+
+    // Tourist attractions: unlocked by population. `attraction` = visitors a month they draw at
+    // full strength, `ticket` = $ each visitor spends there.
+    museum:      { label: 'Museum',         cost: 12000, upkeep: 60,  size: [2, 2], radius: 10, landValue: 10, happiness: 6,  unlock: 3000, attraction: 400,  ticket: 1 },
+    aquarium:    { label: 'Aquarium',       cost: 15000, upkeep: 80,  size: [2, 2], radius: 10, landValue: 10, happiness: 6,  unlock: 4000, attraction: 600,  ticket: 1.5, nearWater: 2 },
+    zoo:         { label: 'Zoo',            cost: 18000, upkeep: 90,  size: [3, 3], radius: 12, landValue: 12, happiness: 8,  unlock: 5000, attraction: 800,  ticket: 1.5, park: true },
+    amusement:   { label: 'Amusement park', cost: 35000, upkeep: 150, size: [4, 4], radius: 14, landValue: 8,  happiness: 10, unlock: 8000, attraction: 1500, ticket: 2 },
+    opera:       { label: 'Opera house',    cost: 40000, upkeep: 120, size: [3, 2], radius: 14, landValue: 16, happiness: 8,  unlock: 12000, attraction: 1000, ticket: 2.5 },
+    // Monuments: unlocked by mayor level (see goals.js), very expensive. Big draws, and
+    // `prestige` adds to the mayor rating for as long as they stand.
+    clocktower:  { label: 'Clock tower',       cost: 15000,  upkeep: 20,  radius: 10, landValue: 12, happiness: 6,  unlockLevel: 2, attraction: 250,  ticket: 1, prestige: 2 },
+    arch:        { label: 'Triumphal arch',    cost: 30000,  upkeep: 30,  size: [2, 2], radius: 12, landValue: 14, happiness: 8,  unlockLevel: 3, attraction: 500,  ticket: 1, prestige: 3 },
+    cathedral:   { label: 'Grand cathedral',   cost: 60000,  upkeep: 60,  size: [3, 3], radius: 16, landValue: 18, happiness: 10, unlockLevel: 4, attraction: 900,  ticket: 1.5, prestige: 4 },
+    skytower:    { label: 'Observation tower', cost: 90000,  upkeep: 90,  size: [2, 2], radius: 18, landValue: 20, happiness: 8,  unlockLevel: 5, attraction: 1400, ticket: 2, prestige: 5 },
+    pyramid:     { label: 'Glass pyramid',     cost: 150000, upkeep: 120, size: [3, 3], radius: 20, landValue: 22, happiness: 12, unlockLevel: 6, attraction: 2200, ticket: 2.5, prestige: 6 },
+  },
+
+  // Tourism (js/tourism.js). Attractions draw visitors; how many can come is capped by the ways
+  // in: road links (per unit of region link weight), trains to the region, flights, cruise ships.
+  tourism: {
+    stadiumDraw: 300, parkDraw: 100,   // older landmarks draw a few visitors too (no extra tickets)
+    popFull: 10000,                    // draw grows from `popMin` share to full at this population
+    popMin: 0.3,
+    roadPerWeight: 250, railPerLink: 500,
+    residentFlyers: 0.03,              // share of residents flying each month (airport fees)
+    staying: 0.5,                      // share of visitors staying overnight...
+    bedsPerHotel: [0, 0, 40, 100],     // ...in hotel beds (by density)...
+    staySpend: 2,                      // ...spending this much each
+    shopJobsPerVisitor: 0.02,          // commercial demand from tourists
+    maxPrestige: 15,                   // cap on the rating bonus from monuments
   },
 
   // Service funding: 50%..150% per group. Coverage radius × (radiusBase + radiusPer × funding);
@@ -238,10 +281,19 @@ export const CONFIG = {
       health:    { label: 'Health',    kinds: ['clinic', 'hospital'] },
       police:    { label: 'Police',    kinds: ['police'] },
       fire:      { label: 'Fire',      kinds: ['fire'] },
-      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation', 'parking'] },
+      transit:   { label: 'Transit',   kinds: ['bus', 'metro', 'railstation', 'parking', 'airport', 'seaport'] },
       parks:     { label: 'Parks',     kinds: ['plaza', 'townpark', 'centralpark', 'statue'] },
       garbage:   { label: 'Garbage',   kinds: ['landfill', 'recycling'] },
+      culture:   { label: 'Culture & tourism', kinds: ['museum', 'aquarium', 'zoo', 'amusement', 'opera', 'clocktower', 'arch', 'cathedral', 'skytower', 'pyramid'] },
     },
+  },
+
+  // Service load: every home is looked after by the building that covers it best. A building with
+  // more residents than it `serves` stretches thin: its coverage (and so its effect) is scaled by
+  // capacity / load, but never below `minStrength`. Funding scales capacity like strength.
+  serviceLoad: {
+    minStrength: 0.4,
+    busy: 0.85,              // shown as "busy" from this share of capacity, "full" from 1
   },
 
   // Health (0..100 per tile) feeds happiness.

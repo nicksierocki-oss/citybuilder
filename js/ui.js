@@ -5,7 +5,7 @@ import { TOOLS, monthlyBudget, toolPrice, takeLoan, canTakeLoan, budgetAdvice, i
 import { TILE, TERRAIN, FLAG, ZONE_NAMES, ROAD_NAMES, KINDS, SUPPLY, JUNCTION, ROADMOD, ONEWAY_NAMES, onewayAt, isZone, isHome, homeCap, jobCap, skilledShare, footprintSize } from './map.js';
 import { evaluateTile, levelName, districtAt, tourismScore } from './simulation.js';
 import { roadLoad, junctionDelay } from './traffic.js';
-import { supplyOf, happinessReasons, educationTarget } from './services.js';
+import { supplyOf, happinessReasons, educationTarget, loadStatus } from './services.js';
 import { OVERLAYS, OVERLAY_ORDER, overlayValueText } from './overlays.js';
 import { SEASON_NAMES, seasonOf, clockText } from './seasons.js';
 import { Graphs } from './graphs.js';
@@ -13,6 +13,7 @@ import { Minimap } from './minimap.js';
 import { CityHallUI } from './cityhall-ui.js';
 import { LinesUI } from './lines-ui.js';
 import { railNetwork } from './transit.js';
+import { placementProblem, hubConnected } from './tourism.js';
 import { SCENARIOS, SCENARIO_ORDER } from './goals.js';
 import { hasBackup } from './save.js';
 
@@ -24,25 +25,29 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // Toolbar layout: groups of tools.
 const GROUPS = [
-  ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'lights', 'interchange', 'oneway', 'roundabout', 'parking']],
+  ['Roads', ['road', 'avenue', 'highway', 'upgrade', 'downgrade', 'lights', 'interchange', 'oneway', 'roundabout', 'parking']],
   ['Zones', ['residential', 'commercial', 'industrial', 'office', 'farm', 'mixed']],
   ['Utilities', ['wind', 'coal', 'pump', 'landfill']],
   ['Public', ['school', 'clinic', 'plaza', 'recycling', 'park']],
   ['Land', ['raise', 'lower', 'trees']],
-  ['Transit', ['bus', 'metro', 'rail', 'railstation']],
+  ['Transit', ['bus', 'metro', 'rail', 'railstation', 'airport', 'seaport']],
   ['Safety', ['police', 'fire']],
   ['Landmarks', ['townpark', 'centralpark', 'university', 'stadium', 'hospital', 'statue']],
+  ['Tourism', ['museum', 'aquarium', 'zoo', 'amusement', 'opera']],
+  ['Monuments', ['clocktower', 'arch', 'cathedral', 'skytower', 'pyramid']],
   ['Tools', ['inspect', 'bulldoze']],
 ];
 
 const TOOL_COLOR = {
-  road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0',
+  road: '#a3aab4', avenue: '#8f98a4', highway: '#7d8795', upgrade: '#a795e0', downgrade: '#c49a86',
   residential: '#7cc47a', commercial: '#6fa6e3', industrial: '#e3b75a', office: '#5abec8', farm: '#b9c46a', mixed: '#cd9678',
   wind: '#8fcfe0', coal: '#b3a79c', pump: '#6fb6e8',
   police: '#7f9ee0', fire: '#ee8a6e', lights: '#8fbf8a', interchange: '#8a94a6', raise: '#b39a74', lower: '#8fa3b8', oneway: '#7fa6c9', roundabout: '#8fbf8a', parking: '#8a9bb8', bus: '#e3a35a', metro: '#b38fd6',
   school: '#f2c55f', clinic: '#ee8a8f', plaza: '#d6b98f', recycling: '#79c28a', park: '#92cf7a', trees: '#6fb86a',
   inspect: '#9aa7b8', bulldoze: '#e58f82',
   townpark: '#86c878', centralpark: '#5fb86a', university: '#d9a58f', stadium: '#8fa8e0', statue: '#c9a86a', hospital: '#ee8a8f', landfill: '#b8a27e', rail: '#9a8f82', railstation: '#c98f6a',
+  airport: '#8fa8c8', seaport: '#6f9fc0', museum: '#c9a88f', aquarium: '#6fb6d8', zoo: '#8fbf6a', amusement: '#e38fb0', opera: '#c98fa8',
+  clocktower: '#b8a07a', arch: '#c9b48f', cathedral: '#a897c9', skytower: '#7fb0d8', pyramid: '#8fc8d8',
 };
 
 const TOOL_HELP = {
@@ -50,6 +55,7 @@ const TOOL_HELP = {
   avenue: '3× a street\'s capacity. Paint over streets to upgrade.',
   highway: 'Fastest, 7.5× capacity, but no driveways: pair with streets.',
   upgrade: 'Drag along roads: Street → Avenue → Highway (pay the difference).',
+  downgrade: 'Drag along roads: Highway → Avenue → Street without bulldozing. Buildings stay; half the price difference is refunded and upkeep drops.',
   residential: 'Homes. Grow when there are jobs.',
   commercial: 'Shops and offices. Grow with residents nearby.',
   industrial: 'Factories. Need workers; pollute.',
@@ -85,6 +91,18 @@ const TOOL_HELP = {
   railstation: `Train station: must sit beside track. Riders within ${CONFIG.buildings.railstation.radius} tiles take fast trains to jobs near any station on the same track, or out to the region.`,
   hospital: '2×2 hospital: big health boost within 14 tiles (healthier residents are happier). Unlocks at 2,000 residents.',
   landfill: '2×2 dump: collects 700 units of garbage a month within 24 tiles. Smells: keep it away from homes.',
+  airport: '5×3 airport on flat land beside a road: flights bring tourists (up to 4,000 a month) and business travellers, air cargo lifts exports and office demand. Noisy. Unlocks at 3,000 residents.',
+  seaport: '3×3 harbour on the shore (3+ water tiles along its edge) beside a road: trucks deliver freight there instead of the map edge, ships pay cargo fees, cruise ships bring tourists. Unlocks at 2,000.',
+  museum: '2×2 museum: draws 400 visitors a month who buy tickets. Unlocks at 3,000 residents.',
+  aquarium: '2×2 aquarium within 2 tiles of water: 600 visitors a month. Unlocks at 4,000.',
+  zoo: '3×3 zoo: 800 visitors a month, green like a park. Unlocks at 5,000.',
+  amusement: '4×4 amusement park: 1,500 visitors a month and very happy neighbours. Unlocks at 8,000.',
+  opera: '3×2 opera house: 1,000 well-heeled visitors, a big land value boost. Unlocks at 12,000.',
+  clocktower: 'Clock tower monument: a town landmark that raises your mayor rating. Unlocks at mayor level 2.',
+  arch: '2×2 triumphal arch monument: visitors and +3 mayor rating. Unlocks at mayor level 3.',
+  cathedral: '3×3 grand cathedral monument: 900 visitors and +4 mayor rating. Unlocks at mayor level 4.',
+  skytower: '2×2 observation tower monument: 1,400 visitors and +5 mayor rating. Unlocks at mayor level 5.',
+  pyramid: '3×3 glass pyramid, the ultimate monument: 2,200 visitors and +6 mayor rating. Unlocks at mayor level 6.',
   inspect: 'Look around: click to pin tile info; drag to pan.',
   bulldoze: 'Clear anything.',
 };
@@ -96,6 +114,7 @@ const ICONS = {
   avenue: I('<path d="M5 3 3 21M19 3l2 18"/><path d="M12 3v18" stroke-width="3"/>'),
   highway: I('<path d="M4 3 2 21M20 3l2 18M12 3v18"/><path d="M7 8v2M7 14v2M17 8v2M17 14v2"/>'),
   upgrade: I('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  downgrade: I('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   residential: I('<path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>'),
   commercial: I('<path d="M4 9h16l-1.5-4h-13z"/><path d="M5 9v10h14V9"/><path d="M9 19v-5h6v5"/>'),
   industrial: I('<path d="M3 20V10l5 3V10l5 3V6h4v14z"/><path d="M3 20h18"/>'),
@@ -133,6 +152,18 @@ const ICONS = {
   hospital: I('<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M12 9v8M8 13h8"/><path d="M8 6V3h8v3"/>'),
   landfill: I('<path d="M3 19c2-5 5-8 9-8s7 3 9 8z"/><path d="M8 8l1-3M13 7l1-4M17 9l2-2"/>'),
   statue: I('<circle cx="12" cy="5" r="2"/><path d="M10 8h4l1 7h-6zM7 21h10M8 21v-3h8v3"/>'),
+  airport: I('<path d="M2 16l20-6-2-2-7 2-5-6-2 1 3 6-5 2-2-2-1 1 2 4z"/><path d="M3 21h18"/>'),
+  seaport: I('<path d="M3 17c2 2 4 2 6 0s4-2 6 0 4 2 6 0"/><path d="M5 14V9h9v5M14 11h4l2 3M8 9V5h3v4"/>'),
+  museum: I('<path d="M3 9 12 4l9 5z"/><path d="M5 9v9M9.5 9v9M14.5 9v9M19 9v9M3 20h18"/>'),
+  aquarium: I('<path d="M3 12c3-4 8-5 13-1l5-3v8l-5-3c-5 4-10 3-13-1z"/><circle cx="8" cy="11" r="1"/>'),
+  zoo: I('<circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="7" r="2.5"/><circle cx="12" cy="14" r="6"/><circle cx="10" cy="13" r=".8"/><circle cx="14" cy="13" r=".8"/>'),
+  amusement: I('<circle cx="12" cy="10" r="7"/><path d="M12 3v14M5 10h14M7 5l10 10M17 5 7 15M9 21l3-4 3 4"/>'),
+  opera: I('<path d="M3 20h18M4 20v-8a8 8 0 0 1 16 0v8"/><path d="M8 20v-5a4 4 0 0 1 8 0v5"/>'),
+  clocktower: I('<path d="M8 21V8l4-5 4 5v13z"/><circle cx="12" cy="11" r="2.5"/><path d="M12 10v1.2l1 .6M6 21h12"/>'),
+  arch: I('<path d="M3 21V5h18v16h-5v-6a4 4 0 0 0-8 0v6z"/><path d="M3 9h18"/>'),
+  cathedral: I('<path d="M4 21V11l3-3 3 3v10M14 21V11l3-3 3 3v10M10 21v-6h4v6M7 8V3M17 8V3M3 21h18"/>'),
+  skytower: I('<path d="M12 2v4M9 21l2-11h2l2 11"/><ellipse cx="12" cy="8" rx="4" ry="2"/><path d="M6 21h12"/>'),
+  pyramid: I('<path d="M12 3 2 20h20z"/><path d="M12 3v17M7 12h10M4.5 16h15"/>'),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -179,7 +210,7 @@ export class UI {
         const b = document.createElement('button');
         b.className = 'tool';
         b.dataset.tool = name;
-        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', raise: 'Raise', lower: 'Lower', oneway: 'One\u2011way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
+        const short = { police: 'Police', fire: 'Fire', lights: 'Lights', interchange: 'Ramps', raise: 'Raise', lower: 'Lower', oneway: 'One\u2011way', roundabout: 'Roundabout', parking: 'Parking', bus: 'Bus', metro: 'Metro', residential: 'Homes', commercial: 'Shops', industrial: 'Industry', office: 'Offices', farm: 'Farms', mixed: 'Mixed', upgrade: 'Upgrade', downgrade: 'Downgrade', recycling: 'Recycle', trees: 'Trees', statue: 'Statue', hospital: 'Hospital', landfill: 'Landfill', rail: 'Railway', railstation: 'Station', airport: 'Airport', seaport: 'Seaport', aquarium: 'Aquarium', amusement: 'Theme park', opera: 'Opera', clocktower: 'Clock', arch: 'Arch', cathedral: 'Cathedral', skytower: 'Tower', pyramid: 'Pyramid', inspect: 'Inspect', coal: 'Coal', wind: 'Wind', pump: 'Pump' }[name] ?? def.label;
         b.innerHTML = `<span class="ico" style="background:${TOOL_COLOR[name]}2e;color:${shade(TOOL_COLOR[name])}">${ICONS[name] ?? ''}</span>
           <span class="tl">${short}</span>${price ? `<span class="tc">$${price.toLocaleString()}</span>` : ''}
           ${def.key ? `<span class="tk">${def.key}</span>` : ''}`;
@@ -188,7 +219,7 @@ export class UI {
           const B = CONFIG.buildings[def.building], st = this.game.state;
           if (B && !isUnlocked(st, def.building)) {
             this.toast(st.scenario?.banned?.includes(def.building) ? `${B.label}s are not allowed in this scenario.`
-              : B.unlockRating ? `${B.label} unlocks at a mayor rating of ${B.unlockRating}.` : `${B.label} unlocks at ${B.unlock.toLocaleString()} residents.`, 'info', 2400);
+              : B.unlockRating ? `${B.label} unlocks at a mayor rating of ${B.unlockRating}.` : B.unlockLevel ? `${B.label} unlocks at mayor level ${B.unlockLevel} (City hall → Mayor levels).` : `${B.label} unlocks at ${B.unlock.toLocaleString()} residents.`, 'info', 2400);
             return;
           }
           this.game.setTool(name);
@@ -424,10 +455,12 @@ export class UI {
     }
   }
 
-  // District name labels over the map (both views), positioned at each district's centre.
+  // District name labels over the map (both views), positioned at each district's centre, plus
+  // a warning badge over every service building that is over capacity.
   updateLabels() {
     const s = this.game.state, map = s.map, box = $('labels'), r = this.game.renderer;
-    const key = `${map.version}|${(s.districts ?? []).map((d) => d.id + d.name).join()}|${map.width}`;
+    const over = Object.entries(s.serviceLoad ?? {}).filter(([, l]) => l.share > 1);
+    const key = `${map.version}|${(s.districts ?? []).map((d) => d.id + d.name).join()}|${map.width}|${over.map(([i, l]) => `${i}:${Math.round(l.share * 20)}`).join()}`;
     if (key !== this.labelKey) {
       this.labelKey = key;
       const acc = new Map();
@@ -440,9 +473,14 @@ export class UI {
       }
       this.labelPos = (s.districts ?? []).filter((d) => acc.get(d.id)?.n).map((d) => {
         const a = acc.get(d.id);
-        return { d, x: a.x / a.n, y: a.y / a.n };
+        return { html: `<span class="dlabel" style="--c:${d.color}">${esc(d.name)}</span>`, x: a.x / a.n, y: a.y / a.n };
       });
-      box.innerHTML = this.labelPos.map(({ d }) => `<span class="dlabel" style="--c:${d.color}">${esc(d.name)}</span>`).join('');
+      for (const [i, l] of over) {
+        const [fw] = footprintSize(l.kind), a = Number(i);
+        this.labelPos.push({ html: `<span class="slabel" title="${esc(CONFIG.buildings[l.kind].label)} over capacity: ${l.load.toLocaleString()} residents for ${l.capacity.toLocaleString()}">⚠ ${Math.round(l.share * 100)}%</span>`,
+          x: a % map.width + fw / 2, y: ((a / map.width) | 0) + 0.2 });
+      }
+      box.innerHTML = this.labelPos.map((l) => l.html).join('');
     }
     const els = box.children;
     (this.labelPos ?? []).forEach((l, k) => {
@@ -513,11 +551,11 @@ export class UI {
     $('jobs').textContent = `${st.jobs.toLocaleString()} jobs · ${Math.round((s.education ?? 0) * 100)}% skilled`;
     for (const b of document.querySelectorAll('.tool')) {
       const k = TOOLS[b.dataset.tool]?.building, B = CONFIG.buildings[k];
-      if (!B || !(B.unlock || B.unlockRating || s.scenario?.banned?.includes(k))) { b.classList.remove('locked'); continue; }
+      if (!B || !(B.unlock || B.unlockRating || B.unlockLevel || s.scenario?.banned?.includes(k))) { b.classList.remove('locked'); continue; }
       const locked = !isUnlocked(s, k);
       b.classList.toggle('locked', locked);
       const tc = b.querySelector('.tc');
-      if (tc) tc.textContent = !locked ? `$${B.cost.toLocaleString()}` : s.scenario?.banned?.includes(k) ? '🚫 banned' : B.unlockRating ? `🔒 rating ${B.unlockRating}` : `🔒 ${B.unlock.toLocaleString()}`;
+      if (tc) tc.textContent = !locked ? `$${B.cost.toLocaleString()}` : s.scenario?.banned?.includes(k) ? '🚫 banned' : B.unlockRating ? `🔒 rating ${B.unlockRating}` : B.unlockLevel ? `🔒 level ${B.unlockLevel}` : `🔒 ${B.unlock.toLocaleString()}`;
     }
     $('btnUndo').disabled = !this.game.undoStack.some((u) => u.map === this.game.state.map);
     this.lines.render();
@@ -630,7 +668,7 @@ export class UI {
       ${row('Commercial tax', b.income.commercial)}
       ${row('Industrial tax', b.income.industrial)}
       ${Math.round(b.income.utilitySales) ? row('Utility sales', b.income.utilitySales) : ''}${Math.round(b.income.offices) ? row('Office tax', b.income.offices) : ''}${Math.round(b.income.farms) ? row('Farm tax', b.income.farms) : ''}${Math.round(b.income.tourism) ? row('Tourists (hotels)', b.income.tourism) : ''}
-      ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}
+      ${Math.round(b.income.visitors) ? row('Visitors (landmarks)', b.income.visitors) : ''}${Math.round(b.income.attractions) ? row('Attraction tickets', b.income.attractions) : ''}${Math.round(b.income.stays) ? row('Tourist stays', b.income.stays) : ''}${Math.round(b.income.airport) ? row('Airport fees', b.income.airport) : ''}${Math.round(b.income.port) ? row('Port fees', b.income.port) : ''}
       <tr class="sep"><td>Upkeep</td><td></td></tr>
       ${nz('Streets', b.expenses.roads)}${nz('Avenues', b.expenses.avenues)}${nz('Highways', b.expenses.highways)}
       ${nz('Bridges', b.expenses.bridges)}${nz('Junctions', b.expenses.junctions)}${nz('Parks', b.expenses.parks)}
@@ -705,6 +743,18 @@ export class UI {
       title = B.label;
       if (B.size) rows.push(['Size', `${B.size[0]}×${B.size[1]} landmark`]);
       if (B.income) rows.push(['Visitors', `${money(B.income * Math.min(1, g.state.stats.population / B.visitorsAt))}/mo in tickets`]);
+      const tour = g.state.tourism, a = map.anchorOf(i);
+      if (B.attraction || k === 'airport' || k === 'seaport') {
+        if (!hubConnected(map, k, a)) notes.push('Not beside a connected street or avenue: nobody can get here, so it does nothing yet');
+        else if (B.attraction && tour?.draw) {
+          const share = (B.attraction * (g.state.budgets?.culture ?? 1)) / tour.draw, v = Math.round(tour.visitors * Math.min(1, share));
+          rows.push(['Visitors', `~${v.toLocaleString()}/mo · ${money(v * B.ticket)} in tickets`]);
+          if (tour.wanted > tour.room + 1) notes.push(`More tourists want to come (${tour.wanted.toLocaleString()}) than can get here (${tour.room.toLocaleString()}): an airport, a seaport or rail to the region would bring them`);
+        }
+        if (B.prestige) rows.push(['Prestige', `+${B.prestige} mayor rating`]);
+        if (k === 'airport' && tour) rows.push(['Passengers', `${tour.flyers.toLocaleString()}/mo (${tour.byMode.air.toLocaleString()} tourists) · room for ${B.passengers.toLocaleString()}`]);
+        if (k === 'seaport' && tour) { rows.push(['Cargo', `${tour.cargo.toLocaleString()} / ${B.cargo.toLocaleString()} truckloads a month`]); rows.push(['Cruise visitors', `${tour.byMode.sea.toLocaleString()}/mo`]); }
+      }
       if (k === 'university') notes.push('Educates residents in reach: offices, big shops and high-tech industry need them');
       if (k === 'stadium') notes.push('Draws crowds: shops within reach do better, and residents are happier');
       if (B.power || k === 'pump') {
@@ -714,6 +764,15 @@ export class UI {
         if (map[res][i] !== SUPPLY.OK) notes.push('Not beside a road: its output isn\'t reaching anyone');
       }
       if (B.radius) rows.push(['Reach', `${B.radius} tiles`]);
+      const load = g.state.serviceLoad?.[map.anchorOf(i)];
+      if (load) {
+        const st = loadStatus(load);
+        rows.push(['Serving', `${load.load.toLocaleString()} / ${load.capacity.toLocaleString()} residents`]);
+        rows.push(['Load', `<span class="mbar load ${st.cls}"><i style="width:${Math.min(100, Math.round(st.share * 100))}%"></i></span> <span class="pill ${st.cls}">${Math.round(st.share * 100)}% · ${st.word}</span>`]);
+        if (st.share > 1) notes.push(`Over capacity: it works at ${Math.round(Math.max(CONFIG.serviceLoad.minStrength, 1 / st.share) * 100)}% strength for everyone it serves. Build another ${B.label.toLowerCase()} nearby to share the load, or raise its funding in the budget.`);
+        else if (st.share > CONFIG.serviceLoad.busy) notes.push('Nearly full: as the neighbourhood grows it will need another one.');
+        else if (load.load === 0) notes.push('No homes in reach yet: it serves the residents it covers best.');
+      }
       if (k === 'railstation') {
         const net = railNetwork(g.state), st = net.stations.find((x) => x.i === i), c = st ? net.comps[st.comp] : null;
         rows.push(['Riders', `${Math.round(map.riders[i])} / ${B.capacity} a month`]);
@@ -728,7 +787,8 @@ export class UI {
         const served = (g.state.lines ?? []).filter((l) => l.stops.includes(i));
         rows.push(['Lines', served.length ? served.map((l) => `<i class="dchip" style="background:${l.color}"></i>${esc(l.name)}`).join(' ') : 'none']);
         rows.push(['Riders', `${Math.round(map.riders[i])} a month`]);
-        if (!served.length) notes.push('Not on any route yet: place another stop near homes or jobs on the same roads and a route links them');
+        const lost = (g.state.unroutedStops ?? []).find((u) => u.i === i);
+        if (!served.length) notes.push(lost ? `Not on any route: ${lost.why}` : 'Not on any route yet: it needs a road beside it that connects to other stops');
         else if (map.riders[i] < 5) notes.push('Few riders: routes link stops near homes with stops near jobs, so this area needs both');
       }
       rows.push(['Upkeep', `${money(B.upkeep)}/mo`]);
@@ -743,6 +803,8 @@ export class UI {
         rows.push(['Capacity', `${Math.round(load * 100)}% ${load > 1 ? '— jammed' : load > 0.5 ? '— busy' : ''}`]);
         if (load > 0.8 && map.roadClass[i] < 2) {
           notes.push(`Busy: upgrade to ${ROAD_NAMES[map.roadClass[i] + 1]} with the Upgrade tool (9)`);
+        } else if (load < 0.1 && map.roadClass[i] > 0) {
+          notes.push(`Quiet for a${map.roadClass[i] === 1 ? 'n avenue' : ' highway'}: the Downgrade tool turns it into ${map.roadClass[i] === 1 ? 'a street' : 'an avenue'} and cuts its upkeep`);
         }
       }
       if (map.roadClass[i] === 2) notes.push('Limited access: buildings can\'t use a highway as their street');
@@ -817,8 +879,10 @@ export class UI {
     const total = p.cost.total;
     const tool = this.game.tool, B = CONFIG.buildings[TOOLS[tool]?.building];
     if (TOOLS[tool]?.footprint) {
+      const why = p.cost.blocked && p.tiles?.size === B.size[0] * B.size[1] ? placementProblem(this.game.state, TOOLS[tool].building, [...p.tiles]) : null;
       tip.textContent = p.cost.blocked
-        ? (!isUnlocked(this.game.state, TOOLS[tool].building) ? `Unlocks at ${B.unlock.toLocaleString()} residents` : `No room: needs ${B.size[0]}×${B.size[1]} clear land`)
+        ? (!isUnlocked(this.game.state, TOOLS[tool].building) ? (B.unlockLevel ? `Unlocks at mayor level ${B.unlockLevel}` : `Unlocks at ${B.unlock.toLocaleString()} residents`)
+          : why ? `${B.label} ${why}` : `No room: needs ${B.size[0]}×${B.size[1]} clear land`)
         : `${B.label} · $${total.toLocaleString()}`;
       return;
     }
@@ -840,7 +904,7 @@ export class UI {
     const ev = this.game.state.events;
     while (ev.length) {
       const e = ev.shift();
-      if (e.achievement && !this.cityhall.onAchievement(e.achievement)) continue; // already earned in this browser
+      if (e.achievement) this.cityhall.onAchievement(e.achievement); // remembered across cities; each city earns its own for its mayor level
       if (e.scenario) this.showScenarioEnd(e.scenario);
       const t = this.toast(e.text, e.kind, e.kind === 'bad' || e.kind === 'achievement' ? 6000 : 3200, e.x != null ? { x: e.x, y: e.y } : null);
       if (e.goal || e.achievement) { t.classList.add('link'); t.addEventListener('click', () => this.cityhall.toggle(true)); }

@@ -26,6 +26,10 @@ const TABS = {
       { title: 'Jammed road tiles', series: [['congested', 'Jammed roads']], fmt: (v) => Math.round(v).toLocaleString() },
     ],
   },
+  visitors: {
+    label: 'Transit & tourism',
+    charts: [{ title: 'Transit riders and visitors a month', series: [['transit', 'Transit riders'], ['tourists', 'Visitors']], fmt: (v) => Math.round(v).toLocaleString() }],
+  },
   wellbeing: {
     label: 'Wellbeing',
     charts: [{ title: 'Happiness, crime and skilled residents (0–100)', series: [['happiness', 'Happiness'], ['crime', 'Crime'], ['education', 'Skilled %']], fmt: (v) => `${Math.round(v)}`, max: 100 }],

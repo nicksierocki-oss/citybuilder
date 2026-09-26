@@ -141,25 +141,129 @@ export const SCENARIOS = {
 };
 export const SCENARIO_ORDER = ['boomtown', 'river', 'green', 'rustbelt'];
 
-// Achievements: { id, name, text, check(state) } (scenario wins are added below).
+// ---------------------------------------------------------------- mayor levels & achievements
+
+const MONUMENTS = ['clocktower', 'arch', 'cathedral', 'skytower', 'pyramid'];
+const ATTRACTIONS = ['museum', 'aquarium', 'zoo', 'amusement', 'opera'];
+const count = (s, kinds) => kinds.reduce((a, k) => a + svc(s, k), 0);
+const riding = (s, pred = (/** @type {any} */ _l) => true) => (s.lines ?? []).filter((l) => pred(l) && (s.lineStats?.[l.id]?.riders ?? 0) > 0).length;
+const tour = (s) => s.tourism ?? { visitors: 0, airports: 0, seaports: 0, cargo: 0 };
+const ts = (s) => s.transitStats ?? {};
+const years = (s) => s.tick / (CONFIG.time.ticksPerMonth * 12);
+// Every capacity service built and none over capacity or leaving many homes out.
+const wellServed = (s, maxOut) => ['school', 'clinic', 'police', 'fire'].every((k) => {
+  const u = s.serviceUse?.[k];
+  return u?.buildings && !u.full && u.unserved <= pop(s) * maxOut;
+});
+
+// Mayor levels: each has a dozen achievements; earning `need` of them promotes the mayor, pays
+// `reward` and unlocks the level's monument. Achievements can be earned in any order.
+// Achievement: { id, name, text, check(state) }. Ids are stored in saves and the browser.
+export const MAYOR_LEVELS = [
+  { title: 'Village mayor', need: 9, reward: 5000, achievements: [
+    { id: 'roads50', name: 'First streets', text: 'Lay 50 street tiles', check: (s) => s.stats.roads + s.stats.avenues >= 50 },
+    { id: 'pop250', name: 'Hamlet', text: 'Reach 250 residents', check: (s) => pop(s) >= 250 },
+    { id: 'utilities', name: 'Lights on', text: 'Run a power plant and a water pump', check: (s) => svc(s, 'wind') + svc(s, 'coal') > 0 && svc(s, 'pump') > 0 },
+    { id: 'school1', name: 'School bell', text: 'Build a school', check: (s) => svc(s, 'school') > 0 },
+    { id: 'clinic1', name: 'Doctor in town', text: 'Build a clinic', check: (s) => svc(s, 'clinic') > 0 },
+    { id: 'safety1', name: 'Safe and sound', text: 'Build a police station and a fire station', check: (s) => svc(s, 'police') > 0 && svc(s, 'fire') > 0 },
+    { id: 'parks5', name: 'Green spaces', text: 'Lay out 5 park tiles', check: (s) => s.stats.parks >= 5 },
+    { id: 'shops50', name: 'Main street', text: '50 people working in shops', check: (s) => s.stats.comJobs >= 50 },
+    { id: 'trash1', name: 'Clean streets', text: 'Collect garbage with a landfill or recycling centre', check: (s) => svc(s, 'landfill') + svc(s, 'recycling') > 0 },
+    { id: 'route1', name: 'All aboard', text: 'A bus route carrying riders', check: (s) => riding(s) > 0 },
+    { id: 'profit', name: 'Balanced books', text: 'A month with a $300+ surplus', check: (s) => (s.lastMonth?.net ?? 0) >= 300 },
+    { id: 'pop1k', name: 'Town', text: 'Reach 1,000 residents', check: (s) => pop(s) >= 1000 },
+  ] },
+  { title: 'Town mayor', need: 9, reward: 10000, unlocks: 'clocktower', achievements: [
+    { id: 'pop2500', name: 'Market town', text: 'Reach 2,500 residents', check: (s) => pop(s) >= 2500 },
+    { id: 'hoods', name: 'Neighbourhoods', text: 'Three districts', check: (s) => (s.districts?.length ?? 0) >= 3 },
+    { id: 'debtfree', name: 'Debt free', text: 'Pay off a loan', check: (s) => (s.loansPaid ?? 0) > 0 },
+    { id: 'black', name: 'In the black', text: 'Two years in a row without a loss-making month', check: (s) => (s.positiveMonths ?? 0) >= 24 },
+    { id: 'happy55', name: 'Content town', text: '1,000+ residents at 55% happiness', check: (s) => pop(s) >= 1000 && s.happiness >= 55 },
+    { id: 'avenue30', name: 'Boulevard', text: 'Build 30 avenue tiles', check: (s) => s.stats.avenues >= 30 },
+    { id: 'skilled30', name: 'Learning town', text: '30% of residents skilled', check: (s) => pop(s) >= 500 && s.education >= 0.3 },
+    { id: 'farms', name: 'Breadbasket', text: '100 people working on farms', check: (s) => (s.stats.farmJobs ?? 0) >= 100 },
+    { id: 'lawmaker', name: 'Lawmaker', text: 'Two ordinances in force', check: (s) => Object.keys(s.ordinances ?? {}).length >= 2 },
+    { id: 'routes3', name: 'Bus network', text: 'Three routes carrying riders', check: (s) => riding(s) >= 3 },
+    { id: 'hotel1', name: 'Welcome visitors', text: 'Your first hotel', check: (s) => (s.stats.hotels ?? 0) >= 1 },
+    { id: 'served', name: 'Well served', text: '1,000+ residents; schools, clinics, police and fire all with room', check: (s) => pop(s) >= 1000 && wellServed(s, 0.2) },
+  ] },
+  { title: 'City mayor', need: 9, reward: 20000, unlocks: 'arch', achievements: [
+    { id: 'pop5k', name: 'City', text: 'Reach 5,000 residents', check: (s) => pop(s) >= 5000 },
+    { id: 'ivory', name: 'Ivory tower', text: 'Build a university', check: (s) => svc(s, 'university') > 0 },
+    { id: 'silicon', name: 'Silicon valley', text: 'Five high-tech industries', check: (s) => s.stats.hightech >= 5 },
+    { id: 'offices200', name: 'Business district', text: '200 people working in offices', check: (s) => (s.stats.officeJobs ?? 0) >= 200 },
+    { id: 'hospital', name: 'Healing hands', text: 'Build a hospital', check: (s) => svc(s, 'hospital') > 0 },
+    { id: 'tram', name: 'Clang clang', text: 'A tram line carrying riders', check: (s) => riding(s, (l) => l.mode === 'tram') > 0 },
+    { id: 'metro', name: 'Underground', text: 'A metro carrying 100 riders a month', check: (s) => (ts(s).metro ?? 0) >= 100 },
+    { id: 'railriders', name: 'Commuter belt', text: 'Trains carrying 100 riders a month', check: (s) => (ts(s).rail ?? 0) >= 100 },
+    { id: 'stadium', name: 'Game day', text: 'Build a stadium', check: (s) => svc(s, 'stadium') > 0 },
+    { id: 'harbour', name: 'Harbour town', text: 'A working seaport', check: (s) => tour(s).seaports > 0 },
+    { id: 'museum', name: 'Culture club', text: 'Open a museum', check: (s) => svc(s, 'museum') > 0 },
+    { id: 'rating70', name: 'Popular mayor', text: 'A mayor rating of 70', check: (s) => (s.rating ?? 0) >= 70 },
+  ] },
+  { title: 'Metropolitan mayor', need: 9, reward: 40000, unlocks: 'cathedral', achievements: [
+    { id: 'pop10k', name: 'Metropolis', text: 'Reach 10,000 residents', check: (s) => pop(s) >= 10000 },
+    { id: 'transit', name: 'Transit town', text: 'A quarter of commuters ride transit (1,000+ residents)', check: (s) => pop(s) >= 1000 && transitShare(s) >= 0.25 },
+    { id: 'safe', name: 'Safe streets', text: '2,000+ residents and crime under 8', check: (s) => pop(s) >= 2000 && s.crime < 8 },
+    { id: 'clean', name: 'Clean air', text: '2,000+ residents breathing almost no pollution', check: (s) => pop(s) >= 2000 && homePollution(s) < 5 },
+    { id: 'resort', name: 'Resort town', text: 'Five hotels', check: (s) => (s.stats.hotels ?? 0) >= 5 },
+    { id: 'flight', name: 'First flight', text: 'A working airport', check: (s) => tour(s).airports > 0 },
+    { id: 'tourists1k', name: 'Tourist magnet', text: '1,000 visitors a month', check: (s) => tour(s).visitors >= 1000 },
+    { id: 'monument1', name: 'Monumental', text: 'Build a monument', check: (s) => count(s, MONUMENTS) >= 1 },
+    { id: 'skilled50', name: 'Educated city', text: '50% of residents skilled (3,000+ residents)', check: (s) => pop(s) >= 3000 && s.education >= 0.5 },
+    { id: 'commute20', name: 'Easy commute', text: '3,000+ residents averaging under 20 minutes to work', check: (s) => pop(s) >= 3000 && (s.traffic?.avgCommute ?? 99) < 20 },
+    { id: 'rich100k', name: 'Deep pockets', text: '$100,000 in the bank', check: (s) => s.funds >= 100000 },
+    { id: 'healthy', name: 'Healthy city', text: '3,000+ residents with health of 70', check: (s) => pop(s) >= 3000 && (s.health ?? 0) >= 70 },
+  ] },
+  { title: 'Regional mayor', need: 9, reward: 75000, unlocks: 'skytower', achievements: [
+    { id: 'pop20k', name: 'Big city', text: 'Reach 20,000 residents', check: (s) => pop(s) >= 20000 },
+    { id: 'beloved', name: 'Beloved mayor', text: 'A mayor rating of 85', check: (s) => (s.rating ?? 0) >= 85 },
+    { id: 'tourists3k', name: 'Destination', text: '3,000 visitors a month', check: (s) => tour(s).visitors >= 3000 },
+    { id: 'attractions3', name: 'Something for everyone', text: 'Three different kinds of attraction', check: (s) => ATTRACTIONS.filter((k) => svc(s, k) > 0).length >= 3 },
+    { id: 'monument3', name: 'Skyline of history', text: 'Three monuments', check: (s) => count(s, MONUMENTS) >= 3 },
+    { id: 'thrills', name: 'Thrill seeker', text: 'Open an amusement park', check: (s) => svc(s, 'amusement') > 0 },
+    { id: 'shipping', name: 'Shipping hub', text: 'Ship 1,000 truckloads a month by sea', check: (s) => tour(s).cargo >= 1000 },
+    { id: 'transit35', name: 'Car-light city', text: '35% of commuters on transit (5,000+ residents)', check: (s) => pop(s) >= 5000 && transitShare(s) >= 0.35 },
+    { id: 'nojam', name: 'Free flowing', text: '10,000+ residents and no jammed roads', check: (s) => pop(s) >= 10000 && (s.traffic?.congested ?? 1) === 0 },
+    { id: 'hightech20', name: 'Tech capital', text: 'Twenty high-tech industries', check: (s) => s.stats.hightech >= 20 },
+    { id: 'income20k', name: 'Booming budget', text: '$20,000 income in a month', check: (s) => (s.lastMonth?.income ?? 0) >= 20000 },
+    { id: 'happy65', name: 'Joyful city', text: '10,000+ residents at 65% happiness', check: (s) => pop(s) >= 10000 && s.happiness >= 65 },
+  ] },
+  { title: 'Legendary mayor', need: 9, reward: 150000, unlocks: 'pyramid', achievements: [
+    { id: 'pop35k', name: 'Megacity', text: 'Reach 35,000 residents', check: (s) => pop(s) >= 35000 },
+    { id: 'tourists6k', name: 'World famous', text: '6,000 visitors a month', check: (s) => tour(s).visitors >= 6000 },
+    { id: 'monument5', name: 'Wonders of the world', text: 'Five monuments', check: (s) => count(s, MONUMENTS) >= 5 },
+    { id: 'opera', name: 'Night at the opera', text: 'Open an opera house', check: (s) => svc(s, 'opera') > 0 },
+    { id: 'skilled70', name: 'City of scholars', text: '70% of residents skilled (10,000+ residents)', check: (s) => pop(s) >= 10000 && s.education >= 0.7 },
+    { id: 'rating90', name: 'Mayor for life', text: 'A mayor rating of 90', check: (s) => (s.rating ?? 0) >= 90 },
+    { id: 'rich500k', name: 'Treasure chest', text: '$500,000 in the bank', check: (s) => s.funds >= 500000 },
+    { id: 'crime3', name: 'Crime-free', text: '20,000+ residents and crime under 3', check: (s) => pop(s) >= 20000 && s.crime < 3 },
+    { id: 'servedall', name: 'Nobody left out', text: '20,000+ residents, every service with room and reaching 95% of homes', check: (s) => pop(s) >= 20000 && wellServed(s, 0.05) },
+    { id: 'years25', name: 'Veteran', text: '25 years in office', check: (s) => years(s) >= 25 },
+    { id: 'green20k', name: 'Garden city', text: '20,000+ residents breathing almost no pollution', check: (s) => pop(s) >= 20000 && homePollution(s) < 5 },
+    { id: 'airhub', name: 'Air hub', text: 'Two airports', check: (s) => tour(s).airports >= 2 },
+  ] },
+];
+export const LEGEND_TITLE = 'Mayor of legend';
+
+// Achievements: every level's, then scenario wins.
 export const ACHIEVEMENTS = [
-  { id: 'pop1k', name: 'Town', text: 'Reach 1,000 residents', check: (s) => pop(s) >= 1000 },
-  { id: 'pop5k', name: 'City', text: 'Reach 5,000 residents', check: (s) => pop(s) >= 5000 },
-  { id: 'pop10k', name: 'Metropolis', text: 'Reach 10,000 residents', check: (s) => pop(s) >= 10000 },
-  { id: 'debtfree', name: 'Debt free', text: 'Pay off a loan', check: (s) => (s.loansPaid ?? 0) > 0 },
-  { id: 'black', name: 'In the black', text: 'Two years in a row without a loss-making month', check: (s) => (s.positiveMonths ?? 0) >= 24 },
-  { id: 'ivory', name: 'Ivory tower', text: 'Build a university', check: (s) => svc(s, 'university') > 0 },
-  { id: 'silicon', name: 'Silicon valley', text: 'Five high-tech industries', check: (s) => s.stats.hightech >= 5 },
-  { id: 'transit', name: 'Transit town', text: 'A quarter of commuters ride transit (1,000+ residents)', check: (s) => pop(s) >= 1000 && transitShare(s) >= 0.25 },
-  { id: 'clean', name: 'Clean air', text: '2,000+ residents breathing almost no pollution', check: (s) => pop(s) >= 2000 && homePollution(s) < 5 },
-  { id: 'safe', name: 'Safe streets', text: '2,000+ residents and crime under 8', check: (s) => pop(s) >= 2000 && s.crime < 8 },
-  { id: 'beloved', name: 'Beloved mayor', text: 'A mayor rating of 85', check: (s) => (s.rating ?? 0) >= 85 },
-  { id: 'resort', name: 'Resort town', text: 'Five hotels', check: (s) => (s.stats.hotels ?? 0) >= 5 },
-  { id: 'farms', name: 'Breadbasket', text: '100 people working on farms', check: (s) => (s.stats.farmJobs ?? 0) >= 100 },
-  { id: 'hoods', name: 'Neighbourhoods', text: 'Three districts', check: (s) => (s.districts?.length ?? 0) >= 3 },
-  ...SCENARIO_ORDER.map((k) => ({ id: `scenario:${k}`, name: SCENARIOS[k].name, text: `Win the ${SCENARIOS[k].name} scenario`,
+  ...MAYOR_LEVELS.flatMap((L, n) => L.achievements.map((a) => ({ ...a, level: n + 1 }))),
+  ...SCENARIO_ORDER.map((k) => ({ id: `scenario:${k}`, name: SCENARIOS[k].name, text: `Win the ${SCENARIOS[k].name} scenario`, level: 0,
     check: (s) => s.scenario?.id === k && s.scenario.status === 'won' })),
 ];
+
+// Level a city has reached from its achievements (1 = first level; MAYOR_LEVELS.length + 1 = legend).
+export function levelFromAchievements(earned) {
+  const have = new Set(earned ?? []);
+  let level = 1;
+  while (level <= MAYOR_LEVELS.length && MAYOR_LEVELS[level - 1].achievements.filter((a) => have.has(a.id)).length >= MAYOR_LEVELS[level - 1].need) level++;
+  return level;
+}
+export function levelTitle(level) {
+  return MAYOR_LEVELS[level - 1]?.title ?? LEGEND_TITLE;
+}
 
 export function emptyGoals(chain = 'tutorial') {
   return { chain, index: 0, done: [], hidden: false };
@@ -225,6 +329,16 @@ export function goalsSystem(state) {
     state.achievements.push(a.id);
     push(`🏆 ${a.name}: ${a.text}`, 'achievement', { achievement: a.id });
   }
+  // Mayor levels: promote (possibly several times) as each level's achievements come in.
+  state.mayorLevel ??= 1;
+  const target = levelFromAchievements(state.achievements);
+  while (state.mayorLevel < target) {
+    const L = MAYOR_LEVELS[state.mayorLevel - 1], reward = Math.round(L.reward * CONFIG.goals.rewardScale);
+    state.mayorLevel++;
+    state.funds += reward;
+    const next = MAYOR_LEVELS[state.mayorLevel - 1]?.unlocks; // the new level's monument
+    push(`🎖 Promoted to ${levelTitle(state.mayorLevel)}! The council awards $${reward.toLocaleString()}.${next ? ` Unlocked: ${CONFIG.buildings[next].label} (Monuments).` : ''}`, 'good', { goal: true });
+  }
 }
 
 // New scenario city. `api` = { createGame, applyTool, tick, refreshFields, highwayEntry }.
@@ -240,6 +354,7 @@ export function createScenario(id, api) {
   state.rng = rng;
   state.scenario = { id, status: 'active', banned: def.banned ?? [], deadlineYear: state.year + def.years };
   state.achievements = [];
+  state.mayorLevel = 1;
   state.events.length = 0;
   api.refreshFields(state);
   return state;

@@ -693,6 +693,7 @@ export class Renderer3D {
 
   // Multi-tile landmarks, laid out in map coordinates from their top-left tile.
   landmark(k, x, y, w, h, v) {
+    if (this.tourism3d(k, x, y, w, h, v)) return;
     const S = COL.svc, cx = x + w / 2, cz = y + h / 2, sn = (c) => this.snowy(c);
     if (k === 'stadium') {
       this.bowls.add(cx, 0, cz, 2.8, 0.6, 2.55, sn(S.stands));
@@ -747,6 +748,134 @@ export class Renderer3D {
       for (const d of [-0.2, 0.2]) this.cylinders.add(sx + d, 0, sz, 0.025, 0.28, 0.025, '#b8a894');
       this.boxes.add(sx, 0.28, sz, 0.44, 0.02, 0.02, '#b8a894');
       this.boxes.add(x + 0.7, 0.05, y + 0.92, 0.28, 0.03, 0.08, S.bench);
+    }
+  }
+
+  // Transport hubs, attractions and monuments (the ground texture carries runways, paths, pools).
+  tourism3d(k, x, y, w, h, v) {
+    const cx = x + w / 2, cz = y + h / 2, sn = (c) => this.snowy(c);
+    const P0 = (b, u, ww, sx, sz, y0, hh, hex) => b.add(u, y0, ww, sx, hh, sz, hex);
+    const plane = (px, pz, rot, col = '#ffffff') => {
+      const c = Math.cos(rot), s2 = Math.sin(rot);
+      this.rboxes.add(px, 0.08, pz, 0.12, 0.12, 0.62, col, rot);                  // fuselage
+      this.boxes.add(px, 0.12, pz, 0.62, 0.02, 0.14, col, rot);                    // wings
+      this.boxes.add(px - s2 * 0.26, 0.14, pz - c * 0.26, 0.24, 0.02, 0.08, col, rot); // tailplane
+      this.boxes.add(px - s2 * 0.28, 0.14, pz - c * 0.28, 0.02, 0.16, 0.1, col, rot);  // fin
+    };
+    switch (k) {
+      case 'airport': {
+        this.lit = { seed: v, share: 0.6 };
+        const tw = w * 0.55;
+        this.rboxes.add(x + 0.2 + tw / 2, 0, y + 0.55, tw, 0.42, 0.7, '#eef1f5');
+        this.win(P0, x + 0.2 + tw / 2, y + 0.55, tw, 0.7, 0.42);
+        this.boxes.add(x + 0.2 + tw / 2, 0.42, y + 0.55, tw + 0.08, 0.05, 0.78, sn('#9fb6d8'));
+        for (let n = 0; n < 4; n++) this.boxes.add(x + 0.5 + n * 0.56, 0.2, y + 1.0, 0.1, 0.1, 0.35, '#dfe3ea');
+        this.cylinders.add(x + w - 0.7, 0, y + 0.5, 0.16, 1.3, 0.16, '#e8ecf2');     // control tower
+        this.cylinders.add(x + w - 0.7, 1.3, y + 0.5, 0.36, 0.2, 0.36, '#8fb0d8');
+        this.cones.add(x + w - 0.7, 1.5, y + 0.5, 0.36, 0.1, 0.36, '#e8ecf2');
+        plane(x + 0.7, y + 1.45, 0);
+        plane(x + 1.8, y + 1.45, 0, '#fbe9dc');
+        this.lit = null;
+        return true;
+      }
+      case 'seaport': {
+        this.rboxes.add(x + 0.8, 0, y + 0.5, 1.2, 0.4, 0.6, '#e6dccb');
+        this.roofs.add(x + 0.8, 0.4, y + 0.5, 1.26, 0.14, 0.66, sn('#c9a88f'));
+        const cols = ['#e58f82', '#6fa6e3', '#e3b75a', '#7cc47a', '#b38fd6'];
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+          if (!((v >> (r * 4 + c)) & 1) && !(c % 2)) continue;
+          const stack = 1 + ((v >> c) & 1);
+          for (let z = 0; z < stack; z++) this.boxes.add(x + 0.5 + c * 0.4, z * 0.16, y + 1.3 + r * 0.34, 0.34, 0.15, 0.2, cols[(v + r * 4 + c + z) % cols.length]);
+        }
+        for (const gx of [x + w - 0.7, x + w - 0.35]) {                                   // cranes
+          for (const dz of [-0.2, 0.2]) this.boxes.add(gx, 0, cz + dz, 0.05, 1.1, 0.05, '#e3a35a');
+          this.boxes.add(gx, 1.1, cz, 0.06, 0.06, 1.3, '#e3a35a');
+          this.boxes.add(gx, 1.0, cz + 0.5, 0.04, 0.3, 0.02, '#6f7782');
+        }
+        return true;
+      }
+      case 'museum':
+        this.lit = { seed: v, share: 0.4 };
+        this.rboxes.add(cx, 0, cz - 0.1, w - 0.4, 0.55, h - 0.8, '#f1e8da');
+        this.win(P0, cx, cz - 0.1, w - 0.4, h - 0.8, 0.55);
+        for (let n = 0; n < 6; n++) this.cylinders.add(x + 0.35 + n * 0.26, 0, y + h - 0.45, 0.07, 0.55, 0.07, '#fbf7f0'); // colonnade
+        this.boxes.add(cx, 0.55, y + h - 0.45, w - 0.4, 0.06, 0.2, '#f1e8da');
+        this.roofs.add(cx, 0.55, cz - 0.1, w - 0.3, 0.3, h - 0.7, sn('#c9a88f'));
+        this.lit = null;
+        return true;
+      case 'aquarium':
+        this.rboxes.add(cx, 0, y + 0.55, w - 0.4, 0.3, 0.8, '#e8f1f6');
+        this.blobs.add(cx, 0.05, y + 0.6, 0.9, 0.8, 0.9, '#9fd0e8');
+        this.blobs.add(x + 0.5, 0.02, y + h - 0.35, 0.08, 0.04, 0.16, '#f0a06e');
+        return true;
+      case 'zoo':
+        for (const [tx, ty, r] of [[60, 14, 6], [84, 50, 6], [14, 60, 7], [30, 84, 6], [70, 84, 5], [48, 44, 5]]) this.tree(x + tx / 32, y + ty / 32, r * 0.065, v + tx + ty);
+        for (const [ax2, az, hh, col] of [[0.55, 0.55, 0.45, '#e3c06a'], [0.9, 0.8, 0.2, '#c9a06a']]) {        // a giraffe and a lion
+          this.boxes.add(x + ax2, hh * 0.4, y + az, 0.18, 0.1, 0.08, col);
+          if (hh > 0.3) this.boxes.add(x + ax2 + 0.07, hh * 0.5, y + az, 0.03, 0.3, 0.03, col);
+        }
+        this.rboxes.add(x + w - 0.95, 0, y + 0.55, 0.45, 0.3, 0.32, '#9a8f82');                         // elephant house
+        for (const dx of [0, 0.12]) this.blobs.add(x + w - 0.8 + dx, 0, y + h - 0.7, 0.06, 0.1, 0.06, '#3f4652'); // penguins
+        return true;
+      case 'amusement': {
+        const wx = x + w * 0.3, wz = y + h * 0.32;                                        // ferris wheel, standing up
+        for (const dx of [-0.25, 0.25]) this.boxes.add(wx + dx, 0, wz, 0.05, 0.75, 0.05, '#c9ced6');
+        for (let n = 0; n < 10; n++) {
+          const a = n * Math.PI / 5;
+          this.rboxes.add(wx + Math.cos(a) * 0.6, 0.75 + Math.sin(a) * 0.6, wz, 0.14, 0.12, 0.14, ['#6fa6e3', '#e3b75a', '#7cc47a', '#e58f82', '#e38fb0'][n % 5]);
+          this.boxes.add(wx + Math.cos(a) * 0.3, 0.75 + Math.sin(a) * 0.3, wz, 0.6, 0.02, 0.02, sn('#e38fb0'), 0);
+        }
+        this.cylinders.add(wx, 0.72, wz, 0.08, 0.08, 0.3, '#e38fb0');
+        for (let n = 0; n < 12; n++) {                                                    // roller coaster track on stilts
+          const a = n / 12 * Math.PI * 2, px = x + w * 0.72 + Math.cos(a) * 0.9, pz = y + h * 0.35 + Math.sin(a) * 0.9, hh = 0.3 + (Math.sin(a * 2) + 1) * 0.35;
+          this.boxes.add(px, 0, pz, 0.03, hh, 0.03, '#c9ced6');
+          this.boxes.add(px, hh, pz, 0.12, 0.04, 0.12, '#b38fd6');
+        }
+        this.cylinders.add(x + w * 0.3, 0, y + h * 0.78, 0.9, 0.25, 0.9, '#f3c6d6');       // carousel
+        this.cones.add(x + w * 0.3, 0.25, y + h * 0.78, 1.0, 0.35, 1.0, sn('#e38fb0'));
+        this.rboxes.add(x + w * 0.72, 0, y + h * 0.8, 1.0, 0.3, 0.6, '#fbe9dc');
+        return true;
+      }
+      case 'opera':
+        for (const [fx, sz, hh] of [[0.25, 0.7, 0.55], [0.5, 0.9, 0.75], [0.75, 0.7, 0.55]]) {
+          this.blobs.add(x + w * fx, 0, cz, sz, hh * 1.4, sz * 0.8, sn('#fbfaf6'));
+        }
+        this.boxes.add(cx, 0, cz + 0.5, w - 0.5, 0.12, 0.3, '#e6dcc6');
+        return true;
+      case 'arch':
+        for (const dx of [-0.55, 0.55]) this.rboxes.add(cx + dx, 0, cz, 0.5, 1.1, 0.7, '#e6dcc6');
+        this.rboxes.add(cx, 1.1, cz, 1.7, 0.45, 0.72, '#e6dcc6');
+        this.boxes.add(cx, 1.3, cz, 1.72, 0.06, 0.74, '#c9a86a');
+        this.boxes.add(cx, 1.55, cz, 0.5, 0.2, 0.3, '#b08a4e');                          // quadriga on top
+        return true;
+      case 'cathedral':
+        this.lit = { seed: v, share: 0.5 };
+        this.rboxes.add(cx, 0, cz + 0.1, 0.9, 0.9, h - 0.8, '#ede4d4');                   // nave
+        this.roofs.add(cx, 0.9, cz + 0.1, 0.95, 0.45, h - 0.75, sn('#a897c9'));
+        this.rboxes.add(cx, 0, cz, w - 0.8, 0.85, 0.7, '#ede4d4');                        // transept
+        this.roofs.add(cx, 0.85, cz, w - 0.75, 0.4, 0.75, sn('#a897c9'));
+        for (const dx of [-0.35, 0.35]) {                                                 // west towers with spires
+          this.rboxes.add(cx + dx, 0, y + h - 0.45, 0.4, 1.7, 0.4, '#e2d8c4');
+          this.cones.add(cx + dx, 1.7, y + h - 0.45, 0.42, 0.7, 0.42, sn('#a897c9'));
+        }
+        this.cylinders.add(cx, 0.85, cz, 0.6, 0.3, 0.6, '#e2d8c4');
+        this.blobs.add(cx, 0.9, cz, 0.62, 0.7, 0.62, sn('#bfb2d8'));
+        this.lit = null;
+        return true;
+      case 'skytower':
+        this.cylinders.add(cx, 0, cz, 0.35, 0.3, 0.35, '#e8ecf2');
+        this.cylinders.add(cx, 0, cz, 0.16, 3.2, 0.16, '#e8ecf2');
+        this.cylinders.add(cx, 2.5, cz, 0.8, 0.35, 0.8, '#7fb0d8');                       // observation deck
+        this.blobs.add(cx, 2.35, cz, 0.7, 0.3, 0.7, '#e8ecf2');
+        this.cylinders.add(cx, 3.2, cz, 0.04, 0.8, 0.04, '#c9ced6');                      // antenna
+        this.heads.add(cx, 4.0, cz, 0.08, 0.08, 0.08, '#e87a6e');
+        return true;
+      case 'pyramid':
+        this.roofs.add(cx, 0, cz, w * 0.72, 1.8, h * 0.72, sn('#9fd0e2'));
+        this.roofs.add(cx, 0, cz, w * 0.74, 0.02, h * 0.74, '#ffffff');
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -841,6 +970,11 @@ export class Renderer3D {
         P(this.boxes, 0, 0.26, 0.9, 0.22, 0, 0.06, '#e4ddd0');
         for (const u of [-0.35, 0, 0.35]) P(this.cylinders, u, 0.3, 0.03, 0.03, 0.06, 0.28, '#9aa3ad');
         P(this.boxes, 0, 0.3, 0.9, 0.2, 0.34, 0.03, '#c98f6a');
+        break;
+      case 'clocktower':
+        P(this.rboxes, 0, 0, 0.44, 0.44, 0, 1.6, '#e6dcc6');
+        for (const [u, w] of [[0, 0.225], [0.225, 0], [0, -0.225], [-0.225, 0]]) P(this.boxes, u, w, u ? 0.02 : 0.24, u ? 0.24 : 0.02, 1.12, 0.24, '#ffffff'); // clock faces
+        P(this.roofs, 0, 0, 0.5, 0.5, 1.6, 0.45, this.snowy('#b8a07a'));
         break;
       case 'statue':
         P(this.rboxes, 0, 0, 0.36, 0.36, 0, 0.3, '#e4ddd0');

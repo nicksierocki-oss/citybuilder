@@ -26,6 +26,17 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
 
 ## Done (recent)
 
+- Services, transit, tourism and mayor levels: capacity (`serves`) for schools, clinics, hospitals,
+  universities, police and fire; overloaded buildings are scaled down in `coverageSystem`
+  (`state.serviceLoad` per building, `state.serviceUse` per kind), shown in tile info, City hall →
+  Services, ⚠ map badges and the advisor. Transit routes classify stops by what is built, re-plan
+  monthly, never link homes to homes (`state.unroutedStops` says why); `state.lineStats` has riders,
+  catchment and trip time, `state.transitStats` totals per mode. Downgrade road tool (refunds
+  `costs.downgradeRefund`). `js/tourism.js`: airport and seaport (hubs, freight to the port),
+  five attractions and five monuments (new KINDS at the end), visitors capped by the ways in, ticket /
+  stay / fee income, City hall → Tourism. Mayor levels: `MAYOR_LEVELS` in goals.js (6 levels × 12
+  achievements, `state.mayorLevel`, monuments unlock by level via `unlockLevel`).
+
 - Hardening rebuilt on the rail version: save loading validates and repairs damaged files
   (`sanitizeLayers` in save.js), simulation errors pause instead of freezing, autosave on tab hide,
   undo stack (20, `game.undoStack`), previous-city backup slot (`gridline.autosave.previous`,
@@ -98,7 +109,7 @@ tornadoes; rain and snow particles; Disasters off / mild / full.
   the 2D tile painter as a texture.
 - `js/overlays.js`, `js/ui.js`, `js/input.js`, `js/save.js`, `js/main.js`.
 - `js/seasons.js` (palettes, clock), `js/graphs.js` (history panel), `js/minimap.js`.
-- `js/goals.js`, `js/news.js`, `js/cityhall.js`, `js/region.js` (pure) and `js/cityhall-ui.js` (DOM).
+- `js/goals.js`, `js/news.js`, `js/cityhall.js`, `js/region.js`, `js/tourism.js` (pure) and `js/cityhall-ui.js` (DOM).
 - Zone types: use `isZone/isHome/isJob/homeCap/jobCap` from map.js rather than checking RES/COM/IND.
 - Multi-tile buildings: `map.part`, `map.anchorOf(i)`, `map.footprintTiles(i)`; landmark size in
   `CONFIG.buildings[k].size`.

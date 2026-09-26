@@ -8,6 +8,7 @@ import { TILE, FLAG, KINDS, JUNCTION, ROADMOD, canDrive, onewayAt, skilledShare,
 import { ordinance } from './cityhall.js';
 import { funding } from './services.js';
 import { buildRoutes, lineCapacity, railNetwork, railExits, rideMinutes } from './transit.js';
+import { portRoads } from './tourism.js';
 
 // Minimal binary min-heap of (node, priority).
 class Heap {
@@ -220,6 +221,7 @@ export function trafficSystem(state) {
     return out;
   };
   let transitRiders = 0;
+  const byMode = { bus: 0, tram: 0, metro: 0, rail: 0, regional: 0 };
   const shareMult = ordinance(state, 'freeTransit') ? CONFIG.ordinances.freeTransit.shareMult : 1;
 
   let totalWorkers = 0, totalEmployed = 0, totalMinutes = 0;
@@ -259,7 +261,7 @@ export function trafficSystem(state) {
           if (want <= 0 || L.left <= 0) break;
           const take = hire(j, Math.min(want, L.left));
           if (take <= 0) continue;
-          want -= take; left -= take; L.left -= take; L.riders += take;
+          want -= take; left -= take; L.left -= take; L.riders += take; byMode[L.line.mode] += take;
           map.riders[L.line.stops[k]] += take; map.riders[to.i] += take;
           minutes += take * ride;
           transitRiders += take;
@@ -283,7 +285,7 @@ export function trafficSystem(state) {
           if (take <= 0) continue;
           want -= take; left -= take; from.left -= take; to.left -= take;
           map.riders[from.i] += take; map.riders[to.i] += take;
-          minutes += take * ride; transitRiders += take;
+          minutes += take * ride; transitRiders += take; byMode.rail += take;
         }
       }
       const out = T.walkMinutes + RL.wait + from.edgeMinutes + RL.regionalRide;
@@ -291,7 +293,7 @@ export function trafficSystem(state) {
         const take = Math.min(want, regionalJobs, from.left), u2 = Math.min(leftU, take);
         leftU -= u2; leftS -= take - u2;
         regionalJobs -= take; want -= take; left -= take; from.left -= take;
-        map.riders[from.i] += take; minutes += take * out; transitRiders += take;
+        map.riders[from.i] += take; minutes += take * out; transitRiders += take; byMode.rail += take; byMode.regional += take;
       }
       byTrain += before - left;
     }
@@ -313,7 +315,7 @@ export function trafficSystem(state) {
             from.left -= take; if (to !== from) to.left -= take;
             map.riders[from.i] += take; map.riders[to.i] += take;
             minutes += take * ride;
-            transitRiders += take;
+            transitRiders += take; byMode.metro += take;
           }
         }
       }
@@ -361,8 +363,14 @@ export function trafficSystem(state) {
   state.lineStats = {};
   for (const L of lines) {
     for (const p of L.route.path) volume[p] += L.line.freq * L.M.roadTrips / 2; // the loop passes each way once
-    state.lineStats[L.line.id] = { riders: Math.round(L.riders), capacity: Math.round(lineCapacity(state, L.line)) };
+    state.lineStats[L.line.id] = { riders: Math.round(L.riders), capacity: Math.round(lineCapacity(state, L.line)), ...lineCatchment(map, L.line),
+      ride: Math.round(Math.max(...L.route.at, ...L.route.back) + T.walkMinutes * 2 + L.M.wait / L.line.freq) };
   }
+  state.transitStats = {
+    ...Object.fromEntries(Object.entries(byMode).map(([k, v]) => [k, Math.round(v)])),
+    metroStations: metro.length, metroCapacity: Math.round(metro.reduce((a, st) => a + B.metro.capacity * funding(state, 'metro'), 0)),
+    railStations: trains.length, railNetworks: rail.comps.filter((c) => c.stations.length).length, railLinks: railExits(state),
+  };
 
   // --- skilled posts filled per job tile (smoothed like traffic so growth doesn't flicker)
   let skilledTotal = 0, skilledOpen = 0;
@@ -372,11 +380,12 @@ export function trafficSystem(state) {
     map.skillFill[i] = map.skillFill[i] * 0.5 + (1 - remainingS[i] / skilledPosts[i]) * 0.5;
   }
 
-  // --- freight: industry trucks to the nearest highway exit (shortest-time tree from the edge)
+  // --- freight: industry trucks to the nearest highway exit or seaport (shortest-time tree)
   const toEdge = new Float64Array(size).fill(Infinity);
   const edgeParent = new Int32Array(size).fill(-1);
   heap.clear();
   for (let i = 0; i < size; i++) if (isNode[i] && isEdge(i)) { toEdge[i] = time[i]; heap.push(i, time[i]); }
+  for (const i of portRoads(map)) if (isNode[i] && time[i] < toEdge[i]) { toEdge[i] = time[i]; heap.push(i, time[i]); }
   while (heap.size) {
     const u = heap.pop();
     if (heap.lastPri > toEdge[u]) continue;
@@ -440,4 +449,23 @@ export function trafficSystem(state) {
     skilledOpen,
     trapped,
   };
+}
+
+// Workers living near a line's stops (who might ride) and jobs near them (where riders can go).
+function lineCatchment(map, line) {
+  const r = CONFIG.buildings.bus.radius, w = map.width, seen = new Set();
+  let workers = 0, jobs = 0;
+  for (const s of line.stops) {
+    const x0 = s % w, y0 = (s / w) | 0;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(map.height - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(w - 1, x0 + r); x++) {
+        const j = y * w + x;
+        if (seen.has(j) || !map.level[j] || map.hasFlag(j, FLAG.ABANDONED)) continue;
+        seen.add(j);
+        workers += homeCap(map, j) * CONFIG.demand.workforceRatio;
+        jobs += jobCap(map, j);
+      }
+    }
+  }
+  return { workers: Math.round(workers), jobs: Math.round(jobs) };
 }
