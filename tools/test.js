@@ -202,6 +202,18 @@ test('an overloaded school stretches thin and says so', () => {
   assert.equal(Object.values(s.serviceLoad)[0].load, 0, 'no homes, no load');
 });
 
+test('a fire station among factories counts the jobs it protects; a school there counts nothing', () => {
+  const { s, m, row, x0 } = streetCity();
+  for (let i = 0; i < m.size; i++) { if (m.type[i] === TILE.IND) m.level[i] = 2; if (m.type[i] === TILE.RES) m.type[i] = TILE.EMPTY; }
+  m.version++;
+  assert.ok(applyTool(s, 'fire', [m.idx(x0 + 32, row - 1)]).applied);
+  assert.ok(applyTool(s, 'school', [m.idx(x0 + 30, row - 1)]).applied);
+  refreshFields(s);
+  const loads = Object.values(s.serviceLoad), fire = loads.find((l) => l.kind === 'fire'), school = loads.find((l) => l.kind === 'school');
+  assert.ok(fire.jobs > 0 && fire.load === fire.jobs + fire.residents, 'fire load includes jobs');
+  assert.equal(school.load, 0, 'schools only serve residents');
+});
+
 test('airport, seaport and attractions bring visitors and money', () => {
   const { s, m, row, x0 } = streetCity();
   const rect = (x1, y1, x2, y2) => { const o = []; for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) o.push(m.idx(x, y)); return o; };

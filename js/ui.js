@@ -65,15 +65,15 @@ const TOOL_HELP = {
   wind: 'Clean power (150 units). Place beside a road.',
   coal: 'Lots of power (600 units) but pollutes.',
   pump: 'Water (400 units near a river, 130 on dry land).',
-  school: 'Happier residents and higher land value nearby.',
-  clinic: 'Happier residents nearby.',
+  school: 'Educates and cheers up residents within 9 tiles (up to 2,000). Only homes use it: put it among housing.',
+  clinic: 'Healthier, happier residents within 9 tiles (up to 2,000). Only homes use it: put it among housing.',
   plaza: 'Small square: happiness, land value, busier shops.',
   recycling: 'Halves pollution around it.',
   park: 'Raises land value, absorbs pollution.',
   trees: 'Plant trees on open land: cheap clean air.',
   raise: 'Raise open land one level (costs more the higher it goes). On water it fills in new land.',
   lower: 'Lower open land one level. The lowest land is dug out into water.',
-  police: 'Cuts crime within 10 tiles: happier homes, busier shops.',
+  police: 'Cuts crime within 14 tiles: happier homes, and shops, offices and factories grow better. Looks after 5,000 residents + jobs.',
   lights: 'Add to busy intersections: a small fixed wait, but far less congestion.',
   oneway: 'Drag along a street in the direction traffic should flow: one-way streets carry 60% more, but cars can only drive one way. Click to flip; drag the same way again to make it two-way.',
   roundabout: 'Replaces an intersection (not with highways): hardly any wait at light or medium traffic; lights cope better when it is jammed.',
@@ -81,7 +81,7 @@ const TOOL_HELP = {
   interchange: 'Carries a highway over a crossing road with ramps: no more at-grade bottleneck.',
   bus: 'Bus or tram stop. Stops link up by themselves: routes run from stops near homes to stops near jobs. Riders walk up to 3 tiles.',
   metro: 'Fast. People within 4 tiles ride to jobs near any other metro station. Raises land value.',
-  fire: 'Prevents fires and puts them out within 10 tiles.',
+  fire: 'Prevents fires and puts them out within 14 tiles. Factories burn most easily. Looks after 5,000 residents + jobs.',
   townpark: '2×2 park: land value and happiness across a neighbourhood.',
   centralpark: '3×3 park with a pond: big land value boost, cleans the air.',
   university: '3×2 campus: educates residents within 14 tiles, making room for offices and high-tech industry.',
@@ -477,7 +477,7 @@ export class UI {
       });
       for (const [i, l] of over) {
         const [fw] = footprintSize(l.kind), a = Number(i);
-        this.labelPos.push({ html: `<span class="slabel" title="${esc(CONFIG.buildings[l.kind].label)} over capacity: ${l.load.toLocaleString()} residents for ${l.capacity.toLocaleString()}">⚠ ${Math.round(l.share * 100)}%</span>`,
+        this.labelPos.push({ html: `<span class="slabel" title="${esc(CONFIG.buildings[l.kind].label)} over capacity: ${l.load.toLocaleString()} ${CONFIG.buildings[l.kind].countsJobs ? 'residents and jobs' : 'residents'} for ${l.capacity.toLocaleString()}">⚠ ${Math.round(l.share * 100)}%</span>`,
           x: a % map.width + fw / 2, y: ((a / map.width) | 0) + 0.2 });
       }
       box.innerHTML = this.labelPos.map((l) => l.html).join('');
@@ -767,11 +767,15 @@ export class UI {
       const load = g.state.serviceLoad?.[map.anchorOf(i)];
       if (load) {
         const st = loadStatus(load);
-        rows.push(['Serving', `${load.load.toLocaleString()} / ${load.capacity.toLocaleString()} residents`]);
+        rows.push(['Serving', B.countsJobs
+          ? `${load.load.toLocaleString()} / ${load.capacity.toLocaleString()} people<br><small>${load.residents.toLocaleString()} residents + ${load.jobs.toLocaleString()} jobs at businesses</small>`
+          : `${load.load.toLocaleString()} / ${load.capacity.toLocaleString()} residents`]);
         rows.push(['Load', `<span class="mbar load ${st.cls}"><i style="width:${Math.min(100, Math.round(st.share * 100))}%"></i></span> <span class="pill ${st.cls}">${Math.round(st.share * 100)}% · ${st.word}</span>`]);
         if (st.share > 1) notes.push(`Over capacity: it works at ${Math.round(Math.max(CONFIG.serviceLoad.minStrength, 1 / st.share) * 100)}% strength for everyone it serves. Build another ${B.label.toLowerCase()} nearby to share the load, or raise its funding in the budget.`);
         else if (st.share > CONFIG.serviceLoad.busy) notes.push('Nearly full: as the neighbourhood grows it will need another one.');
-        else if (load.load === 0) notes.push('No homes in reach yet: it serves the residents it covers best.');
+        else if (load.load === 0) notes.push(B.countsJobs ? 'Nothing built in reach yet: it protects the homes and businesses it covers best.' : 'No homes in reach yet: it serves the residents it covers best.');
+        if (B.countsJobs && load.jobs > load.residents) notes.push('Mostly protecting businesses: factories have the highest fire risk and crime hurts their growth, so it earns its keep here.');
+        if (!B.countsJobs && load.load < load.capacity * 0.1 && k !== 'university') notes.push(`Only residents use a ${B.label.toLowerCase()}: shops, offices, factories and farms don't. Near few homes, it would do more among housing (bulldozing refunds half its price).`);
       }
       if (k === 'railstation') {
         const net = railNetwork(g.state), st = net.stations.find((x) => x.i === i), c = st ? net.comps[st.comp] : null;
@@ -833,6 +837,15 @@ export class UI {
       rows.push(['Nearest job', `${Math.round(map.commute[i])} min`]);
     }
     if (type === TILE.COM) rows.push(['Passing trips', Math.round(map.passing[i])]);
+    if (isZone(type) && !isHome(type) && lv > 0 && !ab) {
+      // Businesses: which fire and police stations look after them.
+      for (const [k, name] of [['fire', 'Fire cover'], ['police', 'Police cover']]) {
+        const c = map.coverage[k][i];
+        if (k === 'police' && type === TILE.FARM) continue; // farms don't mind crime
+        const near = c > 0.05 ? this.nearestService(k, t.x, t.y) : null;
+        rows.push([name, c > 0.05 ? `${bar(Math.min(100, c * 100), 'hp')}${near ? ` <small>station at ${near.x}, ${near.y}</small>` : ''}` : '<span class="pill none">none</span>']);
+      }
+    }
     if (map.hasFlag(i, FLAG.FIRE)) rows.unshift(['Status', '<span class="pill none">on fire</span>']);
     if (!water && (isZone(type) || type === TILE.SERVICE) && (lv > 0 || type === TILE.SERVICE)) {
       if (type !== TILE.SERVICE) rows.push(['Crime', bar(map.crime[i], 'crime')]);
@@ -864,6 +877,18 @@ export class UI {
     el.innerHTML = `<div class="ihead"><b>${title}</b><span class="muted">${t.x}, ${t.y}${g.pinned ? ' · pinned (Esc)' : ''}</span></div>
       <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
       ${notes.length ? `<ul class="notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}`;
+  }
+
+  // Closest building of kind k to tile (x, y), as { x, y }, or null.
+  nearestService(k, x, y) {
+    const w = this.game.state.map.width;
+    let best = null, bd = Infinity;
+    for (const [i, l] of Object.entries(this.game.state.serviceLoad ?? {})) {
+      if (l.kind !== k) continue;
+      const bx = Number(i) % w, by = (Number(i) / w) | 0, d = Math.hypot(bx - x, by - y);
+      if (d < bd) { bd = d; best = { x: bx, y: by }; }
+    }
+    return best;
   }
 
   updateCostTip() {

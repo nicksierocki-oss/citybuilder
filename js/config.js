@@ -211,11 +211,11 @@ export const CONFIG = {
     parking:   { label: 'Parking lot', cost: 300, upkeep: 4, radius: 4, shopBonus: 0.1, officeBonus: 0.06 },
     plaza:     { label: 'Plaza',        cost: 250,  upkeep: 5,  radius: 4, happiness: 8,  landValue: 6, shopBonus: 0.12 },
     recycling: { label: 'Recycling center', cost: 1800, upkeep: 25, radius: 7, pollutionCut: 0.5, garbage: 250 },
-    police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 14, serves: 3000 },
+    police:    { label: 'Police station', cost: 1000, upkeep: 20, radius: 14, serves: 5000, countsJobs: true }, // residents + jobs it protects
     // Transit: people within `radius` tiles may ride to jobs near another stop on the network.
     bus:       { label: 'Bus stop',      cost: 150,  upkeep: 6,  radius: 3, capacity: 150, wait: 4, minutesPerTile: 0.7,  share: 0.35, landValue: 3, happiness: 3 },
     metro:     { label: 'Metro station', cost: 2500, upkeep: 40, radius: 4, capacity: 600, wait: 2, minutesPerTile: 0.25, share: 0.6,  landValue: 8, happiness: 5 },
-    fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 14, serves: 3000 },
+    fire:      { label: 'Fire station',   cost: 1000, upkeep: 20, radius: 14, serves: 5000, countsJobs: true },
     // Landmarks: multi-tile (`size` = [w, h]), unlocked by population. `radius` counts from the
     // footprint's edge. Visitors pay `income` a month at full draw (scales with city size).
     townpark:    { label: 'Town park',    cost: 400,  upkeep: 10, size: [2, 2], radius: 6,  landValue: 14, happiness: 7,  park: true },

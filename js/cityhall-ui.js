@@ -183,20 +183,22 @@ export class CityHallUI {
     const meter = (share) => { const st = loadStatus({ share }); return `<span class="mbar load ${st.cls}"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span> <span class="pill ${st.cls}">${Math.round(share * 100)}%</span>`; };
     const rows = LOAD_KINDS.filter((k) => use[k]?.buildings || (pop && CONFIG.buildings[k].unlock == null) || s.stats.services?.[k]).map((k) => {
       const u = use[k] ?? { buildings: 0, load: 0, capacity: 0, full: 0, busy: 0, unserved: pop }, B = CONFIG.buildings[k];
-      const unserved = u.buildings ? u.unserved : pop;
+      const unserved = u.buildings ? u.unserved : pop, jobsOut = u.buildings ? u.unservedJobs ?? 0 : 0, unit = B.countsJobs ? 'people' : 'residents';
       const state = !u.buildings ? '<span class="pill none">none built</span>'
         : u.full ? `<span class="pill none">${u.full} over capacity</span>` : u.busy ? `<span class="pill short">${u.busy} nearly full</span>` : '<span class="pill ok">room to spare</span>';
       return `<tr><td><b>${B.label}</b><br><small>${u.buildings} built · ${B.serves.toLocaleString()} each</small></td>
-        <td>${u.buildings ? meter(u.capacity ? u.load / u.capacity : 0) : ''}<br><small>${u.load.toLocaleString()} / ${u.capacity.toLocaleString()} residents</small></td>
-        <td>${state}<br><small class="${unserved > pop * 0.1 && unserved > 50 ? 'bad' : ''}">${unserved.toLocaleString()} out of reach (${pct(unserved, pop)}%)</small></td></tr>`;
+        <td>${u.buildings ? meter(u.capacity ? u.load / u.capacity : 0) : ''}<br><small>${u.load.toLocaleString()} / ${u.capacity.toLocaleString()} ${unit}${B.countsJobs && u.buildings ? ` (${(u.jobs ?? 0).toLocaleString()} of them jobs)` : ''}</small></td>
+        <td>${state}<br><small class="${unserved > pop * 0.1 && unserved > 50 ? 'bad' : ''}">${unserved.toLocaleString()} residents out of reach (${pct(unserved, pop)}%)${jobsOut ? `, ${jobsOut.toLocaleString()} jobs` : ''}</small></td></tr>`;
     });
     const list = Object.entries(loads).sort((a, b) => b[1].share - a[1].share).map(([i, l]) => {
       const x = Number(i) % w, y = (Number(i) / w) | 0, st = loadStatus(l);
-      return `<tr class="golink" data-tx="${x}" data-ty="${y}" title="Show on the map"><td>${CONFIG.buildings[l.kind].label} <small>${x}, ${y}</small></td><td>${meter(l.share)}</td><td><small>${l.load.toLocaleString()} / ${l.capacity.toLocaleString()} · ${st.word}</small></td></tr>`;
+      const what = CONFIG.buildings[l.kind].countsJobs ? ` <small>${l.residents.toLocaleString()} residents + ${l.jobs.toLocaleString()} jobs</small>` : '';
+      return `<tr class="golink" data-tx="${x}" data-ty="${y}" title="Show on the map"><td>${CONFIG.buildings[l.kind].label} <small>${x}, ${y}</small>${what}</td><td>${meter(l.share)}</td><td><small>${l.load.toLocaleString()} / ${l.capacity.toLocaleString()} · ${st.word}</small></td></tr>`;
     });
     const u = s.utilities ?? {}, gb = s.garbage ?? {};
     const util = (name, a, b) => `<tr><td><b>${name}</b></td><td>${b > 0 ? meter(a / b) : '<span class="pill none">none built</span>'}</td><td><small>${Math.round(a).toLocaleString()} used of ${Math.round(b).toLocaleString()}</small></td></tr>`;
     return `<p class="muted">Each school, clinic, hospital, university, police and fire station looks after the homes it covers best, up to its capacity.
+      Police and fire stations also protect businesses, so their load counts jobs too; schools, clinics and hospitals only serve residents.
       Over 100% it stretches thin and works at reduced strength for everyone. <b>Out of reach</b> means no building of that kind covers those homes at all:
       the fix there is a new building nearby, not a bigger one. Funding above 100% raises capacity a little.</p>
       <table class="svcuse">${rows.join('') || '<tr><td class="muted">No residents yet.</td></tr>'}</table>
