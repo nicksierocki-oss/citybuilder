@@ -182,20 +182,25 @@ export function coverageSystem(state) {
       }
     }
   };
-  const residents = (j) => (isHome(map.type[j]) && map.level[j] > 0 && !map.hasFlag(j, FLAG.ABANDONED) ? homeCap(map, j) : 0);
+  const live = (j) => map.level[j] > 0 && !map.hasFlag(j, FLAG.ABANDONED);
+  const residents = (j) => (isHome(map.type[j]) && live(j) ? homeCap(map, j) : 0);
+  const jobs = (j) => (live(j) ? jobCap(map, j) : 0);
   for (const k of Object.keys(map.coverage)) map.coverage[k].fill(0);
   for (const b of buildings) {
     if (CONFIG.buildings[b.k].serves && !owners[b.k]) owners[b.k] = new Int32Array(map.size).fill(-1);
     paint(b, 1, owners[b.k]);
   }
-  // Load per building: residents of the homes it covers best.
-  const load = new Map(), use = {};
+  // Load per building: residents of the homes it covers best (police and fire also count the
+  // jobs at the businesses they protect).
+  const res = new Map(), job = new Map(), use = {};
+  const add = (m, b, n) => m.set(b, (m.get(b) ?? 0) + n);
   for (const [k, owner] of Object.entries(owners)) {
-    const layer = map.coverage[k], u = use[k] = { buildings: 0, load: 0, capacity: 0, full: 0, busy: 0, unserved: 0 };
+    const layer = map.coverage[k], withJobs = !!CONFIG.buildings[k].countsJobs;
+    const u = use[k] = { buildings: 0, load: 0, capacity: 0, full: 0, busy: 0, unserved: 0, unservedJobs: 0, residents: 0, jobs: 0, countsJobs: withJobs };
     for (let j = 0; j < map.size; j++) {
-      const p = residents(j);
-      if (!p) continue;
-      if (owner[j] >= 0 && layer[j] > 0.05) load.set(owner[j], (load.get(owner[j]) ?? 0) + p); else u.unserved += p;
+      const p = residents(j), n = withJobs ? jobs(j) : 0;
+      if (!p && !n) continue;
+      if (owner[j] >= 0 && layer[j] > 0.05) { if (p) add(res, owner[j], p); if (n) add(job, owner[j], n); } else { u.unserved += p; u.unservedJobs += n; }
     }
   }
   // Overloaded buildings stretch thin: repaint their kinds with each building's strength scaled.
@@ -204,18 +209,18 @@ export function coverageSystem(state) {
   for (const b of buildings) {
     const serves = CONFIG.buildings[b.k].serves;
     if (!serves) continue;
-    const cap = serves * fundingStrength(b.f), l = load.get(b.i) ?? 0, u = use[b.k];
+    const r = res.get(b.i) ?? 0, jb = job.get(b.i) ?? 0, cap = serves * fundingStrength(b.f), l = r + jb, u = use[b.k];
     b.scale = l > cap ? Math.max(SL.minStrength, cap / l) : 1;
     if (b.scale < 1) scaled.add(b.k);
-    state.serviceLoad[b.i] = { kind: b.k, load: Math.round(l), capacity: Math.round(cap), share: cap > 0 ? l / cap : 0 };
-    u.buildings++; u.load += l; u.capacity += cap;
+    state.serviceLoad[b.i] = { kind: b.k, load: Math.round(l), residents: Math.round(r), jobs: Math.round(jb), capacity: Math.round(cap), share: cap > 0 ? l / cap : 0 };
+    u.buildings++; u.load += l; u.capacity += cap; u.residents += r; u.jobs += jb;
     if (l > cap) u.full++; else if (l > cap * SL.busy) u.busy++;
   }
   for (const k of scaled) {
     map.coverage[k].fill(0);
     for (const b of buildings) if (b.k === k) paint(b, b.scale, null);
   }
-  for (const u of Object.values(use)) { u.load = Math.round(u.load); u.capacity = Math.round(u.capacity); u.unserved = Math.round(u.unserved); }
+  for (const u of Object.values(use)) for (const f of ['load', 'capacity', 'unserved', 'unservedJobs', 'residents', 'jobs']) u[f] = Math.round(u[f]);
   state.serviceUse = use;
 }
 
@@ -507,7 +512,7 @@ export function serviceAdvice(state) {
   for (const k of LOAD_KINDS) {
     const u = use[k];
     if (!u || !u.buildings) continue;
-    if (u.full) out.push(`${u.full} of ${u.buildings} ${plural(k, u.buildings)} ${u.full === 1 ? 'is' : 'are'} over capacity (${u.load.toLocaleString()} residents for room for ${u.capacity.toLocaleString()}): they work at reduced strength. Build another ${CONFIG.buildings[k].label.toLowerCase()} near the busiest one, or raise its funding.`);
+    if (u.full) out.push(`${u.full} of ${u.buildings} ${plural(k, u.buildings)} ${u.full === 1 ? 'is' : 'are'} over capacity (${u.load.toLocaleString()} ${CONFIG.buildings[k].countsJobs ? 'residents and jobs' : 'residents'} for room for ${u.capacity.toLocaleString()}): they work at reduced strength. Build another ${CONFIG.buildings[k].label.toLowerCase()} near the busiest one, or raise its funding.`);
     if (u.unserved >= Math.max(150, pop * 0.1)) out.push(`${u.unserved.toLocaleString()} residents live out of reach of any ${CONFIG.buildings[k].label.toLowerCase()}. The existing ones ${u.full ? 'are full too' : `still have room (${Math.round(u.load / Math.max(1, u.capacity) * 100)}% used)`}, so the fix is a new one where those homes are (City hall → Services).`);
   }
   return out;
